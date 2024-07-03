@@ -29,14 +29,14 @@ message(STATUS "Default backend: ${DEFAULT_BACKEND}")
 
 set(INFER_ROOT ${CMAKE_CURRENT_LIST_DIR}/src)
 
+# Add source files for inference engines
+set(SOURCES src/InferenceInterface.cpp)
 
 include(SelectBackend)
 
-# Add source files for inference engines
-set(INFERENCE_SOURCES src/InferenceInterface.cpp)
 
 # Create the inference engines library
-add_library(${PROJECT_NAME} SHARED ${INFERENCE_SOURCES})
+add_library(${PROJECT_NAME} SHARED ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
     ${CMAKE_CURRENT_LIST_DIR}/src
@@ -48,3 +48,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIBS}
     spdlog::spdlog_header_only
 )
+
+include(LinkBackend)
+include(SetCompilerFlags)

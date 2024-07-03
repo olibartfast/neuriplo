@@ -12,9 +12,8 @@ set(LIBTORCH_SOURCES
     # Add more LibTorch source files here if needed
 )
 
-# Append ONNX Runtime sources to the main sources
+# Append LibTorch sources to the main sources
 list(APPEND SOURCES ${LIBTORCH_SOURCES})
-
 
 # Add compile definition to indicate LibTorch usage
 add_compile_definitions(USE_LIBTORCH)
