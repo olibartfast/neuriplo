@@ -37,10 +37,9 @@ set(INFERENCE_SOURCES src/InferenceInterface.cpp)
 
 # Create the inference engines library
 add_library(${PROJECT_NAME} SHARED ${INFERENCE_SOURCES})
-
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_LIST_DIR}/include
+    ${CMAKE_CURRENT_LIST_DIR}/src
     ${OpenCV_INCLUDE_DIRS}
     ${spdlog_INCLUDE_DIRS}    
 )
