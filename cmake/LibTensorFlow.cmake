@@ -5,7 +5,7 @@ find_package(TensorFlow REQUIRED)
 
 
 set(TensorFlow_SOURCES
-${INFER_ROOT}/libtensorflow/TFDetectionAPI.cpp
+${INFER_ROOT}/libtensorflow/src/TFDetectionAPI.cpp
 )
 
 list(APPEND SOURCES ${TensorFlow_SOURCES})

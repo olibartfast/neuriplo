@@ -27,19 +27,18 @@ endif()
 
 message(STATUS "Default backend: ${DEFAULT_BACKEND}")
 
-set(INFER_ROOT ${CMAKE_CURRENT_LIST_DIR}/src)
+set(INFER_ROOT ${CMAKE_CURRENT_LIST_DIR}/backends)
 
 # Add source files for inference engines
-set(SOURCES src/InferenceInterface.cpp)
+set(SOURCES backends/src/InferenceInterface.cpp)
 
 include(SelectBackend)
-
 
 # Create the inference engines library
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
-    ${CMAKE_CURRENT_LIST_DIR}/src
+    ${CMAKE_CURRENT_LIST_DIR}/backends/src
     ${OpenCV_INCLUDE_DIRS}
     ${spdlog_INCLUDE_DIRS}    
 )
@@ -51,3 +50,27 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 include(LinkBackend)
 include(SetCompilerFlags)
+
+# Add GoogleTest
+
+
+# Include directories for tests
+include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
+
+
+unset(BUILD_TESTS CACHE)
+option(BUILD_TESTS "Build tests (optional)" ON)
+if(BUILD_TESTS) 
+    message(STATUS "Test enabled")
+    find_package(GTest REQUIRED)
+    enable_testing()
+    # Add test directories
+    add_subdirectory(backends/libtensorflow/test)
+    add_subdirectory(backends/libtorch/test)
+    add_subdirectory(backends/onnx-runtime/test)
+    add_subdirectory(backends/opencv-dnn/test)
+    add_subdirectory(backends/openvino/test)
+    add_subdirectory(backends/tensorrt/test)
+
+endif()
+
