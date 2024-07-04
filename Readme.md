@@ -14,13 +14,14 @@
 - OpenCV
 - spdlog
 
-### Optional 
-* GStreamer (1.20.3) 
-* CUDA (if you want to use GPU, CUDA 12 is supported for LibTorch and TensorRT, I used CUDA 11.8 for onnx-rt)
+### A backend between
 * ONNX Runtime (1.15.1 gpu package)
 * LibTorch (2.0.1-cu118)
 * TensorRT (8.6.1.6)
 * OpenVino (2023.2) 
+
+### Optional
+* CUDA (if you want to use GPU, CUDA 12 is supported for LibTorch and TensorRT, I used CUDA 11.8 for onnx-rt)
 
 ## Build Instructions
 
