@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../src/LibtorchInfer.hpp"
+#include "LibtorchInfer.hpp"
 
 TEST(LibtorchInferTest, BasicAssertions) {
     // Sample test
