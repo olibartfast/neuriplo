@@ -52,9 +52,10 @@ include(LinkBackend)
 include(SetCompilerFlags)
 
 # Add GoogleTest
-
-
 # Include directories for tests
 include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
-
-include(SetupTests)
+unset(BUILD_TESTS CACHE)
+option(BUILD_TESTS "Build tests (optional)" OFF)
+if(BUILD_TESTS) 
+include(SetupTests) 
+endif(BUILD_TESTS)  
