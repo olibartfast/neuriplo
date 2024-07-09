@@ -30,7 +30,7 @@ message(STATUS "Default backend: ${DEFAULT_BACKEND}")
 set(INFER_ROOT ${CMAKE_CURRENT_LIST_DIR}/backends)
 
 # Add source files for inference engines
-set(SOURCES backends/src/InferenceInterface.cpp)
+set(SOURCES ${CMAKE_CURRENT_LIST_DIR}/backends/src/InferenceInterface.cpp)
 
 include(SelectBackend)
 
