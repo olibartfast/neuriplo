@@ -19,7 +19,7 @@ endif()
 
 # Define ONNX Runtime-specific source files
 set(ONNX_RUNTIME_SOURCES
-    ${INFER_ROOT}/onnx-runtime/ORTInfer.cpp
+    ${INFER_ROOT}/onnx-runtime/src/ORTInfer.cpp
     # Add more ONNX Runtime source files here if needed
 )
 
