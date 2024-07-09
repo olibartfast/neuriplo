@@ -49,7 +49,7 @@ endif()
 
 
 set(TENSORRT_SOURCES
-    ${INFER_ROOT}/tensorrt/TRTInfer.cpp
+    ${INFER_ROOT}/tensorrt/src/TRTInfer.cpp
     # Add more TensorRT source files here if needed
 )
 list(APPEND SOURCES ${TENSORRT_SOURCES})

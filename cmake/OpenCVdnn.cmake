@@ -1,5 +1,5 @@
 set(OPENCV_DNN_SOURCES
-${INFER_ROOT}/opencv-dnn/OCVDNNInfer.cpp
+${INFER_ROOT}/opencv-dnn/src/OCVDNNInfer.cpp
 # Add more OpenCV DNN source files here if needed
 )
 
