@@ -1,8 +1,5 @@
 #include "InferenceInterface.hpp"
 
-std::shared_ptr<spdlog::logger> InferenceInterface::logger_;
-
-
 std::vector<float> InferenceInterface::blob2vec(const cv::Mat& input_blob)
 {
 

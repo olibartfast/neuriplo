@@ -3,7 +3,7 @@
 TRTInfer::TRTInfer(const std::string& model_path) : InferenceInterface{model_path, "", true}
 {
 
-    logger_->info("Initializing TensorRT for model {}", model_path);
+    LOG(INFO) << "Initializing TensorRT for model {}" << model_path;
     initializeBuffers(model_path);
 }
 
@@ -85,11 +85,11 @@ void TRTInfer::createContextAndAllocateBuffers()
    
         if (engine_->bindingIsInput(i))
         {
-            logger_->info("Input layer {} {}",num_inputs_, engine_->getBindingName(i));
+            LOG(INFO) << "Input layer {} {}" << num_inputs_ << engine_->getBindingName(i);
             num_inputs_++;
             continue;
         }
-        logger_->info("Output layer {} {}",num_outputs_, engine_->getBindingName(i));
+        LOG(INFO) << "Output layer {} {}" << num_outputs_ << engine_->getBindingName(i);
         num_outputs_++;
     }
 }
@@ -130,7 +130,7 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
 
     if(!context_->enqueueV2(buffers_.data(), 0, nullptr))
     {
-        logger_->error("Forward Error !");
+        LOG((ERROR) <<"Forward Error !";
         std::exit(1);
     }
     

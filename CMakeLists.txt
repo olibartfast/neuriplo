@@ -4,7 +4,7 @@ project(InferenceEngines)
 set(CMAKE_CXX_STANDARD 17)
 
 find_package(OpenCV REQUIRED)
-find_package(spdlog REQUIRED)
+find_package(Glog REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
 message(STATUS "InferenceEngines Cmake module path: ${CMAKE_MODULE_PATH}")
@@ -40,12 +40,12 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
         ${CMAKE_CURRENT_LIST_DIR}/backends/src
     ${OpenCV_INCLUDE_DIRS}
-    ${spdlog_INCLUDE_DIRS}    
+    ${GLOG_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OpenCV_LIBS}
-    spdlog::spdlog_header_only
+    ${GLOG_LIBRARIES}
 )
 
 include(LinkBackend)
