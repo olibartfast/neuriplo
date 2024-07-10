@@ -2,6 +2,7 @@
 #include "InferenceInterface.hpp"
 #include <onnxruntime_cxx_api.h>  // for ONNX Runtime C++ API
 #include <onnxruntime_c_api.h>    // for CUDA execution provider (if using CUDA)
+#include <glog/logging.h>
 
 class ORTInfer : public InferenceInterface
 {

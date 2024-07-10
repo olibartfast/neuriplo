@@ -6,12 +6,12 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu) : Infe
     if (use_gpu && torch::cuda::is_available())
     {
         device_ = torch::kCUDA;
-        logger_->info("Using CUDA GPU");
+        LOG(INFO) << "Using CUDA GPU";
     }
     else
     {
         device_ = torch::kCPU;
-        logger_->info("Using CPU");
+        LOG(INFO) << "Using CPU";
     }
 
     module_ = torch::jit::load(model_path, device_);

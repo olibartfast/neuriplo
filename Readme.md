@@ -9,10 +9,9 @@
 * The library is currently mainly used as component of the [Object Detection Inference Project](https://github.com/olibartfast/object-detection-inference)
 
 ## Dependencies
-
 - C++17
 - OpenCV
-- spdlog
+- glog
 
 ### A backend between
 * ONNX Runtime (1.15.1 gpu package)
@@ -24,14 +23,6 @@
 * CUDA (if you want to use GPU, CUDA 12 is supported for LibTorch and TensorRT, I used CUDA 11.8 for onnx-rt)
 
 ## Build Instructions
-
-### Prerequisites
-
-Make sure you have installed the following dependencies:
-
-- CMake >= 3.10
-- OpenCV
-- spdlog
 
 ### Build Steps
 
