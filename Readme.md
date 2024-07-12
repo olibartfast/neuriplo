@@ -58,7 +58,7 @@
 
 ## Usage
 
-To use the InferenceEngines library in your project, link against it and include necessary headers:
+To use the InferenceEngines library in your project, link against it and include necessary headers ( [check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt#L53-L71)) :
 
 ```cmake
 target_link_libraries(your_project PRIVATE InferenceEngines)
