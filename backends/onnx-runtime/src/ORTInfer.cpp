@@ -1,7 +1,8 @@
 #include "ORTInfer.hpp"
 
-ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : env_(ORT_LOGGING_LEVEL_WARNING, "Onnx Runtime Inference")
+ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInterface{model_path, "", use_gpu}
 {
+    env_=Ort::Env(ORT_LOGGING_LEVEL_WARNING, "Onnx Runtime Inference");
     Ort::SessionOptions session_options;
 
     if (use_gpu)
