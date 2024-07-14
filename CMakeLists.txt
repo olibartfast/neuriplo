@@ -36,11 +36,13 @@ include(SelectBackend)
 
 # Create the inference engines library
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(${PROJECT_NAME} PUBLIC     
     ${CMAKE_CURRENT_LIST_DIR}/include
-        ${CMAKE_CURRENT_LIST_DIR}/backends/src
     ${OpenCV_INCLUDE_DIRS}
-    ${GLOG_INCLUDE_DIRS}
+    ${GLOG_INCLUDE_DIRS}    
+)
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/backends/src
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
