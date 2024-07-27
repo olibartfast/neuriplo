@@ -8,7 +8,7 @@
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Object Detection Inference Project](https://github.com/olibartfast/object-detection-inference)
 
-## Dependencies
+## Dependencies (In parentheses, version tested in this project)
 - C++17
 - OpenCV
 - glog
