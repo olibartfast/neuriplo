@@ -54,8 +54,8 @@ include(SetCompilerFlags)
 # Add GoogleTest
 # Include directories for tests
 include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
-unset(BUILD_TESTS CACHE)
-option(BUILD_TESTS "Build tests (optional)" ON)
-if(BUILD_TESTS) 
+unset(BUILD_INFERENCE_ENGINE_TESTS CACHE)
+option(BUILD_INFERENCE_ENGINE_TESTS "Build tests (optional)" ON)
+if(BUILD_INFERENCE_ENGINE_TESTS) 
 include(SetupTests) 
-endif(BUILD_TESTS)  
+endif(BUILD_INFERENCE_ENGINE_TESTS)  

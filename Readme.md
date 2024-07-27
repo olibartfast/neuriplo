@@ -29,7 +29,7 @@
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/your/repository.git
+   git clone https://github.com/inference_engines.git
    cd InferenceEngines
    ```
 
