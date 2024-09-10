@@ -118,8 +118,12 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t>& dims)
     return size;
 }
 
-std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> ORTInfer::get_infer_results(const cv::Mat& input_blob)
+std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> ORTInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
+    // Convert the input image to a blob swapping channels order from hwc to chw    
+    cv::Mat blob;
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+    
     std::vector<std::vector<std::any>> outputs;
     std::vector<std::vector<int64_t>> shapes;
     std::vector<std::vector<float>> input_tensors(session_.GetInputCount());
@@ -127,7 +131,7 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
     std::vector<int64_t> orig_target_sizes;
 
-    input_tensors[0] = blob2vec(input_blob);
+    input_tensors[0] = blob2vec(blob);
     in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
         memory_info,
         input_tensors[0].data(),
@@ -139,7 +143,7 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
     // RTDETR case, two inputs
     if (input_tensors.size() > 1)
     {
-        orig_target_sizes = { static_cast<int64_t>(input_blob.size[2]), static_cast<int64_t>(input_blob.size[3]) };
+        orig_target_sizes = { static_cast<int64_t>(blob.size[2]), static_cast<int64_t>(blob.size[3]) };
         // Assuming input_tensors[1] is of type int64
         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64>(
             memory_info,

@@ -19,39 +19,42 @@ OCVDNNInfer::OCVDNNInfer(const std::string& weights, const std::string& modelCon
 }
 
 
-std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> OCVDNNInfer::get_infer_results(const cv::Mat& input_blob)
+std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> OCVDNNInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
+    // Convert the input image to a blob swapping channels order from hwc to chw    
+    cv::Mat blob;
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
 
-        std::vector<std::vector<std::any>> outputs;
-        std::vector<std::vector<int64_t>> shapes;
-        std::vector<std::string> layerTypes;
+    std::vector<std::vector<std::any>> outputs;
+    std::vector<std::vector<int64_t>> shapes;
+    std::vector<std::string> layerTypes;
 
-        std::vector<cv::Mat> outs;
-        net_.setInput(input_blob);
-        net_.forward(outs, outNames_);
+    std::vector<cv::Mat> outs;
+    net_.setInput(blob);
+    net_.forward(outs, outNames_);
 
-        for (size_t i = 0; i < outs.size(); ++i) {
-            const auto& output = outs[i];
-            // Extracting dimensions of the output tensor
-            std::vector<int64_t> shape;
-            for (int j = 0; j < output.dims; ++j) {
-                shape.push_back(output.size[j]);
-            }
-            shapes.push_back(shape);
-
-            // Extracting data
-            if (output.type() == CV_32F) {
-                const float* data = output.ptr<float>();
-                outputs.emplace_back(data, data + output.total());
-            } 
-            else if (output.type() == CV_64F) {
-                const int64_t* data = output.ptr<int64_t>();
-                outputs.emplace_back(data, data + output.total());
-            } 
-            else {
-                std::cerr << "Unsupported data type\n";
-            }
+    for (size_t i = 0; i < outs.size(); ++i) {
+        const auto& output = outs[i];
+        // Extracting dimensions of the output tensor
+        std::vector<int64_t> shape;
+        for (int j = 0; j < output.dims; ++j) {
+            shape.push_back(output.size[j]);
         }
+        shapes.push_back(shape);
 
-        return std::make_tuple(outputs, shapes);
+        // Extracting data
+        if (output.type() == CV_32F) {
+            const float* data = output.ptr<float>();
+            outputs.emplace_back(data, data + output.total());
+        } 
+        else if (output.type() == CV_64F) {
+            const int64_t* data = output.ptr<int64_t>();
+            outputs.emplace_back(data, data + output.total());
+        } 
+        else {
+            std::cerr << "Unsupported data type\n";
+        }
+    }
+
+    return std::make_tuple(outputs, shapes);
 }
