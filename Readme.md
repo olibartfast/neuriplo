@@ -21,7 +21,7 @@
 * Libtensorflow (2.13) only inference on saved models, not graph
 
 ### Optional
-* CUDA (if you want to use GPU, CUDA 12 is supported for LibTorch and TensorRT, I used CUDA 11.8 for onnx-rt)
+* CUDA (if you want to use GPU)
 
 ## Build Instructions
 
