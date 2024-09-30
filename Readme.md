@@ -14,7 +14,7 @@
 - glog
 
 ### A backend between
-* ONNX Runtime (1.15.1 gpu package)
+* ONNX Runtime (1.19.2 gpu package)
 * LibTorch (2.0.1-cu118)
 * TensorRT (8.6.1.6)
 * OpenVino (2023.2)
