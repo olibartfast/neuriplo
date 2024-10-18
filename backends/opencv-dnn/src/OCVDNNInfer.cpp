@@ -18,8 +18,10 @@ OCVDNNInfer::OCVDNNInfer(const std::string& weights, const std::string& modelCon
 
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OCVDNNInfer::get_infer_results(const cv::Mat& input_blob)
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OCVDNNInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
+    cv::Mat blob;
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
     std::vector<std::string> layerTypes;
@@ -59,5 +61,6 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
         outputs.push_back(tensor_data);
     }
 
+    return std::make_tuple(outputs, shapes);
     return std::make_tuple(outputs, shapes);
 }

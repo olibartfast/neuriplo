@@ -10,16 +10,16 @@ OVInfer::OVInfer(const std::string& model_path, const std::string& model_config,
     ov::Shape s = compiled_model_.input().get_shape();
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const cv::Mat& input_blob) 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const cv::Mat& preprocessed_img) 
 {
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
 
-    // Create input tensor
-    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), 
-                            compiled_model_.input().get_shape(), 
-                            input_blob.data);
+    // Convert the input image to a blob swapping channels order from hwc to chw    
+    cv::Mat blob;
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
 
+    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), blob.data);
     // Set input tensor for model with one input
     infer_request_.set_input_tensor(input_tensor);    
     infer_request_.infer();  // Perform inference

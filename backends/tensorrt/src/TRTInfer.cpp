@@ -97,6 +97,10 @@ void TRTInfer::createContextAndAllocateBuffers()
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& input_blob)
 {
     // Copy input data to the GPU buffers
+    // Convert the input image to a blob swapping channels order from hwc to chw    
+    cv::Mat blob;
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+
     for (size_t i = 0; i < num_inputs_; ++i)
     {
         nvinfer1::Dims dims = engine_->getBindingDimensions(i);
@@ -123,11 +127,11 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
         switch(i)
         {
             case 0:
-                cudaMemcpy(buffers_[0], input_blob.data, binding_size, cudaMemcpyHostToDevice);
+                cudaMemcpy(buffers_[0], blob.data, binding_size, cudaMemcpyHostToDevice);
                 break;
             case 1:
                 // If there's a second input, e.g., for target sizes in RT-DETR model
-                std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(input_blob.size[2]), static_cast<int32_t>(input_blob.size[3]) };
+                std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(blob.size[2]), static_cast<int32_t>(blob.size[3]) };
                 cudaMemcpy(buffers_[1], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice);
                 break;
         }

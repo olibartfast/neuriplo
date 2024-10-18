@@ -8,19 +8,21 @@
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Object Detection Inference Project](https://github.com/olibartfast/object-detection-inference)
 
-## Dependencies (In parentheses, version tested in this project)
+## Dependencies 
 - C++17
 - OpenCV
 - glog
 
-### A backend between
+### A backend between (In parentheses, version tested in this project):
+* OpenCV DNN module (4.7.0) 
 * ONNX Runtime (1.19.2 gpu package)
 * LibTorch (2.0.1-cu118)
 * TensorRT (8.6.1.6)
-* OpenVino (2023.2) 
+* OpenVino (2024.1)
+* Libtensorflow (2.13) only inference on saved models, not graph
 
 ### Optional
-* CUDA (if you want to use GPU, CUDA 12 is supported for LibTorch and TensorRT, I used CUDA 11.8 for onnx-rt)
+* CUDA (if you want to use GPU)
 
 ## Build Instructions
 
@@ -58,7 +60,7 @@
 
 ## Usage
 
-To use the InferenceEngines library in your project, link against it and include necessary headers ( [check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt#L53-L71)) :
+To use the InferenceEngines library in your project, link against it and include necessary headers ( [check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)) :
 
 ```cmake
 target_link_libraries(your_project PRIVATE InferenceEngines)
