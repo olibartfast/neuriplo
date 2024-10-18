@@ -94,7 +94,7 @@ void TRTInfer::createContextAndAllocateBuffers()
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& input_blob)
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
     // Copy input data to the GPU buffers
     // Convert the input image to a blob swapping channels order from hwc to chw    

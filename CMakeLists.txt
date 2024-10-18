@@ -12,7 +12,7 @@ message(STATUS "InferenceEngines Cmake module path: ${CMAKE_MODULE_PATH}")
 # Define the default backend if not set from the command line
 if(NOT DEFINED DEFAULT_BACKEND)
     unset(DEFAULT_BACKEND CACHE)
-    set(DEFAULT_BACKEND "OPENVINO" CACHE STRING "Default backend for inference" FORCE)
+    set(DEFAULT_BACKEND "ONNX_RUNTIME" CACHE STRING "Default backend for inference" FORCE)
 endif()
 
 # Define the supported backends
