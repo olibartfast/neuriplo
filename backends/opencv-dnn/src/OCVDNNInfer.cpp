@@ -27,7 +27,7 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
     std::vector<std::string> layerTypes;
 
     std::vector<cv::Mat> outs;
-    net_.setInput(input_blob);
+    net_.setInput(blob);
     net_.forward(outs, outNames_);
 
     for (size_t i = 0; i < outs.size(); ++i) {
