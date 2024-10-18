@@ -1,7 +1,7 @@
 #include "TFDetectionAPI.hpp"
 
 
-std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const cv::Mat& input_blob) 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const cv::Mat& input_blob) 
 {
     // Convert the frame to a TensorFlow tensor
     tensorflow::Tensor input_tensor(tensorflow::DT_UINT8, tensorflow::TensorShape({1, input_blob.size[1], input_blob.size[2], input_blob.size[3]})); // NHWC
@@ -19,33 +19,36 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
         std::exit(1);
     }
         
-    std::vector<std::vector<std::any>> convertedOutputs;
+    std::vector<std::vector<TensorElement>> convertedOutputs;
     std::vector<std::vector<int64_t>> shapes;
-
     for (const auto& tensor : outputs) {
-        std::vector<std::any> outputData;
+        std::vector<TensorElement> outputData;
+        auto numDims = tensor.dims(); 
+        std::vector<int64_t> outputShape(numDims); 
+        
+        for (int i = 0; i < numDims; ++i) {
+            outputShape[i] = tensor.dim_size(i);
+        }
+        
+        shapes.push_back(outputShape);
+        
         if (tensor.dtype() == tensorflow::DataType::DT_FLOAT) {
             for (int i = 0; i < tensor.NumElements(); ++i) {
-                // Convert tensor elements to std::any
-                outputData.push_back(tensor.flat<float>()(i));
+                outputData.emplace_back(tensor.flat<float>()(i)); // Use emplace_back for variant
             }
         } else if (tensor.dtype() == tensorflow::DataType::DT_INT32) {
             for (int i = 0; i < tensor.NumElements(); ++i) {
-                // Convert tensor elements to std::any
-                outputData.push_back(tensor.flat<int32_t>()(i));
+                outputData.emplace_back(tensor.flat<int32_t>()(i));
             }
         } else if (tensor.dtype() == tensorflow::DataType::DT_INT64) {
             for (int i = 0; i < tensor.NumElements(); ++i) {
-                // Convert tensor elements to std::any
-                outputData.push_back(tensor.flat<int64_t>()(i));
+                outputData.emplace_back(tensor.flat<int64_t>()(i));
             }
         } else {
-            std::cerr << "Unsupported output data type" << std::endl;
+            throw std::runtime_error("Unsupported output data type encountered.");
         }
+        
         convertedOutputs.push_back(outputData);
-        // Assuming all output shapes are the same
-        std::vector<int64_t> outputShape = { tensor.dim_size(0), tensor.dim_size(1), tensor.dim_size(2), tensor.dim_size(3) };
-        shapes.push_back(outputShape);
     }
     return std::make_tuple(convertedOutputs, shapes);
 }   

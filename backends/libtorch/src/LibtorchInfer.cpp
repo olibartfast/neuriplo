@@ -18,11 +18,13 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu) : Infe
 
 }
 
-std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> LibtorchInfer::get_infer_results(const cv::Mat& input_blob)
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
+LibtorchInfer::get_infer_results(const cv::Mat& input_blob)
 {
-
     // Convert the input tensor to a Torch tensor
-    torch::Tensor input = torch::from_blob(input_blob.data, { 1, input_blob.size[1], input_blob.size[2], input_blob.size[3] }, torch::kFloat32);
+    torch::Tensor input = torch::from_blob(input_blob.data, 
+        { 1, input_blob.size[1], input_blob.size[2], input_blob.size[3] }, 
+        torch::kFloat32);
     input = input.to(device_);
 
     // Run inference
@@ -30,78 +32,63 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
     inputs.push_back(input);
     auto output = module_.forward(inputs);
 
-    std::vector<std::vector<std::any>> output_vectors;
+    std::vector<std::vector<TensorElement>> output_vectors;
     std::vector<std::vector<int64_t>> shape_vectors;
 
-    if (output.isTuple()) {
-        // Handle the case where the model returns a tuple
-        auto tuple_outputs = output.toTuple()->elements();
-
-        for (const auto& output_tensor : tuple_outputs) {
-            if(!output_tensor.isTensor())
-                continue;
-            torch::Tensor tensor = output_tensor.toTensor().to(torch::kCPU).contiguous();
-
-            // Get the output data type
-            torch::ScalarType data_type = tensor.scalar_type();
-
-            // Store the output data based on its type
-            std::vector<std::any> tensor_data;
-            if (data_type == torch::kFloat32) {
+    // Helper function to process a single tensor
+    auto process_tensor = [](const torch::Tensor& tensor) {
+        std::vector<TensorElement> tensor_data;
+        tensor_data.reserve(tensor.numel());
+        
+        const auto data_type = tensor.scalar_type();
+        switch (data_type) {
+            case torch::kFloat32: {
                 const float* output_data = tensor.data_ptr<float>();
-                tensor_data.reserve(tensor.numel());
                 for (size_t i = 0; i < tensor.numel(); ++i) {
                     tensor_data.emplace_back(output_data[i]);
                 }
-            } else if (data_type == torch::kInt64) {
+                break;
+            }
+            case torch::kInt64: {
                 const int64_t* output_data = tensor.data_ptr<int64_t>();
-                tensor_data.reserve(tensor.numel());
                 for (size_t i = 0; i < tensor.numel(); ++i) {
                     tensor_data.emplace_back(output_data[i]);
                 }
-            } else {
-                // Handle other data types if needed
+                break;
+            }
+            default:
+                LOG(ERROR) << "Unsupported tensor type: " << data_type;
                 std::exit(1);
-            }
-
-            // Store the output data in the outputs vector
-            output_vectors.push_back(tensor_data);
-
-            // Get the shape of the output tensor
-            std::vector<int64_t> shape = tensor.sizes().vec();
-            shape_vectors.push_back(shape);
         }
+        return tensor_data;
+    };
+
+    if (output.isTuple()) {
+        // Handle tuple output
+        auto tuple_outputs = output.toTuple()->elements();
+        for (const auto& output_tensor : tuple_outputs) {
+            if (!output_tensor.isTensor()) {
+                continue;
+            }
+            
+            torch::Tensor tensor = output_tensor.toTensor()
+                                              .to(torch::kCPU)
+                                              .contiguous();
+            
+            output_vectors.push_back(process_tensor(tensor));
+            shape_vectors.push_back(tensor.sizes().vec());
+        }
+    } else if (output.isTensor()) {
+        // Handle single tensor output
+        torch::Tensor tensor = output.toTensor()
+                                    .to(torch::kCPU)
+                                    .contiguous();
+        
+        output_vectors.push_back(process_tensor(tensor));
+        shape_vectors.push_back(tensor.sizes().vec());
     } else {
-        torch::Tensor tensor = output.toTensor().to(torch::kCPU).contiguous();
-
-        // Get the output data type
-        torch::ScalarType data_type = tensor.scalar_type();
-
-        // Store the output data based on its type
-        std::vector<std::any> tensor_data;
-        if (data_type == torch::kFloat32) {
-            const float* output_data = tensor.data_ptr<float>();
-            tensor_data.reserve(tensor.numel());
-            for (size_t i = 0; i < tensor.numel(); ++i) {
-                tensor_data.emplace_back(output_data[i]);
-            }
-        } else if (data_type == torch::kInt64) {
-            const int64_t* output_data = tensor.data_ptr<int64_t>();
-            tensor_data.reserve(tensor.numel());
-            for (size_t i = 0; i < tensor.numel(); ++i) {
-                tensor_data.emplace_back(output_data[i]);
-            }
-        } else {
-            // Handle other data types if needed
-            std::exit(1);
-        }
-
-        // Store the output data in the outputs vector
-        output_vectors.push_back(tensor_data);
-
-        // Get the shape of the output tensor
-        std::vector<int64_t> shape = tensor.sizes().vec();
-        shape_vectors.push_back(shape);
+        LOG(ERROR) << "Unsupported output type: neither tensor nor tuple";
+        std::exit(1);
     }
 
     return std::make_tuple(output_vectors, shape_vectors);

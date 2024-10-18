@@ -97,7 +97,23 @@ TEST_F(LibtorchInferTest, InferenceResults) {
     ASSERT_EQ(shape_vectors[0][0], 1);
     ASSERT_EQ(shape_vectors[0][1], 1000);
 
-    ASSERT_TRUE(std::any_cast<float>(&output_vectors[0][0]));
+    // Type checking
+    ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
+    
+    // Value access checking
+    ASSERT_NO_THROW({
+        float value = std::get<float>(output_vectors[0][0]);
+    });
+    
+    // Size checking
+    ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
+    
+    // Check all elements are of the expected type
+    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(), 
+        [](const TensorElement& element) {
+            return std::holds_alternative<float>(element);
+        }));
+
 }
 
 int main(int argc, char **argv) {

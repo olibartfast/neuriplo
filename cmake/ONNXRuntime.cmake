@@ -1,6 +1,6 @@
 # ONNX Runtime Configuration
 # Set ONNX Runtime
-set(ORT_VERSION "1.15.1" CACHE STRING "Onnx runtime version") # modify accordingly
+set(ORT_VERSION "1.19.2" CACHE STRING "Onnx runtime version") # modify accordingly
 set(ONNX_RUNTIME_DIR $ENV{HOME}/onnxruntime-linux-x64-gpu-${ORT_VERSION} CACHE PATH "Path to onnxruntime")     
 message(STATUS "Onnx runtime version: ${ORT_VERSION}")
 
