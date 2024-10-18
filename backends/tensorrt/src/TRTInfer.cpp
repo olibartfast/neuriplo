@@ -93,13 +93,17 @@ void TRTInfer::createContextAndAllocateBuffers()
         num_outputs_++;
     }
 }
-std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& input_blob)
+
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& input_blob)
 {
+    // Copy input data to the GPU buffers
     for (size_t i = 0; i < num_inputs_; ++i)
     {
         nvinfer1::Dims dims = engine_->getBindingDimensions(i);
-        size_t size = getSizeByDim(dims);
+        size_t size = getSizeByDim(dims);  // Calculate tensor size
         size_t binding_size = 0;
+
+        // Calculate buffer size based on data type
         switch (engine_->getBindingDataType(i))
         {
             case nvinfer1::DataType::kFLOAT:
@@ -108,66 +112,84 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
             case nvinfer1::DataType::kINT32:
                 binding_size = size * sizeof(int32_t);
                 break;
-            // Add more cases for other data types if needed
             default:
                 // Handle unsupported data types
+                std::cerr << "Unsupported input data type!\n";
                 std::exit(1);
                 break;
         }
 
+        // Copy data to the appropriate GPU buffer
         switch(i)
         {
             case 0:
                 cudaMemcpy(buffers_[0], input_blob.data, binding_size, cudaMemcpyHostToDevice);
                 break;
             case 1:
-                // in rtdetr lyuwenyu version we have a second input
+                // If there's a second input, e.g., for target sizes in RT-DETR model
                 std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(input_blob.size[2]), static_cast<int32_t>(input_blob.size[3]) };
                 cudaMemcpy(buffers_[1], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice);
                 break;
         }
     }
 
-    if(!context_->enqueueV2(buffers_.data(), 0, nullptr))
+    // Perform inference
+    if (!context_->enqueueV2(buffers_.data(), 0, nullptr)) 
     {
-        LOG((ERROR) <<"Forward Error !";
+        std::cerr << "Inference failed!\n";
         std::exit(1);
     }
-    
+
+    // Extract outputs and their shapes
     std::vector<std::vector<int64_t>> output_shapes;
-    std::vector<std::vector<std::any>> outputs;
+    std::vector<std::vector<TensorElement>> outputs;
+    
     for (size_t i = 0; i < num_outputs_; ++i)
     {
-        nvinfer1::Dims dims = engine_->getBindingDimensions(i + num_inputs_); // i + 1 to account for the input buffer
+        // Get output dimensions
+        nvinfer1::Dims dims = engine_->getBindingDimensions(i + num_inputs_);
         auto num_elements = getSizeByDim(dims);
-        std::vector<std::any> tensor_data;
+        
+        // Prepare tensor_data to store the output
+        std::vector<TensorElement> tensor_data;
+        
+        // Copy the output data based on its data type
         switch (engine_->getBindingDataType(i + num_inputs_))
         {
             case nvinfer1::DataType::kFLOAT:
             {
                 std::vector<float> output_data_float(num_elements);
                 cudaMemcpy(output_data_float.data(), buffers_[i + num_inputs_],  num_elements * sizeof(float), cudaMemcpyDeviceToHost);
-                tensor_data = std::vector<std::any>(output_data_float.begin(), output_data_float.end());
+                
+                // Wrap the output data into TensorElement (std::variant)
+                for (const auto& value : output_data_float) {
+                    tensor_data.push_back(static_cast<float>(value));
+                }
                 break;
             }
             case nvinfer1::DataType::kINT32:
             {
                 std::vector<int32_t> output_data_int(num_elements);
                 cudaMemcpy(output_data_int.data(), buffers_[i + num_inputs_],  num_elements * sizeof(int32_t), cudaMemcpyDeviceToHost);
-                tensor_data = std::vector<std::any>(output_data_int.begin(), output_data_int.end());
+                
+                // Wrap the output data into TensorElement
+                for (const auto& value : output_data_int) {
+                    tensor_data.push_back(static_cast<int32_t>(value));
+                }
                 break;
             }
-
             // Add more cases for other data types if needed
             default:
-                // Handle unsupported data types
+                std::cerr << "Unsupported output data type!\n";
                 std::exit(1);
                 break;
         }
+        
+        // Store the output tensor and its shape
         outputs.emplace_back(std::move(tensor_data));
         
-        const int64_t curr_batch = dims.d[0] == -1 ? 1 : dims.d[0];
-        const auto out_shape = std::vector<int64_t>{curr_batch, dims.d[1], dims.d[2], dims.d[3] };
+        const int64_t curr_batch = dims.d[0] == -1 ? 1 : dims.d[0];  // Handle dynamic batch size
+        const auto out_shape = std::vector<int64_t>{curr_batch, dims.d[1], dims.d[2], dims.d[3]};
         output_shapes.emplace_back(out_shape);
     }
 

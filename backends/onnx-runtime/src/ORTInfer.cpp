@@ -117,17 +117,21 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t>& dims)
     }
     return size;
 }
-
-std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>> ORTInfer::get_infer_results(const cv::Mat& input_blob)
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
+ORTInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
-    std::vector<std::vector<std::any>> outputs;
+    // Convert the input image to a blob swapping channels order from hwc to chw    
+    cv::Mat blob;
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+    
+    std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
     std::vector<std::vector<float>> input_tensors(session_.GetInputCount());
     std::vector<Ort::Value> in_ort_tensors;
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
     std::vector<int64_t> orig_target_sizes;
 
-    input_tensors[0] = blob2vec(input_blob);
+    input_tensors[0] = blob2vec(blob);
     in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
         memory_info,
         input_tensors[0].data(),
@@ -139,8 +143,7 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
     // RTDETR case, two inputs
     if (input_tensors.size() > 1)
     {
-        orig_target_sizes = { static_cast<int64_t>(input_blob.size[2]), static_cast<int64_t>(input_blob.size[3]) };
-        // Assuming input_tensors[1] is of type int64
+        orig_target_sizes = { static_cast<int64_t>(blob.size[2]), static_cast<int64_t>(blob.size[3]) };
         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64>(
             memory_info,
             orig_target_sizes.data(),
@@ -181,14 +184,14 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
             num_elements *= dim;
         }
 
-        std::vector<std::any> tensor_data;
+        std::vector<TensorElement> tensor_data;
+        tensor_data.reserve(num_elements);
 
         // Retrieve tensor data
         const int onnx_type = output_tensor.GetTensorTypeAndShapeInfo().GetElementType();
         switch (onnx_type) {
         case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT: {
             const float* output_data_float = output_tensor.GetTensorData<float>();
-            tensor_data.reserve(num_elements);
             for (size_t i = 0; i < num_elements; ++i) {
                 tensor_data.emplace_back(output_data_float[i]);
             }
@@ -196,19 +199,17 @@ std::tuple<std::vector<std::vector<std::any>>, std::vector<std::vector<int64_t>>
         }
         case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64: {
             const int64_t* output_data_int64 = output_tensor.GetTensorData<int64_t>();
-            tensor_data.reserve(num_elements);
             for (size_t i = 0; i < num_elements; ++i) {
                 tensor_data.emplace_back(output_data_int64[i]);
             }
             break;
         }
-        // Add cases for other data types as needed
         default:
+            LOG(ERROR) << "Unsupported tensor type: " << onnx_type;
             std::exit(1);
         }
 
-        // Store the tensor data in outputs
-        outputs.emplace_back(tensor_data);
+        outputs.emplace_back(std::move(tensor_data));
         shapes.emplace_back(shape);
     }
 
