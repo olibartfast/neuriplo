@@ -13,7 +13,15 @@
             "program": "${workspaceFolder}/build/backends/libtorch/test/LibtorchInferTest",
             "environment": [{ "name": "config", "value": "Debug" }],
             "cwd": "${workspaceFolder}/build/backends/libtorch/test",
-          }
+        },
+        {
+            "name": "OpenCV DNN Infer Test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/backends/opencv-dnn/test/OCVDNNInferTest",
+            "environment": [{ "name": "config", "value": "Debug" }],
+            "cwd": "${workspaceFolder}/build/backends/opencv-dnn/test",
+        }        
           
     ]
 }

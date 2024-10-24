@@ -3,7 +3,7 @@
 OCVDNNInfer::OCVDNNInfer(const std::string& weights, const std::string& modelConfiguration) : InferenceInterface{weights, modelConfiguration} 
 {
 
-        LOG(INFO) << "Running {} using OpenCV DNN runtime" << weights;
+        LOG(INFO) << "Running using OpenCV DNN runtime: " << weights;
         net_ = modelConfiguration.empty() ? cv::dnn::readNet(weights) : cv::dnn::readNetFromDarknet(modelConfiguration, weights);
         if (net_.empty())
         {
