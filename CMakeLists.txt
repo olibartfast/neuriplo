@@ -12,8 +12,8 @@ message(STATUS "InferenceEngines Cmake module path: ${CMAKE_MODULE_PATH}")
 # Define the default backend if not set from the command line
 if(NOT DEFINED DEFAULT_BACKEND)
     unset(DEFAULT_BACKEND CACHE)
-    set(DEFAULT_BACKEND "ONNX_RUNTIME" CACHE STRING "Default backend for inference" FORCE)
 endif()
+set(DEFAULT_BACKEND ${DEFAULT_BACKEND})
 
 # Define the supported backends
 set(SUPPORTED_BACKENDS "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "OPENCV_DNN" "TENSORRT" "OPENVINO")
