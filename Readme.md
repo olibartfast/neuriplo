@@ -49,8 +49,9 @@
    ```
 
    Optionally, you can specify the default backend by setting `-DDEFAULT_BACKEND=your_backend` during configuration.
+   - **Note**:  If the backend package is not installed on your system, set the path manually in the backend's CMake module (i.e. for Libtorch modify [Libtorch.cmake](cmake/LibTorch.cmake)  or pass the argument ``Torch_DIR``, for onnx-runtume modify [ONNXRuntime.cmake](cmake/ONNXRuntime.cmake) or pass the argument ``ORT_VERSION``, same apply to other backend local packages)
 
-4. Build the project:
+5. Build the project:
 
    ```bash
    cmake --build .
