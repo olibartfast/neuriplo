@@ -3,6 +3,8 @@
 #include <variant>
 using TensorElement = std::variant<float, int32_t, int64_t>;
 
+#include "ModelInfo.hpp"
+
 class InferenceInterface{
     	
     public:
@@ -12,7 +14,7 @@ class InferenceInterface{
 
         }
 
-        
+        virtual ModelInfo get_model_info() = 0;
         virtual std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) = 0;
 
     protected:
