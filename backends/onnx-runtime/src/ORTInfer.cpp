@@ -1,5 +1,5 @@
 #include "ORTInfer.hpp"
-  
+#include <numeric>   
 
 ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInterface{model_path, "", use_gpu}
 {
@@ -51,7 +51,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInter
     // Process inputs
     for (std::size_t i = 0; i < session_.GetInputCount(); i++)
     {
-        auto name = session_.GetInputNameAllocated(i, allocator).get();
+        const std::string name = session_.GetInputNameAllocated(i, allocator).get();
         auto shapes = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         auto input_type = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetElementType();
         
@@ -79,8 +79,9 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInter
     LOG(INFO) << "Output Node Name/Shape (" << session_.GetOutputCount() << "):";
     for (std::size_t i = 0; i < session_.GetOutputCount(); i++)
     {
-        auto name = session_.GetOutputNameAllocated(i, allocator).get();
+        const std::string name = session_.GetOutputNameAllocated(i, allocator).get();
         auto shapes = session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+        shapes[0] = shapes[0] == -1 ? 1 : shapes[0];
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
         model_info_.addOutput(name, shapes);
     }
@@ -133,15 +134,16 @@ ORTInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
     cv::Mat blob;
     cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
-    
     const auto& inputs = model_info_.getInputs();
     const auto& outputs = model_info_.getOutputs();
-    
-    std::vector<std::vector<float>> input_tensors(inputs.size());
+   
+    std::vector<std::vector<TensorElement>> output_tensors;
+    std::vector<std::vector<int64_t>> shapes;
+    std::vector<std::vector<float>> input_tensors(session_.GetInputCount());
     std::vector<Ort::Value> in_ort_tensors;
     Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+    std::vector<int64_t> orig_target_sizes;
 
-    // Process first input (image blob)
     input_tensors[0] = blob2vec(blob);
     in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
         memory_info,
@@ -151,14 +153,11 @@ ORTInfer::get_infer_results(const cv::Mat& preprocessed_img)
         inputs[0].shape.size()
     ));
 
-    // Handle RTDETR case with two inputs
-    if (inputs.size() > 1)
+    // RTDETR case, two inputs
+    if (input_tensors.size() > 1)
     {
-        std::vector<int64_t> orig_target_sizes = { 
-            static_cast<int64_t>(blob.size[2]), 
-            static_cast<int64_t>(blob.size[3]) 
-        };
-        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
+        orig_target_sizes = { static_cast<int64_t>(blob.size[2]), static_cast<int64_t>(blob.size[3]) };
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64>(
             memory_info,
             orig_target_sizes.data(),
             getSizeByDim(orig_target_sizes),
@@ -167,62 +166,67 @@ ORTInfer::get_infer_results(const cv::Mat& preprocessed_img)
         ));
     }
 
-    // Prepare input/output names
-    std::vector<const char*> input_names_char;
-    input_names_char.reserve(inputs.size());
-    for (const auto& input : inputs) {
-        input_names_char.push_back(input.name.c_str());
-    }
-
-    std::vector<const char*> output_names_char;
-    output_names_char.reserve(outputs.size());
-    for (const auto& output : outputs) {
-        output_names_char.push_back(output.name.c_str());
-    }
-
     // Run inference
+    std::vector<const char*> input_names_char(inputs.size());
+    std::transform(inputs.begin(), inputs.end(), input_names_char.begin(),
+    [](const LayerInfo& layer) { return layer.name.c_str(); });
+
+    std::vector<const char*> output_names_char(outputs.size());
+    std::transform(outputs.begin(), outputs.end(), output_names_char.begin(),
+    [](const LayerInfo& layer) { return layer.name.c_str(); });
+
+
     std::vector<Ort::Value> output_ort_tensors = session_.Run(
         Ort::RunOptions{ nullptr },
         input_names_char.data(),
         in_ort_tensors.data(),
         in_ort_tensors.size(),
         output_names_char.data(),
-        output_names_char.size()
+        outputs.size()
     );
 
-    // Process outputs
+    // Process output tensors
     assert(output_ort_tensors.size() == outputs.size());
-    
-    std::vector<std::vector<TensorElement>> tensor_outputs;
-    std::vector<std::vector<int64_t>> shapes;
-    tensor_outputs.reserve(output_ort_tensors.size());
-    shapes.reserve(output_ort_tensors.size());
 
     for (const Ort::Value& output_tensor : output_ort_tensors)
     {
-        auto tensor_info = output_tensor.GetTensorTypeAndShapeInfo();
-        const auto& shape = tensor_info.GetShape();
-        size_t num_elements = getSizeByDim(shape);
+        const auto& shape_ref = output_tensor.GetTensorTypeAndShapeInfo().GetShape();
+        std::vector<int64_t> shape(shape_ref.begin(), shape_ref.end());
+
+        size_t num_elements = 1;
+        for (int64_t dim : shape) {
+            num_elements *= dim;
+        }
 
         std::vector<TensorElement> tensor_data;
         tensor_data.reserve(num_elements);
 
-        switch (tensor_info.GetElementType()) {
-            case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
-                processTensorData(tensor_data, output_tensor.GetTensorData<float>(), num_elements);
-                break;
-            case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
-                processTensorData(tensor_data, output_tensor.GetTensorData<int64_t>(), num_elements);
-                break;
-            default:
-                LOG(ERROR) << "Unsupported tensor type: " << tensor_info.GetElementType();
-                std::exit(1);
+        // Retrieve tensor data
+        const int onnx_type = output_tensor.GetTensorTypeAndShapeInfo().GetElementType();
+        switch (onnx_type) {
+        case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT: {
+            const float* output_data_float = output_tensor.GetTensorData<float>();
+            for (size_t i = 0; i < num_elements; ++i) {
+                tensor_data.emplace_back(output_data_float[i]);
+            }
+            break;
+        }
+        case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64: {
+            const int64_t* output_data_int64 = output_tensor.GetTensorData<int64_t>();
+            for (size_t i = 0; i < num_elements; ++i) {
+                tensor_data.emplace_back(output_data_int64[i]);
+            }
+            break;
+        }
+        default:
+            LOG(ERROR) << "Unsupported tensor type: " << onnx_type;
+            std::exit(1);
         }
 
-        tensor_outputs.emplace_back(std::move(tensor_data));
+        output_tensors.emplace_back(std::move(tensor_data));
         shapes.emplace_back(shape);
     }
 
-    return {tensor_outputs, shapes};
-}
+    return std::make_tuple(output_tensors, shapes);    
 
+}
