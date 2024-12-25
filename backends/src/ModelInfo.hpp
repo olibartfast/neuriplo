@@ -5,6 +5,7 @@
 struct LayerInfo {
     std::string name;
     std::vector<int64_t> shape;
+    size_t batch_size;
 };
 
 class ModelInfo {
