@@ -1,7 +1,8 @@
 #include "ORTInfer.hpp"
 #include <numeric>   
+#include <algorithm>
 
-ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInterface{model_path, "", use_gpu}
+ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
     env_ = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "Onnx Runtime Inference");
     Ort::SessionOptions session_options;
@@ -55,8 +56,47 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInter
         auto shapes = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         auto input_type = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetElementType();
         
-        // Handle dynamic batch size
-        shapes[0] = shapes[0] == -1 ? 1 : shapes[0];
+        // Check if this input has dynamic dimensions
+        bool has_dynamic = false;
+        for (size_t j = 1; j < shapes.size(); j++) {  // Skip batch dimension
+            if (shapes[j] == -1) {
+                has_dynamic = true;
+                break;
+            }
+        }
+
+        // Handle batch dimension first
+        shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
+        
+        // Handle other dimensions if dynamic
+        if (has_dynamic) {
+            if (input_sizes.empty() || i >= input_sizes.size()) {
+                throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name + "'");
+            }
+            
+            const auto& provided_shape = input_sizes[i];
+            
+            // Check if provided shape has enough dimensions for dynamic inputs
+            size_t dynamic_dim_count = 0;
+            for (size_t j = 1; j < shapes.size(); j++) {
+                if (shapes[j] == -1) dynamic_dim_count++;
+            }
+            
+            if (provided_shape.size() < dynamic_dim_count) {
+                throw std::runtime_error("Not enough dimensions provided for dynamic shapes in input '" + name + "'");
+            }
+
+            // Apply provided dimensions to dynamic shapes
+            size_t provided_idx = 0;
+            for (size_t j = 1; j < shapes.size(); j++) {
+                if (shapes[j] == -1) {
+                    if (provided_idx >= provided_shape.size()) {
+                        throw std::runtime_error("Insufficient input sizes provided for dynamic dimensions in input '" + name + "'");
+                    }
+                    shapes[j] = provided_shape[provided_idx++];
+                }
+            }
+        }
         
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
         model_info_.addInput(name, shapes);
@@ -81,7 +121,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu) : InferenceInter
     {
         const std::string name = session_.GetOutputNameAllocated(i, allocator).get();
         auto shapes = session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
-        shapes[0] = shapes[0] == -1 ? 1 : shapes[0];
+        shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
         model_info_.addOutput(name, shapes);
     }
