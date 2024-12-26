@@ -16,7 +16,10 @@ class InferenceInterface{
 
         }
 
-        virtual ModelInfo get_model_info() = 0;
+        ModelInfo get_model_info() {
+            return model_info_;
+        }
+        
         virtual std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) = 0;
 
     protected:

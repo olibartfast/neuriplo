@@ -6,6 +6,15 @@
 
 class ORTInfer : public InferenceInterface
 {
+public:
+    std::string print_shape(const std::vector<std::int64_t>& v);
+    ORTInfer(const std::string& model_path, 
+        bool use_gpu = false, 
+        size_t batch_size = 1, 
+        const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
+    size_t getSizeByDim(const std::vector<int64_t>& dims);
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
+
 private:
     Ort::Env env_;
     Ort::Session session_{ nullptr };
@@ -16,14 +25,5 @@ private:
         for (size_t i = 0; i < num_elements; ++i) {
             tensor_data.emplace_back(data[i]);
         }
-    }
-public:
-    std::string print_shape(const std::vector<std::int64_t>& v);
-    ORTInfer(const std::string& model_path, 
-        bool use_gpu = false, 
-        size_t batch_size = 1, 
-        const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
-    size_t getSizeByDim(const std::vector<int64_t>& dims);
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
-    ModelInfo get_model_info() override;
+    }    
 };

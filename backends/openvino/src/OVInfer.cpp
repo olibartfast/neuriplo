@@ -1,9 +1,15 @@
 #include "OVInfer.hpp" 
+#include <filesystem>
 
-OVInfer::OVInfer(const std::string& model_path, const std::string& model_config, bool use_gpu) : 
-    InferenceInterface{model_path, model_config, use_gpu}
+OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : 
+    InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
-
+    std::filesystem::path fs_path(model_path);
+    std::string basename = fs_path.stem().string();
+    const std::string model_config = basename + ".xml";    
+    if (!std::filesystem::exists(fs_path)) {
+        throw std::runtime_error("XML file must have same name as model binary");
+    }    
     model_ = core_.read_model(model_config);
     compiled_model_ = core_.compile_model(model_);
     infer_request_ = compiled_model_.create_infer_request();
