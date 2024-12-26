@@ -1,7 +1,7 @@
 #include "LibtorchInfer.hpp"
 
 
-LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu) : InferenceInterface{model_path, "", use_gpu}
+LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
     if (use_gpu && torch::cuda::is_available())
     {
@@ -16,6 +16,11 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu) : Infe
 
     module_ = torch::jit::load(model_path, device_);
 
+}
+
+ModelInfo LibtorchInfer::get_model_info()
+{
+    return model_info_;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 

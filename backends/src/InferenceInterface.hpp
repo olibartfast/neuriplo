@@ -20,6 +20,7 @@ class InferenceInterface{
         virtual std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) = 0;
 
     protected:
+        ModelInfo model_info_;
         std::vector<float> blob2vec(const cv::Mat& input_blob);
 
 };
