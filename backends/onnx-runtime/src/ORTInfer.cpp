@@ -128,11 +128,6 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
 }
 
 
-ModelInfo ORTInfer::get_model_info()
-{
-    return model_info_;
-}
-
 std::string ORTInfer::getDataTypeString(ONNXTensorElementDataType type)
 {
     switch (type)

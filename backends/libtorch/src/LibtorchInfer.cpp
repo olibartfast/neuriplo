@@ -18,11 +18,6 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
 
 }
 
-ModelInfo LibtorchInfer::get_model_info()
-{
-    return model_info_;
-}
-
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
 LibtorchInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
