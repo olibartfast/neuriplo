@@ -99,7 +99,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         }
         
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
-        model_info_.addInput(name, shapes);
+        model_info_.addInput(name, shapes, batch_size);
 
         std::string input_type_str = getDataTypeString(input_type);
         LOG(INFO) << "\tData Type: " << input_type_str;
@@ -123,7 +123,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         auto shapes = session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
-        model_info_.addOutput(name, shapes);
+        model_info_.addOutput(name, shapes, batch_size);
     }
 }
 

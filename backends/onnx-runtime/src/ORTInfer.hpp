@@ -9,7 +9,6 @@ class ORTInfer : public InferenceInterface
 private:
     Ort::Env env_;
     Ort::Session session_{ nullptr };
-    ModelInfo model_info_;
     static std::string getDataTypeString(ONNXTensorElementDataType type);
 
     template<typename T>
@@ -25,7 +24,6 @@ public:
         size_t batch_size = 1, 
         const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
     size_t getSizeByDim(const std::vector<int64_t>& dims);
-
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
     ModelInfo get_model_info() override;
 };
