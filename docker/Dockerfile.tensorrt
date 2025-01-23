@@ -1,0 +1,110 @@
+# docker build --rm -t inference-engines:tensorrt -f docker/Dockerfile.tensorrt .
+
+# Stage 1: Cuda dependencies
+ARG UBUNTU_VERSION=24.04
+ARG NGC_CUDA_VERSION=12.6.3
+FROM nvcr.io/nvidia/cuda:${NGC_CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} as cuda_dependencies
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies with version pinning
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential=12.* \
+    libopencv-dev \
+    libgoogle-glog-dev \
+    wget \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Install TensorRT dependencies
+FROM cuda_dependencies AS backend_dependencies
+
+# TensorRT version configuration
+ARG TRT_MAJOR=10
+ARG TRT_MINOR=.7
+ARG TRT_PATCH=.0
+ARG TRT_BUILD=.23
+ARG TRT_VERSION=${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}${TRT_BUILD}
+ARG TRT_CUDA_VERSION=12.6
+ARG TENSORRT_DIR=/opt/tensorrt
+
+# Download and install TensorRT
+RUN wget --tries=3 --retry-connrefused \
+    https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}/tars/TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz \
+    && tar -xzvf TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz -C /opt \
+    && rm TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz
+
+# Set TensorRT environment variables
+ENV LD_LIBRARY_PATH=/opt/TensorRT-${TRT_VERSION}/lib:${LD_LIBRARY_PATH}
+ENV LIBRARY_PATH=/opt/TensorRT-${TRT_VERSION}/lib:${LIBRARY_PATH}
+ENV CPATH=/opt/TensorRT-${TRT_VERSION}/include:${CPATH}
+
+# Set TensorRT environment variables
+ENV LD_LIBRARY_PATH=${TENSORRT_DIR}/lib:${LD_LIBRARY_PATH}
+ENV LIBRARY_PATH=${TENSORRT_DIR}/lib:${LIBRARY_PATH}
+ENV PATH=${TENSORRT_DIR}/include:${PATH}
+
+# Stage 3: Build application
+FROM backend_dependencies AS builder
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+ARG BACKEND=TENSORRT
+
+# Build the project
+RUN cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=${BACKEND} \
+    -DTRT_VERSION=${TRT_VERSION} \
+    -DTENSORRT_DIR=${TENSORRT_DIR} \
+    && cmake --build build --config Release \
+    && ls -la /app/build # Check the output to find the library
+    # you can add also:
+    # && ls -la /app/build/lib
+    # && ls -la /app/build/src
+
+# Stage 4: Final runtime image
+FROM backend_dependencies AS final
+
+# Create non-root user
+RUN useradd -m appuser && \
+    mkdir -p /app/data && \
+    mkdir -p /app/include && \
+    mkdir -p /app/lib && \
+    chown -R appuser:appuser /app
+
+# Copy built library from builder stage (Adjust the paths if needed)
+COPY --from=builder --chown=appuser:appuser /app/build/libInferenceEngines.so /app/lib/
+# If you have a specific directory for public headers:
+COPY --from=builder --chown=appuser:appuser /app/include /app/include
+# Or, if headers are in the build directory (less common for libraries):
+# COPY --from=builder --chown=appuser:appuser /app/build/path/to/headers /app/include
+
+# Set working directory and user
+WORKDIR /app
+USER appuser
+
+# Add volume for persistent data
+VOLUME ["/app/data"]
+
+# Add metadata
+LABEL maintainer="olibartfast@gmail.com"
+LABEL version="0.1"
+LABEL description="CUDA and TensorRT inference engine container"
+
+# Set library path
+ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
+
+# Health check (This might need adjustment for a library)
+# You might want to check for the existence of the library instead
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/lib/libInferenceEngines.so || exit 1
+
+# Default command (You probably don't need this for a library)
+# ENTRYPOINT ["/app/inference-engines"]
+# CMD ["--default-args"]
