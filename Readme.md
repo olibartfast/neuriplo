@@ -14,7 +14,7 @@
 - glog
 
 ### A backend between (In parentheses, version tested in this project):
-* OpenCV DNN module (4.7.0) 
+* OpenCV DNN module (4.11.0) 
 * ONNX Runtime (1.19.2 gpu package)
 * LibTorch (2.0.1-cu118)
 * TensorRT (10.0.7.23)
