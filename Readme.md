@@ -17,7 +17,7 @@
 * OpenCV DNN module (4.7.0) 
 * ONNX Runtime (1.19.2 gpu package)
 * LibTorch (2.0.1-cu118)
-* TensorRT (8.6.1.6)
+* TensorRT (10.0.7.23)
 * OpenVino (2024.1)
 * Libtensorflow (2.13) only inference on saved models, not graph
 
