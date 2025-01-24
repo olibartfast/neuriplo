@@ -9,7 +9,10 @@
 class TFDetectionAPI : public InferenceInterface{
 
 public:
-    TFDetectionAPI(const std::string& model_path, bool use_gpu) : InferenceInterface{model_path, "", use_gpu}
+    TFDetectionAPI(const std::string& model_path, 
+        bool use_gpu = false, 
+        size_t batch_size = 1, 
+        const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>()) : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
     {
         tensorflow::SessionOptions session_options;
         tensorflow::RunOptions run_options;

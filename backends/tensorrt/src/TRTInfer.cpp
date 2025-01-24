@@ -12,7 +12,7 @@
     } \
   } while (0)
 
-TRTInfer::TRTInfer(const std::string& model_path) : InferenceInterface{model_path, true}
+TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, true, batch_size, input_sizes}
 {
   LOG(INFO) << "Initializing TensorRT for model " << model_path;
   initializeBuffers(model_path);
