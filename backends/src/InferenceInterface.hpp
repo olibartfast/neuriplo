@@ -17,9 +17,6 @@ class InferenceInterface{
         }
 
         ModelInfo get_model_info() {
-            if (model_info_.getInputs().empty() || model_info_.getOutputs().empty()) {
-                throw std::runtime_error("Model parameters are not initialized.");
-            }
             return model_info_;
         }
 
