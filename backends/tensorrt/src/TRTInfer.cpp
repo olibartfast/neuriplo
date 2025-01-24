@@ -2,7 +2,7 @@
 #include <fstream>
 #include <cuda_fp16.h> // For __half if using half-precision
 
-// Added: CUDA error checking macro
+// CUDA error checking macro
 #define CHECK_CUDA(status) \
   do { \
     auto ret = (status); \
@@ -117,8 +117,9 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
     nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
     size_t size = getSizeByDim(dims);
     size_t binding_size = 0;
+    nvinfer1::DataType data_type = engine_->getTensorDataType(tensor_name.c_str());
 
-    switch (engine_->getTensorDataType(tensor_name.c_str()))
+    switch (data_type)
     {
       case nvinfer1::DataType::kFLOAT:
         binding_size = size * sizeof(float);
@@ -144,8 +145,16 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
     }
     else if (tensor_name == "input1") // If there's a second input, e.g., for target sizes in RT-DETR model
     {
-      std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(blob.size[2]), static_cast<int32_t>(blob.size[3]) };
-      CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
+      if (data_type == nvinfer1::DataType::kINT32) {
+          std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(blob.size[2]), static_cast<int32_t>(blob.size[3]) };
+          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
+      } else if (data_type == nvinfer1::DataType::kINT64) {
+          std::vector<int64_t> orig_target_sizes = { static_cast<int64_t>(blob.size[2]), static_cast<int64_t>(blob.size[3]) };
+          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
+      } else {
+          LOG(ERROR) << "Unsupported data type for input tensor " << tensor_name;
+          std::exit(1);
+      }
     }
   }
 
