@@ -1,22 +1,29 @@
 #include "OCVDNNInfer.hpp"
 
-OCVDNNInfer::OCVDNNInfer(const std::string& weights, const std::string& modelConfiguration) : InferenceInterface{weights, modelConfiguration} 
+OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
+        // check if model path has .weights extension
+        std::string modelConfiguration = "";
+        if (model_path.find(".weights") != std::string::npos)
+        {
+            // get the name without extension
+            modelConfiguration = model_path.substr(0, model_path.find(".weights")) + ".cfg";   
 
-        LOG(INFO) << "Running using OpenCV DNN runtime: " << weights;
-        net_ = modelConfiguration.empty() ? cv::dnn::readNet(weights) : cv::dnn::readNetFromDarknet(modelConfiguration, weights);
+            // check if .cfg file exists
+            if ( ! std::ifstream(modelConfiguration))
+                throw std::runtime_error("Can't find the configuration file " + modelConfiguration + " for the model: " + model_path);
+        }
+        LOG(INFO) << "Running using OpenCV DNN runtime: " << model_path;
+        net_ = modelConfiguration.empty() ? cv::dnn::readNet(model_path) : cv::dnn::readNetFromDarknet(modelConfiguration, model_path);
         if (net_.empty())
         {
-            std::cerr << "Can't load network by using the following files: " << std::endl;
-            std::cerr << "weights-file: " << weights << std::endl;
-            exit(-1);
+            throw std::runtime_error("Can't load the model: " + model_path);
         }
         outLayers_ = net_.getUnconnectedOutLayers();
         outLayerType_ = net_.getLayer(outLayers_[0])->type;
         outNames_ = net_.getUnconnectedOutLayersNames();
-
-
 }
+
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OCVDNNInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
     cv::Mat blob;

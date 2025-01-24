@@ -20,7 +20,10 @@ class TRTInfer : public InferenceInterface
         std::vector<std::string> output_tensor_names_;
 
     public:
-        TRTInfer(const std::string& model_path);
+        TRTInfer(const std::string& model_path, 
+        bool use_gpu = true, 
+        size_t batch_size = 1, 
+        const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
 
         // Create execution context and allocate input/output buffers
         void createContextAndAllocateBuffers();

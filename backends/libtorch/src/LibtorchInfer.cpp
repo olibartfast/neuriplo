@@ -1,7 +1,8 @@
 #include "LibtorchInfer.hpp"
 
 
-LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
+LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) 
+    : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
     if (use_gpu && torch::cuda::is_available())
     {
@@ -14,9 +15,91 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         LOG(INFO) << "Using CPU";
     }
 
-    module_ = torch::jit::load(model_path, device_);
+    try
+    {
+        module_ = torch::jit::load(model_path, device_);
+    }
+    catch (const c10::Error& e)
+    {
+        LOG(ERROR) << "Failed to load the LibTorch model: " << e.what();
+        std::exit(1);
+    }
 
-}
+    // Process inputs
+    LOG(INFO) << "Input Node Name/Shape:";
+    auto method = module_.get_method("forward");
+    auto graph = method.graph();
+    auto inputs = graph->inputs();
+    
+    // Skip the first input as it's usually the self/module input
+    for (size_t i = 1; i < inputs.size(); ++i)
+    {
+        auto input = inputs[i];
+        std::string name = input->debugName();
+        auto type = input->type()->cast<c10::TensorType>();
+        if (!type)
+        {
+            LOG(WARNING) << "Input " << name << " is not a tensor. Skipping.";
+            continue;
+        }
+
+        auto shapes = type->sizes().concrete_sizes();
+        if (!shapes)
+        {
+            if (input_sizes.empty() || (i-1) >= input_sizes.size())
+            {
+                throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name + "'");
+            }
+            shapes = input_sizes[i-1];
+        }
+
+        std::vector<int64_t> final_shape = *shapes;
+        final_shape[0] = batch_size; // Set batch size
+
+        LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
+        model_info_.addInput(name, final_shape, batch_size);
+
+        std::string input_type_str = type->scalarType().has_value() ? toString(type->scalarType().value()) : "Unknown";
+        LOG(INFO) << "\tData Type: " << input_type_str;
+    }
+
+    // Log network dimensions from first input
+    const auto& first_input = model_info_.getInputs()[0].shape;
+    const auto channels = static_cast<int>(first_input[1]);
+    const auto network_height = static_cast<int>(first_input[2]);
+    const auto network_width = static_cast<int>(first_input[3]);
+
+    LOG(INFO) << "channels " << channels;
+    LOG(INFO) << "width " << network_width;
+    LOG(INFO) << "height " << network_height;
+
+    // Process outputs
+    LOG(INFO) << "Output Node Name/Shape:";
+    auto outputs = graph->outputs();
+    for (size_t i = 0; i < outputs.size(); ++i)
+    {
+        auto output = outputs[i];
+        std::string name = output->debugName();
+        auto type = output->type()->cast<c10::TensorType>();
+        if (!type)
+        {
+            LOG(WARNING) << "Output " << name << " is not a tensor. Skipping.";
+            continue;
+        }
+
+        auto shapes = type->sizes().concrete_sizes();
+        if (!shapes)
+        {
+            LOG(WARNING) << "Output " << name << " has dynamic shape. Using (-1) as placeholder.";
+            shapes = std::vector<int64_t>(type->dim().value_or(1), -1);
+        }
+
+        std::vector<int64_t> final_shape = *shapes;
+        final_shape[0] = batch_size; // Set batch size
+
+        LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
+        model_info_.addOutput(name, final_shape, batch_size);
+    }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
 LibtorchInfer::get_infer_results(const cv::Mat& preprocessed_img)
