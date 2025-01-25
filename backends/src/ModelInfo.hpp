@@ -16,7 +16,6 @@ private:
 public:
     void addInput(const std::string& name, const std::vector<int64_t>& shape, size_t batch_size);
     void addOutput(const std::string& name, const std::vector<int64_t>& shape, size_t batch_size);
-    
     const std::vector<LayerInfo>& getInputs() const;
     const std::vector<LayerInfo>& getOutputs() const;
 };

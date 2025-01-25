@@ -19,9 +19,38 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
         {
             throw std::runtime_error("Can't load the model: " + model_path);
         }
+
+        if (use_gpu && isCudaBuildEnabled() )
+        {
+            net_.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
+            net_.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
+        }
+        else
+        {
+            net_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+            net_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+        }
+
         outLayers_ = net_.getUnconnectedOutLayers();
         outLayerType_ = net_.getLayer(outLayers_[0])->type;
         outNames_ = net_.getUnconnectedOutLayersNames();
+
+        if (input_sizes.empty())
+        {   
+            throw("With OpenCV DNN backend, input sizes must be specified");
+        }
+
+        for (size_t i = 0; i < input_sizes.size(); i++)
+        {
+            std::vector<int64_t> shape = input_sizes[i];
+            model_info_.addInput("input" + std::to_string(i + 1), shape, batch_size);
+        }
+
+        for (auto& outName : outNames_) {
+            std::vector<int64_t> shape{-1, -1, -1};
+            model_info_.addOutput(outName, shape, batch_size);
+        }
+
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OCVDNNInfer::get_infer_results(const cv::Mat& preprocessed_img)
