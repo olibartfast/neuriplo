@@ -16,6 +16,7 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
 {
   LOG(INFO) << "Initializing TensorRT for model " << model_path;
   initializeBuffers(model_path);
+  populateModelInfo(input_sizes); // Now called only once during initialization
 }
 void TRTInfer::initializeBuffers(const std::string& engine_path)
 {
@@ -255,4 +256,45 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
   CHECK_CUDA(cudaStreamDestroy(stream));
 
   return std::make_tuple(std::move(outputs), std::move(output_shapes));
+}
+
+void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_sizes) {
+    bool dynamic_axis_detected = false;
+    for (int i = 0; i < num_inputs_; ++i) {
+        std::string tensor_name = input_tensor_names_[i];
+        nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+        std::vector<int64_t> shape;
+        for (int j = 0; j < dims.nbDims; ++j) {
+            if (dims.d[j] == -1) {
+                dynamic_axis_detected = true;
+            }
+            shape.push_back(dims.d[j]);
+        }
+        
+        if (input_sizes.empty() && dynamic_axis_detected) {
+            throw std::runtime_error("Dynamic axis detected in input tensor " + tensor_name + " but input_sizes is empty.");
+        }
+
+        if (!input_sizes.empty()) {
+            // Override dynamic dimensions with provided input sizes
+            if (i < input_sizes.size()) {
+                for (size_t j = 0; j < input_sizes[i].size(); ++j) {
+                    if (j < shape.size() && shape[j] == -1) {
+                        shape[j] = input_sizes[i][j];
+                    }
+                }
+            }
+        }
+        model_info_.addInput(tensor_name, shape, 1); // Assuming batch size is always 1 for now, adjust if needed
+    }
+
+    for (int i = 0; i < num_outputs_; ++i) {
+        std::string tensor_name = output_tensor_names_[i];
+        nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+        std::vector<int64_t> shape;
+        for (int j = 0; j < dims.nbDims; ++j) {
+            shape.push_back(dims.d[j]);
+        }
+        model_info_.addOutput(tensor_name, shape, 1); // Assuming batch size is always 1 for now, adjust if needed
+    }
 }
