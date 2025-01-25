@@ -1,5 +1,20 @@
 #include "InferenceInterface.hpp"
 
+InferenceInterface::InferenceInterface(const std::string& weights,
+    bool use_gpu, 
+    size_t batch_size,
+    const std::vector<std::vector<int64_t>>& input_sizes)
+{
+
+}
+
+ModelInfo InferenceInterface::get_model_info() {
+if (model_info_.getInputs().empty() || model_info_.getOutputs().empty()) {
+    throw std::runtime_error("Model parameters are not initialized, initialize the model info first inside the inference engine setup!");
+}
+return model_info_;
+}
+
 std::vector<float> InferenceInterface::blob2vec(const cv::Mat& input_blob)
 {
 
