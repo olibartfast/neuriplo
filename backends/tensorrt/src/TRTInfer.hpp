@@ -37,6 +37,7 @@ class TRTInfer : public InferenceInterface
 
         std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
 
+        void populateModelInfo(const std::vector<std::vector<int64_t>>& input_sizes); 
         ~TRTInfer()
         {
             for (void* buffer : buffers_)
