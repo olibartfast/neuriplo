@@ -18,6 +18,7 @@ class TRTInfer : public InferenceInterface
         size_t num_outputs_ = 0;
         std::vector<std::string> input_tensor_names_;
         std::vector<std::string> output_tensor_names_;
+        int batch_size_ = 1;
 
     public:
         TRTInfer(const std::string& model_path, 
