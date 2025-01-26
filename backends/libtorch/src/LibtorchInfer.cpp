@@ -1,5 +1,21 @@
 #include "LibtorchInfer.hpp"
+#include <sstream>
 
+std::string LibtorchInfer::print_shape(const std::vector<int64_t>& shape)
+{
+    std::stringstream ss;
+    ss << "(";
+    for (size_t i = 0; i < shape.size(); ++i)
+    {
+        ss << shape[i];
+        if (i < shape.size() - 1)
+        {
+            ss << ", ";
+        }
+    }
+    ss << ")";
+    return ss.str();
+}
 
 LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) 
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
@@ -48,13 +64,12 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         {
             if (input_sizes.empty() || (i-1) >= input_sizes.size())
             {
-                throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name + "'");
+                throw std::runtime_error("LibtorchInfer Initialitazion Error: Dynamic shapes found but no input sizes provided for input '" + name + "'");
             }
             shapes = input_sizes[i-1];
         }
 
         std::vector<int64_t> final_shape = *shapes;
-        final_shape[0] = batch_size; // Set batch size
 
         LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
         model_info_.addInput(name, final_shape, batch_size);
@@ -100,6 +115,7 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
         model_info_.addOutput(name, final_shape, batch_size);
     }
+}
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
 LibtorchInfer::get_infer_results(const cv::Mat& preprocessed_img)
