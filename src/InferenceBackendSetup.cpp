@@ -14,7 +14,7 @@ std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& mo
     #elif USE_TENSORRT
     return std::make_unique<TRTInfer>(model_path, true, batch_size, input_sizes); 
     #elif USE_OPENVINO
-    return std::make_unique<OVInfer>(weights, use_gpu, batch_size, input_sizes); 
+    return std::make_unique<OVInfer>(model_path, use_gpu, batch_size, input_sizes); 
     #endif
     return nullptr;
 

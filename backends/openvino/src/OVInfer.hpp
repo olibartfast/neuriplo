@@ -1,6 +1,11 @@
 #pragma once
 #include "InferenceInterface.hpp"
-#include <openvino/openvino.hpp>
+#include "openvino/runtime/core.hpp"
+#include "openvino/core/shape.hpp"
+#include "openvino/core/type/element_type.hpp"
+#include <sstream>
+
+
 
 
 class OVInfer : public InferenceInterface
@@ -14,6 +19,10 @@ public:
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
 
 private:  
+     // Helper function to print ov::Shape and ov::PartialShape
+    template <typename ShapeType>
+    std::string print_shape(const ShapeType& shape);
+    
     ov::Core core_;
     ov::Tensor input_tensor_;
     ov::InferRequest infer_request_;
