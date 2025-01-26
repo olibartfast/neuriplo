@@ -1,6 +1,6 @@
 # TensorRT Configuration
 
-set(TRT_VERSION "8.6.1.6" CACHE STRING "Tensorrt version") # modify accordingly
+set(TRT_VERSION "10.7.0.23" CACHE STRING "Tensorrt version") # modify accordingly
 # Set TensorRT directory (modify accordingly)
 set(TENSORRT_DIR $ENV{HOME}/TensorRT-${TRT_VERSION}/)
 
