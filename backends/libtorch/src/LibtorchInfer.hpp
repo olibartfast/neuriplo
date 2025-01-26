@@ -13,6 +13,7 @@ public:
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
 
 private:
+    std::string print_shape(const std::vector<int64_t>& shape);
     torch::DeviceType device_;
     torch::jit::script::Module module_;    
   
