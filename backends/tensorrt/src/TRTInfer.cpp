@@ -140,12 +140,7 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
         std::exit(1);
     }
 
-    // Copy data to the appropriate GPU buffer
-    if (tensor_name == "input0") // Assuming the first input tensor name is "input0"
-    {
-      CHECK_CUDA(cudaMemcpy(buffers_[i], blob.data, binding_size, cudaMemcpyHostToDevice));
-    }
-    else if (tensor_name == "input1") // If there's a second input, e.g., for target sizes in RT-DETR model
+    if (tensor_name == "orig_target_sizes") // If there's a second input, e.g., for target sizes in RT-DETR/DFINE model
     {
       if (data_type == nvinfer1::DataType::kINT32) {
           std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(blob.size[2]), static_cast<int32_t>(blob.size[3]) };
@@ -157,7 +152,8 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
           LOG(ERROR) << "Unsupported data type for input tensor " << tensor_name;
           std::exit(1);
       }
-    }
+    }else
+        CHECK_CUDA(cudaMemcpy(buffers_[i], blob.data, binding_size, cudaMemcpyHostToDevice));
   }
 
   // Perform inference
