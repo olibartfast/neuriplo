@@ -277,7 +277,6 @@ void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_
         if (input_sizes.empty() && dynamic_axis_detected) {
             throw std::runtime_error("Dynamic axis detected in input tensor " + tensor_name + " but input_sizes is empty.");
         }
-        shape.clear();
         if (!input_sizes.empty()) {
             // Override dynamic dimensions with provided input sizes
             if (i < input_sizes.size()) {
