@@ -1,12 +1,38 @@
 #include "OVInfer.hpp" 
 #include <filesystem>
+#include <sstream>
+#include <numeric>
+
+// Helper function to print ov::Shape and ov::PartialShape
+template <typename ShapeType>
+std::string OVInfer::print_shape(const ShapeType& shape) {
+    std::stringstream ss;
+    ss << "[";
+    for (size_t i = 0; i < shape.size(); ++i) {
+        if constexpr (std::is_same<ShapeType, ov::PartialShape>::value) { // Note the 'constexpr'
+            if (shape[i].is_dynamic()) {
+                ss << "?";
+            } else {
+                ss << shape[i].get_length();
+            }
+        } else { // It's ov::Shape
+            ss << shape[i]; 
+        }
+
+        if (i < shape.size() - 1) {
+            ss << ",";
+        }
+    }
+    ss << "]";
+    return ss.str();
+}
 
 OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : 
     InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
     std::filesystem::path fs_path(model_path);
     std::string basename = fs_path.stem().string();
-    const std::string model_config = basename + ".xml";    
+    const std::string model_config = model_path.substr(0, model_path.find(".bin")) + ".xml";   
     if (!std::filesystem::exists(fs_path)) {
         throw std::runtime_error("XML file must have same name as model binary");
     }    
@@ -14,23 +40,19 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
     try {
         model_ = core_.read_model(model_config);
 
-        // Set up device
-        std::string device = use_gpu ? "GPU" : "CPU";
-        LOG(INFO) << "Using device: " << device;
-        compiled_model_ = core_.compile_model(model_, device);
-        infer_request_ = compiled_model_.create_infer_request();
+        // --- Handle dynamic shapes before compiling the model ---
+        std::map<ov::Output<ov::Node>, ov::PartialShape> all_shapes; // Store dynamic shapes for all inputs
 
-        // Process inputs
         LOG(INFO) << "Input Node Name/Shape (" << model_->inputs().size() << "):";
         for (size_t i = 0; i < model_->inputs().size(); ++i) {
             auto input = model_->input(i);
             std::string name = input.get_any_name();
-            ov::Shape shape = input.get_shape();
+            ov::PartialShape partial_shape = input.get_partial_shape();
 
-            // Handle dynamic shapes
+            // Check for dynamic dimensions
             bool has_dynamic = false;
-            for (size_t j = 1; j < shape.size(); j++) {
-                if (shape[j] == ov::Dimension::dynamic()) {
+            for (size_t j = 0; j < partial_shape.size(); ++j) {
+                if (partial_shape[j].is_dynamic()) {
                     has_dynamic = true;
                     break;
                 }
@@ -43,31 +65,62 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                 
                 const auto& provided_shape = input_sizes[i];
                 size_t provided_idx = 0;
-                for (size_t j = 1; j < shape.size(); j++) {
-                    if (shape[j] == ov::Dimension::dynamic()) {
+                for (size_t j = 0; j < partial_shape.size(); ++j) {
+                    if (partial_shape[j].is_dynamic()) {
                         if (provided_idx >= provided_shape.size()) {
                             throw std::runtime_error("Insufficient input sizes provided for dynamic dimensions in input '" + name + "'");
                         }
-                        shape[j] = provided_shape[provided_idx++];
+                        partial_shape[j] = provided_shape[provided_idx++];
                     }
                 }
             }
+            
+            // Set batch size as dynamic if it was dynamic, otherwise static
+            if (partial_shape[0].is_dynamic()){
+                partial_shape[0] = ov::Dimension(1, -1); // Allow batch sizes from 1 upwards
+            }
+            else{
+                partial_shape[0] = batch_size;
+            }
+            
 
-            // Set batch size
-            shape[0] = batch_size;
+            // Store the potentially updated shape
+            all_shapes[input] = partial_shape;
+        }
+
+        if (!all_shapes.empty()){
+          // Reshape the model with the gathered partial shapes
+          model_->reshape(all_shapes);
+        }
+        
+
+        // Set up device
+        std::string device = use_gpu ? "GPU" : "CPU";
+        LOG(INFO) << "Using device: " << device;
+        compiled_model_ = core_.compile_model(model_, device);
+        infer_request_ = compiled_model_.create_infer_request();
+
+        // --- Process inputs after compilation ---
+        for (size_t i = 0; i < model_->inputs().size(); ++i) {
+            auto input = model_->input(i);
+            std::string name = input.get_any_name();
+            ov::Shape shape = input.get_shape();
+
+            // Convert ov::Shape to std::vector<int64_t>
+            std::vector<int64_t> shape_vec(shape.begin() + 1, shape.end());
 
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
-            model_info_.addInput(name, shape, batch_size);
+            model_info_.addInput(name, shape_vec, batch_size); // Pass the converted shape_vec
 
             ov::element::Type input_type = input.get_element_type();
             LOG(INFO) << "\tData Type: " << input_type.get_type_name();
         }
 
         // Log network dimensions from first input
-        const auto& first_input = model_info_.getInputs()[0].shape;
-        const auto channels = static_cast<int>(first_input[1]);
-        const auto network_height = static_cast<int>(first_input[2]);
-        const auto network_width = static_cast<int>(first_input[3]);
+        const auto& first_input_shape_vec = model_info_.getInputs()[0].shape;
+        const auto channels = static_cast<int>(first_input_shape_vec[1]);
+        const auto network_height = static_cast<int>(first_input_shape_vec[2]);
+        const auto network_width = static_cast<int>(first_input_shape_vec[3]);
 
         LOG(INFO) << "channels " << channels;
         LOG(INFO) << "width " << network_width;
@@ -77,14 +130,20 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
         LOG(INFO) << "Output Node Name/Shape (" << model_->outputs().size() << "):";
         for (size_t i = 0; i < model_->outputs().size(); ++i) {
             auto output = model_->output(i);
-            std::string name = output.get_any_name();
+            std::string name;
+            if (auto node = output.get_node()) {
+                name = node->get_friendly_name();
+            } else {
+                name = "Unnamed Output"; // Default name if no friendly name is found
+            }
+
             ov::Shape shape = output.get_shape();
 
-            // Set batch size for output
-            shape[0] = batch_size;
+            // Convert ov::Shape to std::vector<int64_t>
+            std::vector<int64_t> shape_vec(shape.begin() + 1, shape.end());
 
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
-            model_info_.addOutput(name, shape, batch_size);
+            model_info_.addOutput(name, shape_vec, batch_size); // Pass the converted shape_vec
         }
     }
     catch (const ov::Exception& e) {
@@ -98,10 +157,10 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
 
-    // Convert the input image to a blob swapping channels order from hwc to chw    
-    cv::Mat blob;
+        // Convert the input image to a blob swapping channels order from hwc to chw    
+        cv::Mat blob;
     cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
-
+          
     ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), blob.data);
     // Set input tensor for model with one input
     infer_request_.set_input_tensor(input_tensor);    
