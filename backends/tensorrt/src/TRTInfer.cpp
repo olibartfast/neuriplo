@@ -15,8 +15,9 @@
 TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, true, batch_size, input_sizes}
 {
   LOG(INFO) << "Initializing TensorRT for model " << model_path;
+  batch_size_ = batch_size;
   initializeBuffers(model_path);
-  populateModelInfo(input_sizes); // Now called only once during initialization
+  populateModelInfo(input_sizes);
 }
 void TRTInfer::initializeBuffers(const std::string& engine_path)
 {
@@ -268,24 +269,30 @@ void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_
             if (dims.d[j] == -1) {
                 dynamic_axis_detected = true;
             }
-            shape.push_back(dims.d[j]);
+            if (j > 0) { // Skip the batch dimension (index 0)
+                shape.push_back(dims.d[j]);
+            }
         }
         
         if (input_sizes.empty() && dynamic_axis_detected) {
             throw std::runtime_error("Dynamic axis detected in input tensor " + tensor_name + " but input_sizes is empty.");
         }
-
         if (!input_sizes.empty()) {
             // Override dynamic dimensions with provided input sizes
             if (i < input_sizes.size()) {
+                size_t shape_idx = 0;
                 for (size_t j = 0; j < input_sizes[i].size(); ++j) {
-                    if (j < shape.size() && shape[j] == -1) {
-                        shape[j] = input_sizes[i][j];
+                    if (shape_idx < shape.size() && shape[shape_idx] == -1) {
+                        shape[shape_idx] = input_sizes[i][j];
+                    }
+                    if (shape_idx < shape.size())
+                    {
+                      shape_idx++;
                     }
                 }
             }
         }
-        model_info_.addInput(tensor_name, shape, 1); // Assuming batch size is always 1 for now, adjust if needed
+        model_info_.addInput(tensor_name, shape, batch_size_);
     }
 
     for (int i = 0; i < num_outputs_; ++i) {
@@ -293,8 +300,10 @@ void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_
         nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
         std::vector<int64_t> shape;
         for (int j = 0; j < dims.nbDims; ++j) {
-            shape.push_back(dims.d[j]);
+            if (j > 0) { // Skip the batch dimension (index 0)
+                shape.push_back(dims.d[j]);
+            }
         }
-        model_info_.addOutput(tensor_name, shape, 1); // Assuming batch size is always 1 for now, adjust if needed
+        model_info_.addOutput(tensor_name, shape, batch_size_);
     }
 }
