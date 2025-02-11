@@ -80,13 +80,9 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
 
     // Log network dimensions from first input
     const auto& first_input = model_info_.getInputs()[0].shape;
-    const auto channels = static_cast<int>(first_input[1]);
-    const auto network_height = static_cast<int>(first_input[2]);
-    const auto network_width = static_cast<int>(first_input[3]);
-
-    LOG(INFO) << "channels " << channels;
-    LOG(INFO) << "width " << network_width;
-    LOG(INFO) << "height " << network_height;
+    for (size_t i = 0; i < first_input.size(); ++i) {
+        LOG(INFO) << "Network Dimension " << i << ": " << first_input[i];
+    }
 
     // Process outputs
     LOG(INFO) << "Output Node Name/Shape:";
