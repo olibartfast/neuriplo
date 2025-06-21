@@ -1,20 +1,17 @@
 # ONNX Runtime Configuration
-# Set ONNX Runtime
-set(ORT_VERSION "1.19.2" CACHE STRING "Onnx runtime version") # modify accordingly
-set(ONNX_RUNTIME_DIR $ENV{HOME}/onnxruntime-linux-x64-gpu-${ORT_VERSION} CACHE PATH "Path to onnxruntime")     
-message(STATUS "Onnx runtime version: ${ORT_VERSION}")
+# Uses centralized version management from cmake/versions.cmake
 
-# Set ONNX Runtime directory (modify accordingly)
-message(STATUS "Onnx runtime directory: ${ONNX_RUNTIME_DIR}")
+# ONNX Runtime configuration using centralized version management
+message(STATUS "ONNX Runtime version: ${ONNX_RUNTIME_VERSION}")
+message(STATUS "ONNX Runtime directory: ${ONNX_RUNTIME_DIR}")
 
-
-# Find CUDA (if available)
-find_package(CUDA)
+# Check for CUDA support
+find_package(CUDA QUIET)
 if (CUDA_FOUND)
-    message(STATUS "Found CUDA")
+    message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
     set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda)
 else ()
-    message(WARNING "CUDA not found. GPU support will be disabled.")
+    message(WARNING "CUDA not found. GPU support will be disabled for ONNX Runtime.")
 endif()
 
 # Define ONNX Runtime-specific source files
@@ -28,3 +25,5 @@ list(APPEND SOURCES ${ONNX_RUNTIME_SOURCES})
 
 # Add compile definition to indicate ONNX Runtime usage
 add_compile_definitions(USE_ONNX_RUNTIME)
+
+# Note: Version management is now handled centrally in cmake/versions.cmake

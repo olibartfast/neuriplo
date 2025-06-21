@@ -3,6 +3,12 @@ project(InferenceEngines)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Include centralized version management first
+include(cmake/versions.cmake)
+
+# Include dependency validation
+include(cmake/DependencyValidation.cmake)
+
 find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
@@ -26,6 +32,9 @@ endif()
 message(STATUS "Default backend: ${DEFAULT_BACKEND}")
 
 set(INFER_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/backends)
+
+# Validate dependencies before proceeding
+validate_all_dependencies()
 
 # Add source files for inference engines
 set(SOURCES ${CMAKE_CURRENT_LIST_DIR}/backends/src/InferenceInterface.cpp ${CMAKE_CURRENT_LIST_DIR}/backends/src/ModelInfo.cpp ${CMAKE_CURRENT_LIST_DIR}/src/InferenceBackendSetup.cpp)
