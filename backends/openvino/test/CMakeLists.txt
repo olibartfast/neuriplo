@@ -21,6 +21,7 @@ target_link_libraries(OpenVINOInferTest PRIVATE
     openvino::runtime
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
+    glog::glog
     gtest
     gtest_main
 )

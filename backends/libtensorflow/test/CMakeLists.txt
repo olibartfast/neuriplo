@@ -22,6 +22,7 @@ target_link_libraries(TensorFlowInferTest PRIVATE
     ${TensorFlow_LIBRARIES}
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
+    glog::glog
     gtest
     gtest_main
 )
