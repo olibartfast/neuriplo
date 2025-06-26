@@ -30,6 +30,7 @@ target_link_libraries(TensorRTInferTest PRIVATE
     cudart
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
+    glog::glog
     gtest
     gtest_main
 )
