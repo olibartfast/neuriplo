@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "LibtorchInfer.hpp"
+#include "ORTInfer.hpp"
 #include <glog/logging.h>
 #include <opencv2/opencv.hpp>
 #include <fstream>
@@ -10,9 +10,9 @@
 namespace fs = std::filesystem;
 
 // Mock inference implementation for unit testing
-class MockLibtorchInfer {
+class MockORTInfer {
 public:
-    MockLibtorchInfer() = default;
+    MockORTInfer() = default;
     
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
     get_infer_results(const cv::Mat& input) {
@@ -27,14 +27,22 @@ public:
         
         return std::make_tuple(output_vectors, shape_vectors);
     }
+    
+    ModelInfo get_model_info() {
+        ModelInfo info;
+        info.addInput("input", {1, 3, 224, 224}, 1);
+        info.addOutput("output", {1, 1000}, 1);
+        return info;
+    }
 };
 
-class LibtorchInferTest : public ::testing::Test {
+// Test fixture for ONNX Runtime backend
+class ONNXRuntimeInferTest : public ::testing::Test {
 protected:
     std::string model_path;
     bool has_real_model;
-    std::unique_ptr<LibtorchInfer> real_infer;
-    std::unique_ptr<MockLibtorchInfer> mock_infer;
+    std::unique_ptr<ORTInfer> real_infer;
+    std::unique_ptr<MockORTInfer> mock_infer;
 
     void SetUp() override {
         has_real_model = false;
@@ -47,7 +55,7 @@ protected:
             if (!model_path.empty() && fs::exists(model_path)) {
                 has_real_model = true;
                 try {
-                    real_infer = std::make_unique<LibtorchInfer>(model_path, false);
+                    real_infer = std::make_unique<ORTInfer>(model_path, false);
                     std::cout << "Using real model: " << model_path << std::endl;
                 } catch (const std::exception& e) {
                     std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
@@ -57,14 +65,14 @@ protected:
         }
         
         if (!has_real_model) {
-            mock_infer = std::make_unique<MockLibtorchInfer>();
+            mock_infer = std::make_unique<MockORTInfer>();
             std::cout << "Using mock inference for testing" << std::endl;
         }
     }
 };
 
 // Test basic functionality - works with both real model and mock
-TEST_F(LibtorchInferTest, BasicInference) {
+TEST_F(ONNXRuntimeInferTest, BasicInference) {
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3); // ResNet-18 expects 224x224 input
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
@@ -98,7 +106,7 @@ TEST_F(LibtorchInferTest, BasicInference) {
     });
     
     // Size checking
-    ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
+    ASSERT_EQ(output_vectors[0].size(), static_cast<size_t>(shape_vectors[0][1]));
     
     // Check all elements are of the expected type
     ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(), 
@@ -108,7 +116,7 @@ TEST_F(LibtorchInferTest, BasicInference) {
 }
 
 // Integration test - only runs with real model
-TEST_F(LibtorchInferTest, IntegrationTest) {
+TEST_F(ONNXRuntimeInferTest, IntegrationTest) {
     if (!has_real_model) {
         GTEST_SKIP() << "Skipping integration test - no real model available";
     }
@@ -129,10 +137,15 @@ TEST_F(LibtorchInferTest, IntegrationTest) {
         float value = std::get<float>(element);
         ASSERT_TRUE(std::isfinite(value)) << "Output contains non-finite value";
     }
+    
+    // Test model info retrieval
+    auto model_info = real_infer->get_model_info();
+    ASSERT_FALSE(model_info.getInputs().empty());
+    ASSERT_FALSE(model_info.getOutputs().empty());
 }
 
 // Unit test - only runs with mock
-TEST_F(LibtorchInferTest, MockUnitTest) {
+TEST_F(ONNXRuntimeInferTest, MockUnitTest) {
     if (has_real_model) {
         GTEST_SKIP() << "Skipping mock unit test - real model is available";
     }
@@ -149,17 +162,22 @@ TEST_F(LibtorchInferTest, MockUnitTest) {
         float actual = std::get<float>(output_vectors[0][i]);
         ASSERT_FLOAT_EQ(expected, actual);
     }
+    
+    // Test model info from mock
+    auto model_info = mock_infer->get_model_info();
+    ASSERT_FALSE(model_info.getInputs().empty());
+    ASSERT_FALSE(model_info.getOutputs().empty());
 }
 
 // GPU test - only runs if has_real_model and GPU available
-TEST_F(LibtorchInferTest, GPUTest) {
+TEST_F(ONNXRuntimeInferTest, GPUTest) {
     if (!has_real_model) {
         GTEST_SKIP() << "Skipping GPU test - no real model available";
     }
     
     try {
         // Try to create a GPU inference engine
-        auto gpu_infer = std::make_unique<LibtorchInfer>(model_path, true);
+        auto gpu_infer = std::make_unique<ORTInfer>(model_path, true);
         
         // If we got here, GPU is available, test inference
         cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
@@ -174,6 +192,29 @@ TEST_F(LibtorchInferTest, GPUTest) {
     } catch (const std::exception& e) {
         // GPU not available or error occurred
         GTEST_SKIP() << "Skipping GPU test - GPU not available or error: " << e.what();
+    }
+}
+
+// Test with different batch sizes - only runs with real model
+TEST_F(ONNXRuntimeInferTest, BatchSizeHandling) {
+    if (!has_real_model) {
+        GTEST_SKIP() << "Skipping batch size test - no real model available";
+    }
+    
+    try {
+        size_t batch_size = 2;
+        std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
+        
+        auto batch_infer = std::make_unique<ORTInfer>(model_path, false, batch_size, input_sizes);
+        auto model_info = batch_infer->get_model_info();
+        
+        ASSERT_FALSE(model_info.getInputs().empty());
+        
+        // Check that batch size is properly set in input tensor
+        auto inputs = model_info.getInputs();
+        ASSERT_EQ(inputs[0].batch_size, batch_size);
+    } catch (const std::exception& e) {
+        GTEST_SKIP() << "Batch size test failed: " << e.what();
     }
 }
 

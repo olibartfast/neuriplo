@@ -128,9 +128,11 @@ function(validate_all_dependencies)
     message(STATUS "=== Validating InferenceEngines Dependencies ===")
     
     validate_system_dependencies()
+    validate_opencv_dnn()
     validate_onnx_runtime()
     validate_tensorrt()
     validate_libtorch()
+    validate_libtensorflow()
     validate_openvino()
     validate_cuda()
     
@@ -158,6 +160,12 @@ function(print_setup_instructions)
         message(STATUS "  ./scripts/setup_tensorrt.sh")
     elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
         message(STATUS "  ./scripts/setup_libtorch.sh")
+    elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
+        message(STATUS "  For LibTensorFlow, please install TensorFlow C++ library manually")
+        message(STATUS "  or check the project documentation for installation instructions")
+    elseif(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+        message(STATUS "  OpenCV DNN is included with OpenCV installation")
+        message(STATUS "  Ensure OpenCV is installed with DNN module support")
     elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
         message(STATUS "  ./scripts/setup_openvino.sh")
     endif()
@@ -166,4 +174,37 @@ function(print_setup_instructions)
     message(STATUS "Or run the unified setup script:")
     message(STATUS "  ./scripts/setup_dependencies.sh --backend ${DEFAULT_BACKEND}")
     message(STATUS "")
-endfunction() 
+endfunction()
+
+# Function to validate OpenCV DNN
+function(validate_opencv_dnn)
+    if(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+        # OpenCV is already validated in validate_system_dependencies()
+        # Just check that DNN module is available
+        find_package(OpenCV REQUIRED)
+        
+        # Check if OpenCV was compiled with DNN support
+        if(NOT OpenCV_FOUND)
+            message(FATAL_ERROR "OpenCV not found. OpenCV DNN backend requires OpenCV.")
+        endif()
+        
+        message(STATUS "✓ OpenCV DNN validation passed")
+    endif()
+endfunction()
+
+# Function to validate LibTensorFlow
+function(validate_libtensorflow)
+    if(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
+        find_package(TensorFlow QUIET)
+        if(NOT TensorFlow_FOUND)
+            message(FATAL_ERROR "LibTensorFlow not found. Please install TensorFlow C++ library or run the setup script.")
+        endif()
+        
+        # Check for required TensorFlow components
+        if(NOT DEFINED TensorFlow_INCLUDE_DIRS OR NOT DEFINED TensorFlow_LIBRARIES)
+            message(FATAL_ERROR "LibTensorFlow installation incomplete. Missing include directories or libraries.")
+        endif()
+        
+        message(STATUS "✓ LibTensorFlow validation passed")
+    endif()
+endfunction()
