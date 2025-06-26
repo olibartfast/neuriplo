@@ -202,10 +202,3 @@ When adding new inference backends:
 3. **Update setup_dependencies.sh**: Add installation logic
 4. **Create individual script**: Add backward compatibility script
 5. **Update documentation**: Document the new backend
-
-## Version History
-
-- **v1.0**: Initial centralized version management
-- **v1.1**: Added dependency validation system
-- **v1.2**: Added unified setup scripts
-- **v1.3**: Added backward compatibility scripts 
