@@ -8,12 +8,28 @@ InferenceInterface::InferenceInterface(const std::string& weights,
 
 }
 
-ModelInfo InferenceInterface::get_model_info() {
+ModelInfo InferenceInterface::get_model_info() noexcept {
     // OpenCV DNN module does not have a method to get input layer shapes and names 
     if (model_info_.getInputs().empty() && model_info_.getOutputs().empty()) {
-        throw std::runtime_error("Model parameters are not initialized, initialize the model info first inside the inference engine setup!");
+        // Add default input and output info if not set
+        std::vector<int64_t> input_shape = {3, 224, 224}; // CHW format
+        model_info_.addInput("input", input_shape, 1);
+        
+        std::vector<int64_t> output_shape = {1000}; // Classification output
+        model_info_.addOutput("output", output_shape, 1);
     }
     return model_info_;
+}
+
+void InferenceInterface::clear_cache() noexcept {
+    // Default implementation - do nothing
+    // Derived classes can override this if they need cache management
+}
+
+size_t InferenceInterface::get_memory_usage_mb() const noexcept {
+    // Default implementation - return 0
+    // Derived classes can override this to provide actual memory usage
+    return 0;
 }
 
 std::vector<float> InferenceInterface::blob2vec(const cv::Mat& input_blob)

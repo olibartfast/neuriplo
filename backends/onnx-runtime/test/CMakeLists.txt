@@ -20,9 +20,10 @@ target_link_libraries(ONNXRuntimeInferTest PRIVATE
     InferenceEngines
     ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so
     ${OpenCV_LIBS}
-    ${GLOG_LIBRARIES}
     gtest
     gtest_main
+    ${GLOG_LIBRARIES}
+    glog::glog
 )
 
 add_test(NAME ONNXRuntimeInferTest COMMAND ONNXRuntimeInferTest)
