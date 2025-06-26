@@ -3,6 +3,8 @@
 #include "InferenceInterface.hpp"
 #include <opencv2/opencv.hpp>
 #include <gmock/gmock.h>
+#include <chrono>
+#include <random>
 
 /**
  * Mock implementation of InferenceInterface for unit testing.
@@ -10,7 +12,13 @@
  */
 class MockInferenceInterface : public InferenceInterface {
 public:
-    MockInferenceInterface() : InferenceInterface("mock_model", false, 1, {}) {}
+    MockInferenceInterface() : InferenceInterface("mock_model", false, 1, {}) {
+        SetupDefaultExpectations();
+        // Initialize performance tracking
+        last_inference_time_ms_ = 0.0;
+        total_inferences_ = 0;
+        memory_usage_mb_ = 50; // Mock memory usage
+    }
     
     // Mock the main inference method
     MOCK_METHOD(
@@ -23,15 +31,42 @@ public:
     // Mock model info retrieval
     MOCK_METHOD(ModelInfo, get_model_info, (), (override));
     
+    // Mock performance methods
+    MOCK_METHOD(double, get_last_inference_time_ms, (), (const, override));
+    MOCK_METHOD(size_t, get_total_inferences, (), (const, override));
+    MOCK_METHOD(size_t, get_memory_usage_mb, (), (const, override));
+    MOCK_METHOD(void, clear_cache, (), (override));
+    
     // Helper method to set up common mock expectations
     void SetupDefaultExpectations() {
         // Default behavior for get_infer_results
         ON_CALL(*this, get_infer_results(testing::_))
-            .WillByDefault(testing::Return(CreateMockInferenceResult()));
+            .WillByDefault(testing::Invoke([this](const cv::Mat& input_blob) {
+                start_timer();
+                auto result = CreateMockInferenceResult();
+                end_timer();
+                total_inferences_++;
+                return result;
+            }));
         
         // Default behavior for get_model_info
         ON_CALL(*this, get_model_info())
             .WillByDefault(testing::Return(CreateMockModelInfo()));
+            
+        // Default performance behavior
+        ON_CALL(*this, get_last_inference_time_ms())
+            .WillByDefault(testing::Return(5.0)); // Mock 5ms inference time
+            
+        ON_CALL(*this, get_total_inferences())
+            .WillByDefault(testing::Return(total_inferences_));
+            
+        ON_CALL(*this, get_memory_usage_mb())
+            .WillByDefault(testing::Return(memory_usage_mb_));
+            
+        ON_CALL(*this, clear_cache())
+            .WillByDefault(testing::Invoke([this]() {
+                memory_usage_mb_ = 10; // Reduced memory after cache clear
+            }));
     }
     
     // Helper to create mock inference results
@@ -68,10 +103,42 @@ public:
         
         return mock_info;
     }
-};
-
-    // Helper to simulate different inference scenarios
-    void SimulateInferenceScenarios() {
+    
+    // Enhanced mock scenarios for comprehensive testing
+    void SetupPerformanceTestExpectations() {
+        using ::testing::_;
+        using ::testing::Return;
+        using ::testing::Invoke;
+        
+        // Simulate variable performance
+        ON_CALL(*this, get_infer_results(_))
+            .WillByDefault(Invoke([this](const cv::Mat& input_blob) {
+                start_timer();
+                
+                // Simulate processing time based on input size
+                size_t total_pixels = input_blob.total();
+                std::this_thread::sleep_for(std::chrono::microseconds(total_pixels / 100));
+                
+                auto result = CreateMockInferenceResult();
+                end_timer();
+                total_inferences_++;
+                return result;
+            }));
+    }
+    
+    void SetupMemoryLeakTestExpectations() {
+        using ::testing::_;
+        using ::testing::Invoke;
+        
+        // Simulate memory usage growth
+        ON_CALL(*this, get_infer_results(_))
+            .WillByDefault(Invoke([this](const cv::Mat& input_blob) {
+                memory_usage_mb_ += 1; // Simulate memory growth
+                return CreateMockInferenceResult();
+            }));
+    }
+    
+    void SetupErrorScenarios() {
         using ::testing::_;
         using ::testing::Return;
         using ::testing::Throw;
@@ -82,7 +149,22 @@ public:
         
         // Error scenario
         EXPECT_CALL(*this, get_infer_results(_))
-            .WillOnce(Throw(std::runtime_error("Mock inference error")));
+            .WillOnce(Throw(InferenceExecutionException("Mock inference error")));
+            
+        // Memory error
+        EXPECT_CALL(*this, get_infer_results(_))
+            .WillOnce(Throw(std::bad_alloc()));
+    }
+    
+    // Utility methods for testing
+    void ResetPerformanceCounters() {
+        last_inference_time_ms_ = 0.0;
+        total_inferences_ = 0;
+        memory_usage_mb_ = 50;
+    }
+    
+    void SimulateMemoryLeak() {
+        memory_usage_mb_ += 100; // Simulate significant memory leak
     }
 };
 
@@ -98,7 +180,6 @@ protected:
     void SetUp() override {
         // Create mock interface
         mock_interface = std::make_unique<MockInferenceInterface>();
-        mock_interface->SetupDefaultExpectations();
         
         // Create standard test input
         test_input_ = cv::Mat::zeros(224, 224, CV_32FC3);
@@ -108,6 +189,7 @@ protected:
     
     void TearDown() override {
         // Cleanup if needed
+        mock_interface.reset();
     }
     
     // Common test utilities
@@ -156,10 +238,35 @@ protected:
             // Ensure each element is one of the expected types
             ASSERT_TRUE(
                 std::holds_alternative<float>(element) ||
-                std::holds_alternative<double>(element) ||
                 std::holds_alternative<int32_t>(element) ||
                 std::holds_alternative<int64_t>(element)
             ) << "Tensor element should be of supported type";
         }
+    }
+    
+    // Performance testing utilities
+    void ValidatePerformanceMetrics(double max_time_ms = 100.0) {
+        ASSERT_GT(mock_interface->get_total_inferences(), 0) << "Should have executed at least one inference";
+        ASSERT_GT(mock_interface->get_last_inference_time_ms(), 0.0) << "Inference time should be positive";
+        ASSERT_LT(mock_interface->get_last_inference_time_ms(), max_time_ms) << "Inference time should be reasonable";
+    }
+    
+    void ValidateMemoryUsage(size_t max_memory_mb = 1000) {
+        size_t memory_usage = mock_interface->get_memory_usage_mb();
+        ASSERT_GT(memory_usage, 0) << "Memory usage should be positive";
+        ASSERT_LT(memory_usage, max_memory_mb) << "Memory usage should be reasonable";
+    }
+    
+    // Create various test inputs
+    cv::Mat CreateSmallTestInput() {
+        return cv::Mat::ones(64, 64, CV_8UC3) * 128;
+    }
+    
+    cv::Mat CreateLargeTestInput() {
+        return cv::Mat::ones(512, 512, CV_8UC3) * 128;
+    }
+    
+    cv::Mat CreateInvalidTestInput() {
+        return cv::Mat(); // Empty matrix
     }
 };

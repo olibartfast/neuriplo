@@ -29,6 +29,31 @@ set(TENSORRT_DIR "${DEFAULT_DEPENDENCY_ROOT}/TensorRT-${TENSORRT_VERSION}" CACHE
 set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch installation directory")
 set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino-${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
 
+# Version validation functions
+function(validate_version_found found_version required_version component_name)
+    if(found_version)
+        if(found_version VERSION_LESS required_version)
+            message(WARNING "${component_name} version ${found_version} is older than required ${required_version}")
+            return()
+        endif()
+        message(STATUS "${component_name} version ${found_version} meets requirements (>= ${required_version})")
+    else()
+        message(WARNING "${component_name} version not found, but ${required_version} or higher is required")
+    endif()
+endfunction()
+
+function(validate_version_exact found_version expected_version component_name)
+    if(found_version)
+        if(NOT found_version VERSION_EQUAL expected_version)
+            message(WARNING "${component_name} version ${found_version} differs from expected ${expected_version}")
+            return()
+        endif()
+        message(STATUS "${component_name} version ${found_version} matches expected version")
+    else()
+        message(WARNING "${component_name} version not found, expected ${expected_version}")
+    endif()
+endfunction()
+
 # Print version information for debugging
 message(STATUS "=== InferenceEngines Dependency Versions ===")
 message(STATUS "ONNX Runtime: ${ONNX_RUNTIME_VERSION}")

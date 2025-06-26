@@ -1,21 +1,29 @@
 #!/bin/bash
 
-# Test Results Analysis Script
-# Demonstrates the effectiveness of the hybrid testing approach
+# Enhanced Test Results Analyzer for InferenceEngines
+# Analyzes test results and generates comprehensive reports
 
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_RESULTS_DIR="$WORKSPACE_ROOT/test_results"
+set -e
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Project root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
+REPORTS_DIR="$PROJECT_ROOT/reports"
+
+# Supported backends
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO")
+
+# Log functions
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -32,226 +40,524 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to analyze test results and demonstrate hybrid approach benefits
-analyze_hybrid_test_results() {
-    log_info "Analyzing Hybrid Test Results..."
-    echo ""
+log_performance() {
+    echo -e "${PURPLE}[PERFORMANCE]${NC} $1"
+}
+
+log_memory() {
+    echo -e "${CYAN}[MEMORY]${NC} $1"
+}
+
+# Function to get backend directory name
+get_backend_dir() {
+    local backend=$1
+    case $backend in
+        "OPENCV_DNN") echo "opencv-dnn" ;;
+        "ONNX_RUNTIME") echo "onnx-runtime" ;;
+        "LIBTORCH") echo "libtorch" ;;
+        "LIBTENSORFLOW") echo "libtensorflow" ;;
+        "TENSORRT") echo "tensorrt" ;;
+        "OPENVINO") echo "openvino" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+# Function to analyze XML test results
+analyze_xml_results() {
+    local backend=$1
+    local backend_dir=$(get_backend_dir $backend)
+    local xml_file="${TEST_RESULTS_DIR}/${backend_dir}_results.xml"
     
-    local total_backends=0
-    local backends_with_real_models=0
-    local backends_with_dummy_models=0
-    local backends_mock_only=0
-    local total_unit_tests=0
-    local total_integration_tests=0
-    
-    echo "┌─────────────────────────────────────────────────────────────────┐"
-    echo "│                     HYBRID TEST ANALYSIS                       │"
-    echo "├─────────────────────────────────────────────────────────────────┤"
-    printf "│ %-15s │ %-12s │ %-8s │ %-8s │ %-8s │\n" "Backend" "Model Type" "Unit" "Integ." "Status"
-    echo "├─────────────────────────────────────────────────────────────────┤"
-    
-    # Analyze each backend
-    for backend in OPENCV_DNN ONNX_RUNTIME LIBTORCH LIBTENSORFLOW TENSORRT OPENVINO; do
-        total_backends=$((total_backends + 1))
-        
-        local backend_lower=$(echo "$backend" | tr '[:upper:]' '[:lower:]')
-        local result_file="$TEST_RESULTS_DIR/${backend_lower}_results.xml"
-        local model_type="❌ None"
-        local unit_count="0"
-        local integration_count="0"
-        local status="❌ FAIL"
-        
-        if [ -f "$result_file" ]; then
-            # Count test types
-            unit_count=$(grep -c "Unit_" "$result_file" 2>/dev/null || echo "0")
-            integration_count=$(grep -c "Integration_" "$result_file" 2>/dev/null || echo "0")
-            
-            total_unit_tests=$((total_unit_tests + unit_count))
-            total_integration_tests=$((total_integration_tests + integration_count))
-            
-            # Determine model type based on test output
-            if grep -q "real model available" "$result_file" 2>/dev/null; then
-                model_type="🎯 Real"
-                backends_with_real_models=$((backends_with_real_models + 1))
-            elif grep -q "dummy model" "$result_file" 2>/dev/null; then
-                model_type="🔧 Dummy"
-                backends_with_dummy_models=$((backends_with_dummy_models + 1))
-            elif [ "$unit_count" -gt 0 ]; then
-                model_type="🎭 Mock"
-                backends_mock_only=$((backends_mock_only + 1))
-            fi
-            
-            # Check if tests passed
-            if grep -q 'failures="0"' "$result_file" && grep -q 'errors="0"' "$result_file"; then
-                status="✅ PASS"
-            fi
-        fi
-        
-        printf "│ %-15s │ %-12s │ %-8s │ %-8s │ %-8s │\n" \
-               "$backend" "$model_type" "$unit_count" "$integration_count" "$status"
-    done
-    
-    echo "└─────────────────────────────────────────────────────────────────┘"
-    echo ""
-    
-    # Summary statistics
-    echo "📊 HYBRID APPROACH STATISTICS:"
-    echo "├─ Total Backends Tested: $total_backends"
-    echo "├─ With Real Models: $backends_with_real_models ($(( backends_with_real_models * 100 / total_backends ))%)"
-    echo "├─ With Dummy Models: $backends_with_dummy_models ($(( backends_with_dummy_models * 100 / total_backends ))%)"
-    echo "├─ Mock-Only: $backends_mock_only ($(( backends_mock_only * 100 / total_backends ))%)"
-    echo "├─ Total Unit Tests: $total_unit_tests"
-    echo "└─ Total Integration Tests: $total_integration_tests"
-    echo ""
-    
-    # Calculate reliability score
-    local reliability_score=0
-    if [ $total_backends -gt 0 ]; then
-        reliability_score=$(( (backends_with_real_models * 100 + backends_with_dummy_models * 80 + backends_mock_only * 60) / total_backends ))
+    if [ ! -f "$xml_file" ]; then
+        echo "NOT_TESTED"
+        return
     fi
     
-    echo "🎯 RELIABILITY SCORE: $reliability_score/100"
-    echo ""
+    # Parse XML using grep and awk
+    local total_tests=$(grep 'tests=' "$xml_file" | head -1 | grep -o 'tests="[^"]*"' | cut -d'"' -f2)
+    local failures=$(grep 'failures=' "$xml_file" | head -1 | grep -o 'failures="[^"]*"' | cut -d'"' -f2)
+    local errors=$(grep 'errors=' "$xml_file" | head -1 | grep -o 'errors="[^"]*"' | cut -d'"' -f2)
+    local skipped=$(grep 'skipped=' "$xml_file" | head -1 | grep -o 'skipped="[^"]*"' | cut -d'"' -f2)
     
-    # Demonstrate hybrid approach benefits
-    demonstrate_hybrid_benefits
+    if [ -z "$total_tests" ]; then
+        echo "PARSE_ERROR"
+        return
+    fi
+    
+    if [ "$failures" = "0" ] && [ "$errors" = "0" ]; then
+        echo "PASSED"
+    else
+        echo "FAILED"
+    fi
 }
 
-demonstrate_hybrid_benefits() {
-    log_info "Demonstrating Hybrid Approach Benefits..."
-    echo ""
+# Function to analyze performance results
+analyze_performance_results() {
+    local backend=$1
+    local backend_dir=$(get_backend_dir $backend)
+    local perf_file="${TEST_RESULTS_DIR}/${backend_dir}_performance.log"
     
-    cat << 'EOF'
-🏆 HYBRID TESTING APPROACH BENEFITS:
-
-1. 🛡️  ROBUSTNESS
-   ├─ Tests never fail due to missing models
-   ├─ Always have at least mock-based coverage
-   └─ Graceful degradation when models unavailable
-
-2. ⚡ SPEED & EFFICIENCY
-   ├─ Mock tests execute instantly (< 1ms)
-   ├─ No dependency on external model downloads
-   └─ Parallel test execution possible
-
-3. 🎯 COMPREHENSIVE COVERAGE
-   ├─ Unit tests: Component logic isolation
-   ├─ Integration tests: End-to-end validation
-   └─ Edge cases: Error handling and boundaries
-
-4. 🚀 CI/CD FRIENDLY
-   ├─ Works in any environment
-   ├─ No special setup requirements
-   └─ Consistent results across platforms
-
-5. 👨‍💻 DEVELOPER EXPERIENCE
-   ├─ Fast local testing
-   ├─ Clear test categorization
-   └─ Immediate feedback on code changes
-
-6. 📈 SCALABILITY
-   ├─ Easy to add new backends
-   ├─ Modular test structure
-   └─ Reusable test components
-
-EOF
-
-    # Show test execution timeline
-    show_test_timeline
+    if [ ! -f "$perf_file" ]; then
+        echo "NO_DATA"
+        return
+    fi
+    
+    # Extract performance metrics
+    local avg_time=$(grep "Average inference time" "$perf_file" | awk '{print $NF}' | head -1)
+    local throughput=$(grep "Throughput" "$perf_file" | awk '{print $NF}' | head -1)
+    local memory_usage=$(grep "Memory usage" "$perf_file" | awk '{print $NF}' | head -1)
+    
+    if [ -z "$avg_time" ]; then
+        echo "NO_DATA"
+        return
+    fi
+    
+    # Determine performance rating
+    local rating="UNKNOWN"
+    if [ ! -z "$avg_time" ] && [ ! -z "$throughput" ]; then
+        local avg_time_num=$(echo "$avg_time" | sed 's/[^0-9.]//g')
+        local throughput_num=$(echo "$throughput" | sed 's/[^0-9.]//g')
+        
+        if (( $(echo "$avg_time_num < 10" | bc -l) )) && (( $(echo "$throughput_num > 50" | bc -l) )); then
+            rating="EXCELLENT"
+        elif (( $(echo "$avg_time_num < 50" | bc -l) )) && (( $(echo "$throughput_num > 10" | bc -l) )); then
+            rating="GOOD"
+        elif (( $(echo "$avg_time_num < 200" | bc -l) )) && (( $(echo "$throughput_num > 5" | bc -l) )); then
+            rating="ACCEPTABLE"
+        else
+            rating="POOR"
+        fi
+    fi
+    
+    echo "$rating|$avg_time|$throughput|$memory_usage"
 }
 
-show_test_timeline() {
-    echo ""
-    log_info "Test Execution Timeline Example:"
-    echo ""
+# Function to analyze memory leak results
+analyze_memory_results() {
+    local backend=$1
+    local backend_dir=$(get_backend_dir $backend)
+    local memory_file="${TEST_RESULTS_DIR}/${backend_dir}_memory.log"
     
-    cat << 'EOF'
-⏱️  TYPICAL TEST EXECUTION FLOW:
-
-├─ 00:00-00:01  Model Discovery Phase
-│  ├─ Check for downloaded models
-│  ├─ Attempt model generation
-│  └─ Fallback to mock strategy
-│
-├─ 00:01-00:05  Unit Test Phase (Mock-based)
-│  ├─ ✅ Always executes (< 50ms total)
-│  ├─ Tests API contracts
-│  ├─ Tests error handling
-│  └─ Tests edge cases
-│
-├─ 00:05-00:30  Integration Test Phase (Conditional)
-│  ├─ ✅ Real models: Full validation
-│  ├─ ⚠️  Dummy models: Basic validation
-│  └─ ⏭️  No models: Skipped gracefully
-│
-└─ 00:30+       Cleanup & Reporting
-   ├─ Model cleanup (if temporary)
-   ├─ Result aggregation
-   └─ Summary generation
-
-TOTAL TIME: 30s-2min (vs 5-15min traditional approach)
-RELIABILITY: 100% (vs 60-80% model-dependent approach)
-EOF
+    if [ ! -f "$memory_file" ]; then
+        echo "NO_DATA"
+        return
+    fi
+    
+    if grep -q "memory leak detected" "$memory_file"; then
+        echo "LEAK_DETECTED"
+    elif grep -q "No memory leaks detected" "$memory_file"; then
+        echo "NO_LEAK"
+    else
+        echo "UNKNOWN"
+    fi
 }
 
-# Function to show recommended usage patterns
-show_usage_patterns() {
-    echo ""
-    log_info "Recommended Usage Patterns:"
-    echo ""
+# Function to analyze stress test results
+analyze_stress_results() {
+    local backend=$1
+    local backend_dir=$(get_backend_dir $backend)
+    local stress_file="${TEST_RESULTS_DIR}/${backend_dir}_stress.log"
     
-    cat << 'EOF'
-🔧 DEVELOPMENT WORKFLOW:
+    if [ ! -f "$stress_file" ]; then
+        echo "NO_DATA"
+        return
+    fi
+    
+    if grep -q "FAILED" "$stress_file"; then
+        echo "FAILED"
+    elif grep -q "PASSED" "$stress_file" || grep -q "passed" "$stress_file"; then
+        echo "PASSED"
+    else
+        echo "UNKNOWN"
+    fi
+}
 
-1. QUICK FEEDBACK LOOP
-   $ ./scripts/test_backends.sh --unit-only
-   └─ Runs only mock tests (~5 seconds)
-
-2. FULL VALIDATION
-   $ ./scripts/test_backends.sh --all
-   └─ Runs both unit and integration tests
-
-3. CI/CD PIPELINE
-   $ ./scripts/test_backends.sh --ci-mode
-   └─ Optimized for continuous integration
-
-4. SPECIFIC BACKEND
-   $ ./scripts/test_backends.sh --backend OPENCV_DNN
-   └─ Test single backend only
-
-5. MODEL DEBUGGING
-   $ ./scripts/test_backends.sh --integration-only --verbose
-   └─ Focus on model-related issues
-
+# Function to generate comprehensive report
+generate_comprehensive_report() {
+    local report_file="${REPORTS_DIR}/comprehensive_report_$(date +%Y%m%d_%H%M%S).html"
+    
+    mkdir -p "$REPORTS_DIR"
+    
+    cat > "$report_file" << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>InferenceEngines Test Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { background-color: #f0f0f0; padding: 20px; border-radius: 5px; }
+        .summary { margin: 20px 0; }
+        .backend { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .passed { border-left: 5px solid #4CAF50; }
+        .failed { border-left: 5px solid #f44336; }
+        .not-tested { border-left: 5px solid #ff9800; }
+        .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 10px 0; }
+        .metric { background-color: #f9f9f9; padding: 10px; border-radius: 3px; }
+        .performance { background-color: #e3f2fd; }
+        .memory { background-color: #f3e5f5; }
+        .stress { background-color: #fff3e0; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .status-passed { color: #4CAF50; font-weight: bold; }
+        .status-failed { color: #f44336; font-weight: bold; }
+        .status-unknown { color: #ff9800; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>InferenceEngines Test Report</h1>
+        <p>Generated on: $(date)</p>
+        <p>Project: InferenceEngines</p>
+    </div>
+    
+    <div class="summary">
+        <h2>Executive Summary</h2>
+        <table>
+            <tr>
+                <th>Backend</th>
+                <th>Test Status</th>
+                <th>Performance</th>
+                <th>Memory</th>
+                <th>Stress Test</th>
+            </tr>
 EOF
+    
+    # Generate summary table
+    for backend in "${BACKENDS[@]}"; do
+        local backend_dir=$(get_backend_dir $backend)
+        local test_status=$(analyze_xml_results $backend)
+        local perf_data=$(analyze_performance_results $backend)
+        local memory_status=$(analyze_memory_results $backend)
+        local stress_status=$(analyze_stress_results $backend)
+        
+        # Parse performance data
+        local perf_rating="NO_DATA"
+        local avg_time="N/A"
+        local throughput="N/A"
+        local memory_usage="N/A"
+        
+        if [[ "$perf_data" != "NO_DATA" ]]; then
+            IFS='|' read -r perf_rating avg_time throughput memory_usage <<< "$perf_data"
+        fi
+        
+        # Determine CSS class
+        local css_class="not-tested"
+        if [ "$test_status" = "PASSED" ]; then
+            css_class="passed"
+        elif [ "$test_status" = "FAILED" ]; then
+            css_class="failed"
+        fi
+        
+        cat >> "$report_file" << EOF
+            <tr class="$css_class">
+                <td>$backend</td>
+                <td class="status-$([ "$test_status" = "PASSED" ] && echo "passed" || echo "failed")">$test_status</td>
+                <td>$perf_rating</td>
+                <td>$memory_status</td>
+                <td>$stress_status</td>
+            </tr>
+EOF
+    done
+    
+    cat >> "$report_file" << 'EOF'
+        </table>
+    </div>
+    
+    <div class="details">
+        <h2>Detailed Analysis</h2>
+EOF
+    
+    # Generate detailed analysis for each backend
+    for backend in "${BACKENDS[@]}"; do
+        local backend_dir=$(get_backend_dir $backend)
+        local test_status=$(analyze_xml_results $backend)
+        local perf_data=$(analyze_performance_results $backend)
+        local memory_status=$(analyze_memory_results $backend)
+        local stress_status=$(analyze_stress_results $backend)
+        
+        # Parse performance data
+        local perf_rating="NO_DATA"
+        local avg_time="N/A"
+        local throughput="N/A"
+        local memory_usage="N/A"
+        
+        if [[ "$perf_data" != "NO_DATA" ]]; then
+            IFS='|' read -r perf_rating avg_time throughput memory_usage <<< "$perf_data"
+        fi
+        
+        # Determine CSS class
+        local css_class="not-tested"
+        if [ "$test_status" = "PASSED" ]; then
+            css_class="passed"
+        elif [ "$test_status" = "FAILED" ]; then
+            css_class="failed"
+        fi
+        
+        cat >> "$report_file" << EOF
+        <div class="backend $css_class">
+            <h3>$backend</h3>
+            <div class="metrics">
+                <div class="metric">
+                    <strong>Test Status:</strong> $test_status
+                </div>
+                <div class="metric performance">
+                    <strong>Performance Rating:</strong> $perf_rating<br>
+                    <strong>Avg Time:</strong> $avg_time ms<br>
+                    <strong>Throughput:</strong> $throughput fps
+                </div>
+                <div class="metric memory">
+                    <strong>Memory Status:</strong> $memory_status<br>
+                    <strong>Memory Usage:</strong> $memory_usage MB
+                </div>
+                <div class="metric stress">
+                    <strong>Stress Test:</strong> $stress_status
+                </div>
+            </div>
+EOF
+        
+        # Add detailed logs if available
+        local test_log="${TEST_RESULTS_DIR}/${backend_dir}_test.log"
+        if [ -f "$test_log" ]; then
+            cat >> "$report_file" << EOF
+            <details>
+                <summary>Test Log</summary>
+                <pre>$(head -50 "$test_log")</pre>
+            </details>
+EOF
+        fi
+        
+        cat >> "$report_file" << 'EOF'
+        </div>
+EOF
+    done
+    
+    cat >> "$report_file" << 'EOF'
+    </div>
+</body>
+</html>
+EOF
+    
+    log_success "Comprehensive HTML report generated: $report_file"
+}
+
+# Function to generate performance comparison chart
+generate_performance_chart() {
+    local chart_file="${REPORTS_DIR}/performance_comparison_$(date +%Y%m%d_%H%M%S).csv"
+    
+    mkdir -p "$REPORTS_DIR"
+    
+    # CSV header
+    echo "Backend,Avg_Time_ms,Throughput_fps,Memory_Usage_MB,Performance_Rating" > "$chart_file"
+    
+    # Data for each backend
+    for backend in "${BACKENDS[@]}"; do
+        local perf_data=$(analyze_performance_results $backend)
+        
+        if [[ "$perf_data" != "NO_DATA" ]]; then
+            IFS='|' read -r perf_rating avg_time throughput memory_usage <<< "$perf_data"
+            echo "$backend,$avg_time,$throughput,$memory_usage,$perf_rating" >> "$chart_file"
+        else
+            echo "$backend,N/A,N/A,N/A,NO_DATA" >> "$chart_file"
+        fi
+    done
+    
+    log_success "Performance comparison CSV generated: $chart_file"
+}
+
+# Function to generate summary statistics
+generate_summary_stats() {
+    local stats_file="${REPORTS_DIR}/summary_stats_$(date +%Y%m%d_%H%M%S).txt"
+    
+    mkdir -p "$REPORTS_DIR"
+    
+    {
+        echo "InferenceEngines Test Summary Statistics"
+        echo "Generated on: $(date)"
+        echo "========================================="
+        echo ""
+        
+        # Count test results
+        local total_backends=${#BACKENDS[@]}
+        local passed_count=0
+        local failed_count=0
+        local not_tested_count=0
+        
+        for backend in "${BACKENDS[@]}"; do
+            local status=$(analyze_xml_results $backend)
+            case $status in
+                "PASSED") ((passed_count++)) ;;
+                "FAILED") ((failed_count++)) ;;
+                *) ((not_tested_count++)) ;;
+            esac
+        done
+        
+        echo "Test Results Summary:"
+        echo "  Total Backends: $total_backends"
+        echo "  Passed: $passed_count"
+        echo "  Failed: $failed_count"
+        echo "  Not Tested: $not_tested_count"
+        echo "  Success Rate: $((passed_count * 100 / total_backends))%"
+        echo ""
+        
+        # Performance statistics
+        echo "Performance Analysis:"
+        local perf_count=0
+        local total_avg_time=0
+        local total_throughput=0
+        local total_memory=0
+        
+        for backend in "${BACKENDS[@]}"; do
+            local perf_data=$(analyze_performance_results $backend)
+            if [[ "$perf_data" != "NO_DATA" ]]; then
+                IFS='|' read -r perf_rating avg_time throughput memory_usage <<< "$perf_data"
+                if [[ "$avg_time" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+                    total_avg_time=$(echo "$total_avg_time + $avg_time" | bc -l)
+                    total_throughput=$(echo "$total_throughput + $throughput" | bc -l)
+                    total_memory=$(echo "$total_memory + $memory_usage" | bc -l)
+                    ((perf_count++))
+                fi
+            fi
+        done
+        
+        if [ $perf_count -gt 0 ]; then
+            local avg_inference_time=$(echo "scale=2; $total_avg_time / $perf_count" | bc -l)
+            local avg_throughput=$(echo "scale=2; $total_throughput / $perf_count" | bc -l)
+            local avg_memory=$(echo "scale=2; $total_memory / $perf_count" | bc -l)
+            
+            echo "  Backends with Performance Data: $perf_count"
+            echo "  Average Inference Time: ${avg_inference_time}ms"
+            echo "  Average Throughput: ${avg_throughput}fps"
+            echo "  Average Memory Usage: ${avg_memory}MB"
+        else
+            echo "  No performance data available"
+        fi
+        echo ""
+        
+        # Memory leak analysis
+        echo "Memory Leak Analysis:"
+        local no_leak_count=0
+        local leak_count=0
+        local memory_unknown_count=0
+        
+        for backend in "${BACKENDS[@]}"; do
+            local memory_status=$(analyze_memory_results $backend)
+            case $memory_status in
+                "NO_LEAK") ((no_leak_count++)) ;;
+                "LEAK_DETECTED") ((leak_count++)) ;;
+                *) ((memory_unknown_count++)) ;;
+            esac
+        done
+        
+        echo "  No Memory Leaks: $no_leak_count"
+        echo "  Memory Leaks Detected: $leak_count"
+        echo "  Unknown Memory Status: $memory_unknown_count"
+        echo ""
+        
+        # Recommendations
+        echo "Recommendations:"
+        if [ $failed_count -gt 0 ]; then
+            echo "  - Investigate failed backends and fix issues"
+        fi
+        if [ $leak_count -gt 0 ]; then
+            echo "  - Address memory leaks in affected backends"
+        fi
+        if [ $not_tested_count -gt 0 ]; then
+            echo "  - Set up testing environment for untested backends"
+        fi
+        if [ $perf_count -gt 0 ]; then
+            echo "  - Consider performance optimization for slow backends"
+        fi
+        
+    } > "$stats_file"
+    
+    log_success "Summary statistics generated: $stats_file"
+}
+
+# Function to show help
+show_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "Options:"
+    echo "  --html-report       Generate comprehensive HTML report"
+    echo "  --performance-chart Generate performance comparison CSV"
+    echo "  --summary-stats     Generate summary statistics"
+    echo "  --all               Generate all reports"
+    echo "  --help              Show this help message"
 }
 
 # Main execution
 main() {
-    echo "🧪 InferenceEngines Hybrid Test Analysis"
-    echo "=========================================="
-    echo ""
+    log_info "Starting Enhanced Test Results Analysis"
     
-    # Create results directory if it doesn't exist
-    mkdir -p "$TEST_RESULTS_DIR"
+    # Parse command line arguments
+    local generate_html=false
+    local generate_chart=false
+    local generate_stats=false
     
-    # Analyze results if available
-    if [ -d "$TEST_RESULTS_DIR" ] && [ "$(ls -A "$TEST_RESULTS_DIR"/*.xml 2>/dev/null | wc -l)" -gt 0 ]; then
-        analyze_hybrid_test_results
-    else
-        log_warning "No test results found. Run test_backends.sh first."
-        echo ""
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --html-report)
+                generate_html=true
+                shift
+                ;;
+            --performance-chart)
+                generate_chart=true
+                shift
+                ;;
+            --summary-stats)
+                generate_stats=true
+                shift
+                ;;
+            --all)
+                generate_html=true
+                generate_chart=true
+                generate_stats=true
+                shift
+                ;;
+            --help)
+                show_help
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+    
+    # If no specific option provided, generate all reports
+    if [ "$generate_html" = false ] && [ "$generate_chart" = false ] && [ "$generate_stats" = false ]; then
+        generate_html=true
+        generate_chart=true
+        generate_stats=true
     fi
     
-    # Show benefits and usage patterns
-    show_usage_patterns
+    # Check if test results directory exists
+    if [ ! -d "$TEST_RESULTS_DIR" ]; then
+        log_error "Test results directory not found: $TEST_RESULTS_DIR"
+        log_info "Run tests first using: ./scripts/test_backends.sh"
+        exit 1
+    fi
     
-    echo ""
-    log_success "Analysis complete! The hybrid approach provides:"
-    echo "✅ Maximum test coverage and reliability"
-    echo "✅ Fast feedback for developers" 
-    echo "✅ CI/CD compatibility"
-    echo "✅ Graceful degradation when models unavailable"
+    # Generate reports
+    if [ "$generate_html" = true ]; then
+        log_info "Generating comprehensive HTML report..."
+        generate_comprehensive_report
+    fi
+    
+    if [ "$generate_chart" = true ]; then
+        log_info "Generating performance comparison chart..."
+        generate_performance_chart
+    fi
+    
+    if [ "$generate_stats" = true ]; then
+        log_info "Generating summary statistics..."
+        generate_summary_stats
+    fi
+    
+    log_success "Analysis completed successfully!"
+    log_info "Reports available in: $REPORTS_DIR"
 }
 
 # Run main function
