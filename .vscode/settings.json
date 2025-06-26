@@ -69,6 +69,10 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "format": "cpp",
-        "shared_mutex": "cpp"
+        "shared_mutex": "cpp",
+        "any": "cpp",
+        "codecvt": "cpp",
+        "semaphore": "cpp",
+        "__nullptr": "cpp"
     }
 }
