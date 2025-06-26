@@ -172,10 +172,14 @@ check_backend_availability() {
         "TENSORRT")
             local tensorrt_dir_pattern="${HOME}/TensorRT-*"
             local alt_tensorrt_dir="/usr/local/TensorRT"
+            local deps_tensorrt_dir="${HOME}/dependencies/TensorRT-10.7.0.23"
             local expected_version="$TENSORRT_VERSION"
             
             if [ -d "${HOME}/TensorRT-${expected_version}" ]; then
                 log_success "TensorRT ${expected_version} found (exact match)"
+                return 0
+            elif [ -d "$deps_tensorrt_dir" ]; then
+                log_success "TensorRT found in dependencies directory"
                 return 0
             elif [ -d "$alt_tensorrt_dir" ]; then
                 # Check version if possible from version.json if it exists
@@ -372,6 +376,8 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DONNX_RUNTIME_DIR="$HOME/dependencies/onnxruntime-linux-x64-gpu-$ONNX_RUNTIME_VERSION" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "LIBTORCH" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTorch_DIR="$HOME/dependencies/libtorch-2.0.1/share/cmake/Torch" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "TENSORRT" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTENSORRT_DIR="$HOME/dependencies/TensorRT-10.7.0.23" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi

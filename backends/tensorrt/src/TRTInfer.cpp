@@ -18,7 +18,42 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
   batch_size_ = batch_size;
   initializeBuffers(model_path);
   populateModelInfo(input_sizes);
+  std::cout << "TRTInfer constructor finished!" << std::endl;
 }
+
+TRTInfer::~TRTInfer() {
+  std::cout << "TRTInfer destructor called!" << std::endl;
+  for (size_t i = 0; i < buffers_.size(); ++i)
+  {
+    void* buffer = buffers_[i];
+    std::cout << "  Freeing buffer[" << i << "]: " << buffer << std::endl;
+    if (buffer) {
+      cudaError_t err = cudaFree(buffer);
+      if (err != cudaSuccess) {
+        std::cerr << "    cudaFree failed for buffer[" << i << "]: " << cudaGetErrorString(err) << std::endl;
+      } else {
+        std::cout << "    cudaFree succeeded for buffer[" << i << "]" << std::endl;
+      }
+      buffers_[i] = nullptr;
+    } else {
+      std::cout << "    buffer[" << i << "] is nullptr, skipping." << std::endl;
+    }
+  }
+  std::cout << "  Deleting context_: " << context_ << std::endl;
+  if (context_) {
+    delete context_;
+    context_ = nullptr;
+  }
+  std::cout << "  Resetting engine_ (shared_ptr)..." << std::endl;
+  engine_.reset();
+  std::cout << "  Deleting runtime_: " << runtime_ << std::endl;
+  if (runtime_) {
+    delete runtime_;
+    runtime_ = nullptr;
+  }
+  std::cout << "TRTInfer destructor finished!" << std::endl;
+}
+
 void TRTInfer::initializeBuffers(const std::string& engine_path)
 {
   // Create TensorRT runtime
@@ -63,8 +98,10 @@ void TRTInfer::createContextAndAllocateBuffers()
   context_ = engine_->createExecutionContext();
   int num_tensors = engine_->getNbIOTensors();
   buffers_.resize(num_tensors);
-  input_tensor_names_.resize(num_tensors);
-  output_tensor_names_.resize(num_tensors);
+  input_tensor_names_.clear();
+  output_tensor_names_.clear();
+  num_inputs_ = 0;
+  num_outputs_ = 0;
 
   for (int i = 0; i < num_tensors; ++i)
   {
@@ -95,13 +132,13 @@ void TRTInfer::createContextAndAllocateBuffers()
     if (engine_->getTensorIOMode(tensor_name.c_str()) == nvinfer1::TensorIOMode::kINPUT)
     {
       LOG(INFO) << "Input tensor " << num_inputs_ << ": " << tensor_name;
-      input_tensor_names_[num_inputs_] = tensor_name;
+      input_tensor_names_.push_back(tensor_name);
       num_inputs_++;
     }
     else
     {
       LOG(INFO) << "Output tensor " << num_outputs_ << ": " << tensor_name;
-      output_tensor_names_[num_outputs_] = tensor_name;
+      output_tensor_names_.push_back(tensor_name);
       num_outputs_++;
     }
   }
@@ -109,9 +146,15 @@ void TRTInfer::createContextAndAllocateBuffers()
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
-  // Convert the input image to a blob swapping channels order from hwc to chw
+  // Check if input is already a blob (4D tensor) or needs conversion
   cv::Mat blob;
-  cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+  if (preprocessed_img.dims == 4) {
+    // Input is already a blob, use it directly
+    blob = preprocessed_img;
+  } else {
+    // Convert the input image to a blob swapping channels order from hwc to chw
+    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+  }
 
   for (size_t i = 0; i < num_inputs_; ++i)
   {
@@ -257,6 +300,8 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
 
 void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_sizes) {
     bool dynamic_axis_detected = false;
+    
+    // Process input tensors
     for (int i = 0; i < num_inputs_; ++i) {
         std::string tensor_name = input_tensor_names_[i];
         nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
@@ -291,6 +336,7 @@ void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_
         model_info_.addInput(tensor_name, shape, batch_size_);
     }
 
+    // Process output tensors
     for (int i = 0; i < num_outputs_; ++i) {
         std::string tensor_name = output_tensor_names_[i];
         nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
