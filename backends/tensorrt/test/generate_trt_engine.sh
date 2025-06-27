@@ -56,7 +56,7 @@ echo "Converting ONNX to TensorRT engine..."
 trtexec --onnx=resnet18.onnx \
         --saveEngine=resnet18.engine \
         --fp16 \
-        --workspace=1024 \
+        --memPoolSize=workspace:1024M \
         --verbose
 
 if [ -f "resnet18.engine" ]; then
