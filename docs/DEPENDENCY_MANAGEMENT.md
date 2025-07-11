@@ -1,15 +1,6 @@
 # Dependency Management for InferenceEngines
 
-This document describes the improved dependency management system for the InferenceEngines library, which provides a unified approach to managing inference backend dependencies.
-
-## Overview
-
-The InferenceEngines library has been enhanced with a centralized dependency management system that provides:
-
-- **Centralized Version Management**: All inference backend versions are managed in a single file
-- **Dependency Validation**: Automatic validation of installed dependencies
-- **Unified Setup Scripts**: Easy installation of inference backend dependencies
-- **Backward Compatibility**: Existing scripts continue to work
+This document describes dependency management system for the InferenceEngines library, which provides a unified approach to managing inference backend dependencies.
 
 ## Architecture
 
@@ -28,7 +19,7 @@ set(TENSORFLOW_VERSION "2.13.0" CACHE STRING "TensorFlow version")
 
 ### Dependency Validation
 
-The `cmake/DependencyValidation.cmake` module provides comprehensive validation:
+The `cmake/DependencyValidation.cmake` module provides validation:
 
 - **System Dependencies**: OpenCV, glog, CMake version
 - **Inference Backends**: ONNX Runtime, TensorRT, LibTorch, OpenVINO
@@ -57,7 +48,7 @@ The main setup script `scripts/setup_dependencies.sh` supports all inference bac
 
 #### Individual Backend Scripts
 
-For backward compatibility, individual scripts are available:
+Individual scripts are available:
 
 - `scripts/setup_onnx_runtime.sh`
 - `scripts/setup_tensorrt.sh`
@@ -134,16 +125,11 @@ export OPENVINO_DIR="$HOME/dependencies/openvino-2023.1.0"
 - GStreamer support for video processing
 
 ### Linux (CentOS/RHEL/Fedora)
-- Full support for all inference backends
-- Automatic system dependency installation
+- Not tested on these distros
 
 ### Windows
-- Limited support (requires manual dependency installation)
-- Path configuration for Windows-specific installations
+- Not tested/not installed
 
-### macOS
-- Limited support (requires manual dependency installation)
-- Homebrew-based installation recommended
 
 ## Troubleshooting
 
