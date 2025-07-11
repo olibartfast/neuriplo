@@ -1,7 +1,6 @@
 #pragma once
 #include "InferenceInterface.hpp"
 #include <tensorflow/cc/saved_model/loader.h>
-#include <tensorflow/cc/saved_model/tag_constants.h>
 #include <tensorflow/core/framework/tensor.h>
 #include <tensorflow/core/public/session.h>
 #include "opencv2/opencv.hpp"
@@ -15,11 +14,15 @@ public:
         const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
 
     ~TFDetectionAPI() {
-        tensorflow::Status status = session_->Close();
-        if (!status.ok()) {
-            std::cerr << "Error closing TensorFlow session: " << status.ToString() << std::endl;
+        if (session_) {
+            tensorflow::Status status = session_->Close();
+            if (!status.ok()) {
+                std::cerr << "Warning: Error closing TensorFlow session: " << status.ToString() << std::endl;
+            }
         }
     }
+
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;
 
 private:
 
@@ -30,5 +33,4 @@ private:
     std::string input_name_;
     std::vector<std::string> output_names_;
     
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const cv::Mat& input_blob) override;    
 };

@@ -6,7 +6,7 @@ set(ONNX_RUNTIME_VERSION "1.19.2" CACHE STRING "ONNX Runtime version")
 set(TENSORRT_VERSION "10.7.0.23" CACHE STRING "TensorRT version")
 set(LIBTORCH_VERSION "2.0.0" CACHE STRING "LibTorch version")
 set(OPENVINO_VERSION "2023.1.0" CACHE STRING "OpenVINO version")
-set(TENSORFLOW_VERSION "2.13.0" CACHE STRING "TensorFlow version")
+set(TENSORFLOW_VERSION "2.19.0" CACHE STRING "TensorFlow version")
 
 # CUDA Version (for GPU support)
 set(CUDA_VERSION "12.6" CACHE STRING "CUDA version for GPU support")

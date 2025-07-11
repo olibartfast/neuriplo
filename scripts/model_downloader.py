@@ -291,9 +291,9 @@ class ModelDownloader:
         
         logger.error("All OpenVINO conversion attempts failed")
         return None
-    
+        
     def generate_tensorflow_savedmodel(self):
-        """Generate TensorFlow SavedModel."""
+        """Generate TensorFlow SavedModel using pretrained ResNet from model zoo."""
         saved_model_dir = os.path.join(self.temp_dir, "saved_model")
         
         if os.path.exists(saved_model_dir):
@@ -302,47 +302,50 @@ class ModelDownloader:
         
         try:
             import tensorflow as tf
+            import tensorflow_hub as hub
             
-            logger.info("Generating TensorFlow SavedModel...")
+            logger.info("Attempting to load pretrained ResNet model for TensorFlow SavedModel...")
             
-            # Create a simple ResNet-18 like model
-            inputs = tf.keras.Input(shape=(224, 224, 3), name='input')
-            
-            # Simple CNN layers (ResNet-18 inspired)
-            x = tf.keras.layers.Conv2D(64, 7, strides=2, padding='same', activation='relu')(inputs)
-            x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
-            
-            # Basic residual blocks
-            for filters in [64, 128, 256, 512]:
-                residual = x
-                x = tf.keras.layers.Conv2D(filters, 3, padding='same', activation='relu')(x)
-                x = tf.keras.layers.Conv2D(filters, 3, padding='same')(x)
+            # Try TensorFlow Hub for a pretrained ResNet18 (or closest available)
+            hub_url = "https://tfhub.dev/google/imagenet/resnet_v2_50/classification/5"  # Using ResNet50 as ResNet18 is rare
+            try:
+                logger.info("Trying TensorFlow Hub for pretrained ResNet...")
+                model = tf.keras.Sequential([
+                    hub.KerasLayer(hub_url, input_shape=(224, 224, 3))
+                ])
+                logger.info("Loaded pretrained ResNet from TensorFlow Hub")
+            except Exception as hub_e:
+                logger.warning(f"Failed to load from TensorFlow Hub: {hub_e}")
+                logger.info("Trying Keras Applications ResNet50...")
                 
-                if residual.shape[-1] != filters:
-                    residual = tf.keras.layers.Conv2D(filters, 1, padding='same')(residual)
-                    
-                x = tf.keras.layers.Add()([x, residual])
-                x = tf.keras.layers.Activation('relu')(x)
-                x = tf.keras.layers.MaxPooling2D(2)(x)
+                # Try Keras Applications ResNet50
+                try:
+                    model = tf.keras.applications.ResNet50(
+                        include_top=True,
+                        weights='imagenet',
+                        input_shape=(224, 224, 3),
+                        classes=1000
+                    )
+                    logger.info("Loaded pretrained ResNet50 from Keras Applications")
+                except Exception as keras_e:
+                    logger.error(f"Failed to load ResNet50 from Keras Applications: {keras_e}")
+                    logger.error("No pretrained model available")
+                    return None
             
-            x = tf.keras.layers.GlobalAveragePooling2D()(x)
-            outputs = tf.keras.layers.Dense(1000, activation='softmax', name='output')(x)
-            
-            model = tf.keras.Model(inputs=inputs, outputs=outputs)
-            model.compile(optimizer='adam', loss='categorical_crossentropy')
-            
-            # Save as SavedModel
-            tf.saved_model.save(model, saved_model_dir)
+            # Save as TensorFlow SavedModel
+            tf.keras.models.save_model(model, saved_model_dir, save_format='tf')
             
             logger.info(f"Generated TensorFlow SavedModel: {saved_model_dir}")
             return saved_model_dir
             
         except ImportError:
-            logger.error("TensorFlow not available, cannot generate SavedModel")
+            logger.error("TensorFlow or TensorFlow Hub not available, cannot generate SavedModel")
             return None
         except Exception as e:
             logger.error(f"Failed to generate TensorFlow SavedModel: {e}")
             return None
+            
+        
     
     def convert_to_torchscript(self, onnx_path=None):
         """Generate or convert to TorchScript model."""

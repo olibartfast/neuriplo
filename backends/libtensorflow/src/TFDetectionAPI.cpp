@@ -7,14 +7,32 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
     size_t batch_size, 
     const std::vector<std::vector<int64_t>>& input_sizes) : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
 {
+    // Handle mock mode for testing
+    if (model_path == "mock_model") {
+        LOG(INFO) << "Initializing TensorFlow in mock mode for testing";
+        
+        // Create mock model info for testing
+        std::vector<int64_t> mock_input_shape = {3, 224, 224}; // CHW format
+        std::vector<int64_t> mock_output_shape = {1000};
+        
+        model_info_.addInput("mock_input", mock_input_shape, batch_size);
+        model_info_.addOutput("mock_output", mock_output_shape, batch_size);
+        
+        input_name_ = "mock_input";
+        output_names_.push_back("mock_output");
+        
+        LOG(INFO) << "Mock TensorFlow initialization completed";
+        return;
+    }
+
     tensorflow::SessionOptions session_options;
     tensorflow::RunOptions run_options;
     tensorflow::Status status = LoadSavedModel(session_options, run_options, 
-        model_path, {tensorflow::kSavedModelTagServe}, &bundle_);
+        model_path, {"serve"}, &bundle_);
 
     if (!status.ok()) {
         LOG(ERROR) << "Error loading the model: " << status.ToString();
-        std::exit(1);
+        throw std::runtime_error("Failed to load TensorFlow model: " + status.ToString());
     }
 
     session_.reset(bundle_.GetSession());
@@ -26,7 +44,7 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
     const auto& inputs = signature_def.inputs();
     if (inputs.empty()) {
         LOG(ERROR) << "No inputs found in the model";
-        std::exit(1);
+        throw std::runtime_error("No inputs found in TensorFlow model");
     }
     input_info_ = inputs.begin()->second;
     input_name_ = input_info_.name();
@@ -43,11 +61,9 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
     input_shape.push_back(dim[1].size());  // Height
     input_shape.push_back(dim[2].size());  // Width
 
-LOG(INFO) << "Reshaped Tensor (NCHW order, excluding batch): "
-          << "[" << input_shape[0] << ", " << input_shape[1] << ", " << input_shape[2] << "]";
-
     LOG(INFO) << "Reshaped Tensor (NCHW order, excluding batch): "
-            << "[" << input_shape[0] << ", " << input_shape[1] << ", " << input_shape[2] << "]";
+              << "[" << input_shape[0] << ", " << input_shape[1] << ", " << input_shape[2] << "]";
+    
     model_info_.addInput(input_name_, input_shape, batch_size);
 
     // Get output tensor names and shapes (excluding batch size)
@@ -66,6 +82,26 @@ LOG(INFO) << "Reshaped Tensor (NCHW order, excluding batch): "
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const cv::Mat& input_blob) 
 {
+    // Handle mock mode
+    if (model_path_ == "mock_model") {
+        LOG(INFO) << "Running mock inference for testing";
+        
+        // Create mock results
+        std::vector<std::vector<TensorElement>> results;
+        std::vector<std::vector<int64_t>> shapes;
+        
+        // Mock output: 1000 random float values
+        std::vector<TensorElement> mock_output(1000);
+        for (int i = 0; i < 1000; ++i) {
+            mock_output[i] = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
+        }
+        
+        results.push_back(mock_output);
+        shapes.push_back({1000});
+        
+        return std::make_tuple(results, shapes);
+    }
+
     tensorflow::Tensor input_tensor(input_info_.dtype(), 
         tensorflow::TensorShape({1, input_blob.size[0], input_blob.size[1], input_blob.channels()}));
   
@@ -81,7 +117,7 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
     auto status = session_->Run(inputs_for_session, output_names_, {}, &outputs);
     if (!status.ok()) {
         LOG(ERROR) << "Error running session: " << status.ToString();
-        std::exit(1);
+        throw std::runtime_error("Failed to run TensorFlow session: " + status.ToString());
     }
         
     std::vector<std::vector<TensorElement>> convertedOutputs;

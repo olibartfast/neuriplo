@@ -86,3 +86,4 @@ coverage/
 # Valgrind output
 *.vglog
 temp_test_env
+tensorflow_build_env/

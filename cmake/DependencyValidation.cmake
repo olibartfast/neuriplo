@@ -195,6 +195,9 @@ endfunction()
 # Function to validate LibTensorFlow
 function(validate_libtensorflow)
     if(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
+        # Add cmake modules path to find our custom FindTensorFlow.cmake
+        list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
+        
         find_package(TensorFlow QUIET)
         if(NOT TensorFlow_FOUND)
             message(FATAL_ERROR "LibTensorFlow not found. Please install TensorFlow C++ library or run the setup script.")
