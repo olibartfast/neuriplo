@@ -35,4 +35,3 @@ add_test(NAME TensorFlowInferTest COMMAND TensorFlowInferTest)
 
 # Copy scripts to the build directory
 configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_tf_model.py  ${CMAKE_CURRENT_BINARY_DIR}/generate_tf_model.py COPYONLY)
-configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_minimal_model.py  ${CMAKE_CURRENT_BINARY_DIR}/generate_minimal_model.py COPYONLY)

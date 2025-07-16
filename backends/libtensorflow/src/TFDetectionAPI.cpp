@@ -17,7 +17,7 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
         throw std::runtime_error("Failed to load TensorFlow model: " + status.ToString());
     }
 
-    session_.reset(bundle_.GetSession());
+    // session_ is not needed since we can use bundle_.GetSession() directly
 
     // Get the SignatureDef
     const auto& signature_def = bundle_.GetSignatures().at("serving_default");
@@ -51,23 +51,59 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
     // Get output tensor names and shapes (excluding batch size)
     LOG(INFO) << "Tensor output names and shapes:";
     for (const auto& output : signature_def.outputs()) {
-        output_names_.push_back(output.second.name());
-        LOG(INFO) << output.second.name();
+        if (!output.second.has_name()) {
+            LOG(WARNING) << "Output tensor missing name, skipping";
+            continue;
+        }
+        
+        std::string output_name = output.second.name();
+        output_names_.push_back(output_name);
+        LOG(INFO) << output_name;
 
         std::vector<int64_t> output_shape;
-        for (int i = 1; i < output.second.tensor_shape().dim_size(); ++i) { // Start from index 1 to skip batch size
-            output_shape.push_back(output.second.tensor_shape().dim(i).size());
+        if (output.second.has_tensor_shape()) {
+            const auto& tensor_shape = output.second.tensor_shape();
+            for (int i = 1; i < tensor_shape.dim_size(); ++i) { // Start from index 1 to skip batch size
+                if (i < tensor_shape.dim_size()) {
+                    output_shape.push_back(tensor_shape.dim(i).size());
+                }
             }
-        model_info_.addOutput(output.second.name(), output_shape, batch_size);
+        }
+        model_info_.addOutput(output_name, output_shape, batch_size);
     }
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const cv::Mat& input_blob) 
 {
+    // The input_blob from cv::dnn::blobFromImage is in NCHW format (batch, channels, height, width)
+    // TensorFlow expects NHWC format (batch, height, width, channels)
+    // So we need to transpose from NCHW to NHWC
+    
+    int batch_size = input_blob.size[0];
+    int channels = input_blob.size[1];
+    int height = input_blob.size[2];
+    int width = input_blob.size[3];
+    
+    // Create tensor with proper shape for NHWC format
     tensorflow::Tensor input_tensor(input_info_.dtype(), 
-        tensorflow::TensorShape({1, input_blob.size[0], input_blob.size[1], input_blob.channels()}));
+        tensorflow::TensorShape({batch_size, height, width, channels}));
   
-    std::memcpy(input_tensor.flat<float>().data(), input_blob.data, input_blob.total() * input_blob.elemSize());
+    // Copy data with NCHW to NHWC transpose
+    auto tensor_data = input_tensor.flat<float>().data();
+    const float* blob_data = input_blob.ptr<float>();
+    
+    // Transpose from NCHW to NHWC
+    for (int b = 0; b < batch_size; ++b) {
+        for (int h = 0; h < height; ++h) {
+            for (int w = 0; w < width; ++w) {
+                for (int c = 0; c < channels; ++c) {
+                    int nchw_idx = b * channels * height * width + c * height * width + h * width + w;
+                    int nhwc_idx = b * height * width * channels + h * width * channels + w * channels + c;
+                    tensor_data[nhwc_idx] = blob_data[nchw_idx];
+                }
+            }
+        }
+    }
 
     // Prepare inputs for running the session
     std::vector<std::pair<std::string, tensorflow::Tensor>> inputs_for_session = {
@@ -76,7 +112,7 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
 
     // Run the inference
     std::vector<tensorflow::Tensor> outputs;
-    auto status = session_->Run(inputs_for_session, output_names_, {}, &outputs);
+    auto status = bundle_.GetSession()->Run(inputs_for_session, output_names_, {}, &outputs);
     if (!status.ok()) {
         LOG(ERROR) << "Error running session: " << status.ToString();
         throw std::runtime_error("Failed to run TensorFlow session: " + status.ToString());
