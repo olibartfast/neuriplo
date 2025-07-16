@@ -87,3 +87,4 @@ coverage/
 *.vglog
 temp_test_env
 tensorflow_build_env/
+backends/libtensorflow/test/saved_model/

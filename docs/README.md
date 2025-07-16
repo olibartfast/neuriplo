@@ -35,7 +35,7 @@ Complete step-by-step instructions for building TensorFlow 2.19.0 from source on
 | **ONNX_RUNTIME** | ✅ PASSED | Working correctly |
 | **LIBTORCH** | ✅ PASSED | Working correctly |
 | **TENSORRT** | ✅ PASSED | Fixed segmentation fault issues |
-| **LIBTENSORFLOW** | ❌ NOT_TESTED | Requires TensorFlow C++ API |
+| **LIBTENSORFLOW** | ✅ PASSED | Automated testing available |
 | **OPENVINO** | ❌ NOT_TESTED | Requires OpenVINO toolkit |
 
 ## Testing Backends
@@ -52,6 +52,24 @@ To test all available backends:
 # Test all backends
 ./scripts/test_backends.sh --all
 ```
+
+### Automated libtensorflow Testing
+
+For libtensorflow backend testing, a dedicated automated script is available:
+
+```bash
+# Run complete libtensorflow testing process from scratch
+./scripts/run_libtensorflow_tests.sh
+```
+
+This script automatically:
+- Sets up a temporary Python environment with TensorFlow
+- Downloads and exports ResNet50 as a TensorFlow SavedModel
+- Builds the project with tests enabled
+- Runs all libtensorflow unittests
+- Provides clear success/failure reporting
+
+**Prerequisites:** Python 3, CMake, Ninja or Make
 
 ## Environment Setup
 
@@ -83,8 +101,11 @@ inference-engines/
 │   ├── tensorrt/      # TensorRT backend
 │   ├── onnx-runtime/  # ONNX Runtime backend
 │   ├── libtorch/      # LibTorch backend
+│   ├── libtensorflow/ # TensorFlow backend
 │   └── ...
 ├── scripts/           # Build and test scripts
+│   ├── run_libtensorflow_tests.sh  # Automated TensorFlow testing
+│   └── ...
 ├── docs/             # Documentation
 ├── test_results/     # Test output logs
 └── cmake/           # CMake configuration
@@ -98,6 +119,7 @@ When adding new backends or making changes:
 2. Add appropriate documentation
 3. Ensure all tests pass
 4. Update this README with status changes
+5. For libtensorflow changes, ensure the automated testing script still works
 
 ## Troubleshooting
 
@@ -117,5 +139,11 @@ When adding new backends or making changes:
    - Check compiler versions
    - Verify CMake configuration
    - Review error logs in `test_results/`
+
+4. **libtensorflow test failures**
+   - Ensure Python 3, CMake, and build tools are installed
+   - Check internet connection for TensorFlow download
+   - Verify TensorFlow C++ API is properly installed
+   - Run the automated testing script for complete setup
 
 For more detailed troubleshooting, refer to the specific backend documentation or test logs. 

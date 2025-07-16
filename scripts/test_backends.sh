@@ -150,8 +150,13 @@ check_backend_availability() {
             ;;
         "LIBTENSORFLOW")
             local expected_version="$TENSORFLOW_VERSION"
+            local tensorflow_dir="${HOME}/dependencies/tensorflow"
             
-            if pkg-config --exists tensorflow; then
+            # Check for custom TensorFlow installation
+            if [ -d "$tensorflow_dir" ]; then
+                log_success "TensorFlow found in dependencies directory"
+                return 0
+            elif pkg-config --exists tensorflow; then
                 # Check version if possible
                 local installed_version=$(pkg-config --modversion tensorflow 2>/dev/null || echo "unknown")
                 if [ "$installed_version" != "unknown" ]; then
@@ -271,7 +276,8 @@ get_test_executable_name() {
 run_performance_benchmark() {
     local backend=$1
     local backend_dir=$(get_backend_dir $backend)
-    local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${backend_dir}InferTest"
+    local test_executable_name=$(get_test_executable_name $backend)
+    local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${test_executable_name}"
     
     if [ -f "$test_executable" ]; then
         log_performance "Running performance benchmark for $backend..."
@@ -303,7 +309,8 @@ run_performance_benchmark() {
 run_memory_leak_detection() {
     local backend=$1
     local backend_dir=$(get_backend_dir $backend)
-    local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${backend_dir}InferTest"
+    local test_executable_name=$(get_test_executable_name $backend)
+    local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${test_executable_name}"
     
     if [ -f "$test_executable" ]; then
         log_memory "Running memory leak detection for $backend..."
@@ -329,7 +336,8 @@ run_memory_leak_detection() {
 run_stress_test() {
     local backend=$1
     local backend_dir=$(get_backend_dir $backend)
-    local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${backend_dir}InferTest"
+    local test_executable_name=$(get_test_executable_name $backend)
+    local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${test_executable_name}"
     
     if [ -f "$test_executable" ]; then
         log_info "Running stress test for $backend..."
@@ -382,8 +390,12 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi
         
-        # Build the project
-        make -j$PARALLEL_JOBS >> "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        # Build the project using available build system
+        if command -v ninja >/dev/null 2>&1; then
+            ninja >> "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        else
+            make -j$PARALLEL_JOBS >> "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        fi
         
         if [ $? -ne 0 ]; then
             log_error "Build failed for $backend"
@@ -391,6 +403,59 @@ test_backend() {
         fi
         
         log_success "Build completed for $backend"
+    fi
+    
+    # Setup TensorFlow model if needed
+    if [ "$backend" = "LIBTENSORFLOW" ]; then
+        log_info "Setting up TensorFlow model for testing..."
+        cd "$BUILD_DIR"
+        
+        # Check if model already exists
+        if [ ! -d "saved_model" ]; then
+            # Create temporary Python environment
+            python3 -m venv /tmp/tf_test_env
+            source /tmp/tf_test_env/bin/activate
+            
+            # Install TensorFlow
+            pip install --upgrade pip > /dev/null 2>&1
+            pip install tensorflow tensorflow-hub > /dev/null 2>&1
+            
+            # Generate SavedModel
+            cat > generate_saved_model.py << 'EOF'
+#!/usr/bin/env python3
+import tensorflow as tf
+from tensorflow import keras
+import os
+
+def generate_saved_model():
+    """Generate a TensorFlow SavedModel using ResNet50 from Keras Applications."""
+    print("Loading ResNet50 model from Keras Applications...")
+    model = keras.applications.ResNet50(weights='imagenet')
+    saved_model_path = 'saved_model'
+    print(f"Exporting model to {saved_model_path}...")
+    model.export(saved_model_path)
+    print(f"SavedModel successfully created at: {saved_model_path}")
+
+if __name__ == "__main__":
+    generate_saved_model()
+EOF
+            
+            python3 generate_saved_model.py > "${TEST_RESULTS_DIR}/${backend_dir}_model_generation.log" 2>&1
+            
+            # Cleanup
+            rm -f generate_saved_model.py
+            deactivate
+            rm -rf /tmp/tf_test_env
+            
+            if [ ! -d "saved_model" ]; then
+                log_error "Failed to generate TensorFlow model"
+                return 1
+            fi
+        fi
+        
+        # Create model_path.txt for the test
+        echo "$BUILD_DIR/saved_model" > "$BUILD_DIR/model_path.txt"
+        log_success "TensorFlow model setup completed"
     fi
     
     # Run tests
