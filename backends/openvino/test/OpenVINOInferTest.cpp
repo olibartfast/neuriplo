@@ -160,17 +160,15 @@ TEST_F(OpenVINOInferTest, DynamicShapes) {
     // Test with different input sizes to check dynamic shape support
     std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
     
-    ASSERT_NO_THROW({
-        OVInfer infer(model_path, false, 1, input_sizes);
-        
-        // Test inference with standard input
-        cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::Mat blob;
-        cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-        
-        auto [output_vectors, shape_vectors] = infer.get_infer_results(blob);
-        ASSERT_FALSE(output_vectors.empty());
-    });
+    OVInfer infer(model_path, false, 1, input_sizes);
+    
+    // Test inference with standard input
+    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
+    cv::Mat blob;
+    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
+    
+    auto [output_vectors, shape_vectors] = infer.get_infer_results(blob);
+    ASSERT_FALSE(output_vectors.empty());
 }
 
 int main(int argc, char **argv) {
