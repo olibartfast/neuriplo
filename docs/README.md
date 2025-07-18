@@ -17,6 +17,13 @@ Comprehensive guide for setting up and managing all backend dependencies.
 ### [Testing Design](TESTING_DESIGN.md)
 Detailed documentation of the testing framework and methodology.
 
+**Features:**
+- Unified testing framework architecture
+- Backend-specific test patterns and requirements
+- Automated model generation and testing
+- Performance benchmarking guidelines
+- Integration testing strategies
+
 ## Testing Backends
 
 To test all available backends:
@@ -68,8 +75,19 @@ The OpenVINO backend includes:
 - CPU and GPU device support with graceful fallback
 - Comprehensive test coverage including performance and memory tests
 - Integration with the unified testing framework
+- **Docker-based testing environment** (see `docker/README.openvino.md`)
 
 **Prerequisites:** Python 3, CMake, Ninja or Make, OpenVINO toolkit
+
+**Docker Testing:**
+```bash
+# Quick start with Docker
+./docker/run_openvino_tests.sh
+
+# Build and run separately
+./docker/run_openvino_tests.sh --build-only
+./docker/run_openvino_tests.sh --run-only
+```
 
 ## Environment Setup
 
