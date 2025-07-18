@@ -17,24 +17,6 @@ Comprehensive guide for setting up and managing all backend dependencies.
 ### [Testing Design](TESTING_DESIGN.md)
 Detailed documentation of the testing framework and methodology.
 
-**Features:**
-- Unified testing framework architecture
-- Backend-specific test patterns and requirements
-- Automated model generation and testing
-- Performance benchmarking guidelines
-- Integration testing strategies
-
-## Backend Testing Status
-
-| Backend | Status | Notes |
-|---------|--------|-------|
-| **OPENCV_DNN** | ✅ PASSED | Working correctly |
-| **ONNX_RUNTIME** | ✅ PASSED | Working correctly |
-| **LIBTORCH** | ✅ PASSED | Working correctly |
-| **TENSORRT** | ✅ PASSED | Fixed segmentation fault issues |
-| **LIBTENSORFLOW** | ✅ PASSED | Automated testing available |
-| **OPENVINO** | ✅ PASSED | Fully validated on Intel CPU with GPU fallback |
-
 ## Testing Backends
 
 To test all available backends:
