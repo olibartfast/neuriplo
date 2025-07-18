@@ -59,9 +59,12 @@ The project includes comprehensive automated testing for all backends:
 ./scripts/test_backends.sh
 
 # Test specific backend
-./scripts/test_backends.sh --backend OPENVINO
-./scripts/test_backends.sh --backend LIBTENSORFLOW
+./scripts/test_backends.sh --backend OPENCV_DNN
+./scripts/test_backends.sh --backend ONNX_RUNTIME
+./scripts/test_backends.sh --backend LIBTORCH
 ./scripts/test_backends.sh --backend TENSORRT
+./scripts/test_backends.sh --backend LIBTENSORFLOW
+./scripts/test_backends.sh --backend OPENVINO
 ```
 
 #### TensorFlow Backend Testing
