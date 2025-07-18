@@ -1,0 +1,142 @@
+# docker build --rm -t inference-engines:openvino -f docker/Dockerfile.openvino .
+# docker run --rm inference-engines:openvino
+
+# Stage 1: Base image with OpenVINO dependencies
+FROM ubuntu:24.04 AS base
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OPENVINO_VERSION=2025.2.0.19140
+ENV OPENVINO_FILENAME=openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64.tgz
+ENV OPENVINO_DIR=/opt/openvino_${OPENVINO_VERSION}
+
+# Install system dependencies
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential=12.* \
+    libopencv-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    wget \
+    git \
+    curl \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    ninja-build \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Install OpenVINO
+FROM base AS openvino_install
+
+# Download and install OpenVINO
+RUN wget --tries=3 --retry-connrefused \
+    https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/${OPENVINO_FILENAME} \
+    && tar -xzf ${OPENVINO_FILENAME} -C /opt \
+    && rm ${OPENVINO_FILENAME}
+
+# Set OpenVINO environment variables
+ENV OPENVINO_DIR=/opt/openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64
+ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
+ENV LD_LIBRARY_PATH=${OPENVINO_DIR}/lib:${LD_LIBRARY_PATH:-}
+ENV PYTHONPATH=${OPENVINO_DIR}/python:${PYTHONPATH:-}
+
+# Create a local Python virtual environment for OpenVINO tools
+RUN echo "Setting up OpenVINO Python tools..." && \
+    python3 -m venv "${OPENVINO_DIR}/python_env" && \
+    . "${OPENVINO_DIR}/python_env/bin/activate" && \
+    pip install openvino-dev
+
+# Stage 3: Install Python dependencies for testing
+FROM openvino_install AS python_deps
+
+# Create and activate virtual environment for testing
+RUN python3 -m venv /opt/test_env
+ENV PATH=/opt/test_env/bin:$PATH
+
+# Install Python dependencies for model generation and testing
+RUN pip install --upgrade pip && \
+    pip install \
+    torch \
+    torchvision \
+    onnx \
+    numpy \
+    opencv-python \
+    pytest \
+    pytest-cov \
+    pytest-mock \
+    pytest-benchmark \
+    pytest-xdist \
+    coverage \
+    pytest-html \
+    pytest-json-report
+
+# Stage 4: Build application
+FROM python_deps AS builder
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Build the project with OpenVINO backend and tests enabled
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=OPENVINO \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DOPENVINO_DIR=${OPENVINO_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 5: Generate test models
+FROM builder AS model_generator
+
+# Set OpenVINO environment variables for model generation
+ENV OPENVINO_DIR=/opt/openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64
+ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
+ENV LD_LIBRARY_PATH=${OPENVINO_DIR}/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
+ENV PYTHONPATH=${OPENVINO_DIR}/python:${PYTHONPATH:-}
+
+# Copy model generation scripts to build directory
+RUN cp backends/openvino/test/export_torchvision_classifier.py build/backends/openvino/test/ && \
+    cp backends/openvino/test/generate_openvino_ir.sh build/backends/openvino/test/ && \
+    chmod +x build/backends/openvino/test/generate_openvino_ir.sh
+
+# Generate ONNX model and OpenVINO IR
+WORKDIR /app/build/backends/openvino/test
+RUN . /opt/test_env/bin/activate && \
+    python3 export_torchvision_classifier.py && \
+    . ${OPENVINO_DIR}/python_env/bin/activate && \
+    LD_LIBRARY_PATH=${OPENVINO_DIR}/runtime/lib/intel64:$LD_LIBRARY_PATH ./generate_openvino_ir.sh
+
+# Stage 6: Final runtime image for testing
+FROM openvino_install AS final
+
+# Create non-root user
+RUN useradd -m testuser && \
+    mkdir -p /app && \
+    chown -R testuser:testuser /app
+
+# Copy built binaries and test files
+COPY --from=model_generator --chown=testuser:appuser /app/build /app/build
+COPY --from=model_generator --chown=testuser:appuser /app/backends/openvino/test /app/backends/openvino/test
+COPY --from=model_generator --chown=testuser:appuser /app/build/backends/openvino/test/resnet18.xml /app/
+COPY --from=model_generator --chown=testuser:appuser /app/build/backends/openvino/test/resnet18.bin /app/
+
+# Set working directory
+WORKDIR /app
+
+# Switch to test user
+USER testuser
+
+# Set library path
+ENV LD_LIBRARY_PATH=/app/build/lib:$LD_LIBRARY_PATH
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/build/lib/libInferenceEngines.so || exit 1
+
+# Default command to run OpenVINO tests
+CMD ["/app/build/backends/openvino/test/OpenVINOInferTest"] 
