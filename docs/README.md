@@ -2,30 +2,27 @@
 
 This directory contains comprehensive documentation for building and setting up the inference engines project.
 
-## Available Guides
+## Available Documentation
 
-### [TensorFlow Build Guide](TENSORFLOW_BUILD_GUIDE.md)
-Complete step-by-step instructions for building TensorFlow 2.19.0 from source on Ubuntu Linux systems.
+### [Dependency Management](DEPENDENCY_MANAGEMENT.md)
+Comprehensive guide for setting up and managing all backend dependencies.
 
 **Features:**
-- Detailed prerequisites and system requirements
-- Step-by-step installation of Bazel, Clang, and other dependencies
-- Configuration for CPU-only and GPU builds
-- Troubleshooting guide for common issues
-- Performance optimization tips
-- Version compatibility matrix
+- Step-by-step installation for all inference backends
+- Environment setup and configuration
+- Version compatibility and requirements
+- Troubleshooting common installation issues
+- Automated setup scripts for each backend
 
-**Quick Start:**
-```bash
-# Check system requirements
-./scripts/setup_tensorflow.sh --check-only
+### [Testing Design](TESTING_DESIGN.md)
+Detailed documentation of the testing framework and methodology.
 
-# Setup environment only
-./scripts/setup_tensorflow.sh --setup-only
-
-# Complete build and installation
-./scripts/setup_tensorflow.sh
-```
+**Features:**
+- Unified testing framework architecture
+- Backend-specific test patterns and requirements
+- Automated model generation and testing
+- Performance benchmarking guidelines
+- Integration testing strategies
 
 ## Backend Testing Status
 
@@ -36,7 +33,7 @@ Complete step-by-step instructions for building TensorFlow 2.19.0 from source on
 | **LIBTORCH** | ✅ PASSED | Working correctly |
 | **TENSORRT** | ✅ PASSED | Fixed segmentation fault issues |
 | **LIBTENSORFLOW** | ✅ PASSED | Automated testing available |
-| **OPENVINO** | ❌ NOT_TESTED | Requires OpenVINO toolkit |
+| **OPENVINO** | ✅ PASSED | Fully validated on Intel CPU with GPU fallback |
 
 ## Testing Backends
 
@@ -53,10 +50,21 @@ To test all available backends:
 ./scripts/test_backends.sh --all
 ```
 
-### Automated libtensorflow Testing
+### Automated Backend Testing
 
-For libtensorflow backend testing, a dedicated automated script is available:
+The project includes comprehensive automated testing for all backends:
 
+```bash
+# Test all backends with unified framework
+./scripts/test_backends.sh
+
+# Test specific backend
+./scripts/test_backends.sh --backend OPENVINO
+./scripts/test_backends.sh --backend LIBTENSORFLOW
+./scripts/test_backends.sh --backend TENSORRT
+```
+
+#### TensorFlow Backend Testing
 ```bash
 # Run complete libtensorflow testing process from scratch
 ./scripts/run_libtensorflow_tests.sh
@@ -69,7 +77,14 @@ This script automatically:
 - Runs all libtensorflow unittests
 - Provides clear success/failure reporting
 
-**Prerequisites:** Python 3, CMake, Ninja or Make
+#### OpenVINO Backend Testing
+The OpenVINO backend includes:
+- Automatic IR model generation from ONNX
+- CPU and GPU device support with graceful fallback
+- Comprehensive test coverage including performance and memory tests
+- Integration with the unified testing framework
+
+**Prerequisites:** Python 3, CMake, Ninja or Make, OpenVINO toolkit
 
 ## Environment Setup
 
@@ -93,6 +108,17 @@ cd backends/tensorrt/test
 ./generate_trt_engine.sh
 ```
 
+### OpenVINO Setup
+```bash
+# Set OpenVINO environment variables
+export OPENVINO_DIR=/home/oli/dependencies/openvino_2025.2.0
+export PATH=$OPENVINO_DIR/bin:$OPENVINO_DIR/python_env/bin:$PATH
+
+# Generate OpenVINO IR models
+cd backends/openvino/test
+./generate_openvino_ir.sh
+```
+
 ## Project Structure
 
 ```
@@ -102,9 +128,11 @@ inference-engines/
 │   ├── onnx-runtime/  # ONNX Runtime backend
 │   ├── libtorch/      # LibTorch backend
 │   ├── libtensorflow/ # TensorFlow backend
-│   └── ...
+│   ├── openvino/      # OpenVINO backend
+│   └── opencv-dnn/    # OpenCV DNN backend
 ├── scripts/           # Build and test scripts
-│   ├── run_libtensorflow_tests.sh  # Automated TensorFlow testing
+│   ├── test_backends.sh           # Unified backend testing
+│   ├── run_libtensorflow_tests.sh # Automated TensorFlow testing
 │   └── ...
 ├── docs/             # Documentation
 ├── test_results/     # Test output logs
@@ -120,6 +148,8 @@ When adding new backends or making changes:
 3. Ensure all tests pass
 4. Update this README with status changes
 5. For libtensorflow changes, ensure the automated testing script still works
+6. For OpenVINO changes, ensure IR model generation works correctly
+7. Follow the unified testing framework patterns established in `test_backends.sh`
 
 ## Troubleshooting
 
@@ -145,5 +175,11 @@ When adding new backends or making changes:
    - Check internet connection for TensorFlow download
    - Verify TensorFlow C++ API is properly installed
    - Run the automated testing script for complete setup
+
+5. **OpenVINO test failures**
+   - Ensure OpenVINO toolkit is properly installed
+   - Check that IR model generation scripts work
+   - Verify OpenVINO environment variables are set
+   - Ensure ONNX dependencies are available for model conversion
 
 For more detailed troubleshooting, refer to the specific backend documentation or test logs. 
