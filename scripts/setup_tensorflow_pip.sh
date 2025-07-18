@@ -12,17 +12,33 @@ VENV_DIR="$DEPENDENCIES_DIR/tensorflow_env"
 
 # Parse arguments
 CLEAN_INSTALL=false
+FORCE=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -v|--version) TENSORFLOW_VERSION="$2"; shift 2 ;;
         -c|--clean) CLEAN_INSTALL=true; shift ;;
-        -h|--help) echo "Usage: $0 [-v VERSION] [-c] [-h]"; exit 0 ;;
+        -f|--force) FORCE=true; shift ;;
+        -h|--help) 
+            echo "Usage: $0 [-v VERSION] [-c] [-f] [-h]"
+            echo "Options:"
+            echo "  -v, --version VERSION  TensorFlow version (default: $TENSORFLOW_VERSION)"
+            echo "  -c, --clean            Clean install (remove existing installation)"
+            echo "  -f, --force            Force reinstall even if already installed"
+            echo "  -h, --help             Show this help message"
+            exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
 # Check Python
 command -v python3 &>/dev/null || { echo "Python 3 required"; exit 1; }
+
+# Check if already installed and not forcing
+if [[ -d "$TENSORFLOW_DIR" && "$FORCE" != "true" && "$CLEAN_INSTALL" != "true" ]]; then
+    echo "TensorFlow C++ libraries already installed at $TENSORFLOW_DIR"
+    echo "Use -f to force reinstall or -c for clean install"
+    exit 0
+fi
 
 # Clean if requested
 [[ "$CLEAN_INSTALL" == "true" ]] && rm -rf "$TENSORFLOW_DIR" "$VENV_DIR"
