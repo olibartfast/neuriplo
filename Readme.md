@@ -13,20 +13,41 @@
 - OpenCV
 - glog
 
-### A backend between (In parentheses, version tested in this project):
-* OpenCV DNN module (4.11.0) 
-* ONNX Runtime (1.19.2 gpu package)
-* LibTorch (2.0.1-cu118)
-* TensorRT (10.0.7.23)
-* OpenVino (2024.1)
-* Libtensorflow (2.13) only inference on saved models, not graph
+### Supported Backends (In parentheses, version tested in this project):
+* OpenCV DNN module (4.11.0) ✅
+* ONNX Runtime (1.19.2 gpu package) ✅
+* LibTorch (2.0.1-cu118) ✅
+* TensorRT (10.0.7.23) ✅
+* OpenVINO (2025.2.0) ✅
+* LibTensorFlow (2.19.0) ✅ - inference on saved models, not graph
 
 ### Optional
 * CUDA (if you want to use GPU)
 
-## Build Instructions
+## Quick Start
 
-### Build Steps
+### Automated Setup and Testing
+
+The project includes comprehensive automated testing and setup scripts:
+
+```bash
+# Test all backends
+./scripts/test_backends.sh
+
+# Test specific backend
+./scripts/test_backends.sh --backend OPENCV_DNN
+./scripts/test_backends.sh --backend ONNX_RUNTIME
+./scripts/test_backends.sh --backend LIBTORCH
+./scripts/test_backends.sh --backend TENSORRT
+./scripts/test_backends.sh --backend LIBTENSORFLOW
+./scripts/test_backends.sh --backend OPENVINO
+
+# Setup dependencies for specific backend
+./scripts/setup_dependencies.sh --backend TENSORRT
+./scripts/setup_dependencies.sh --backend OPENVINO
+```
+
+### Manual Build Instructions
 
 1. Clone the repository:
 
@@ -49,9 +70,9 @@
    ```
 
    Optionally, you can specify the default backend by setting `-DDEFAULT_BACKEND=your_backend` during configuration.
-   - **Note**:  If the backend package is not installed on your system, set the path manually in the backend's CMake module (i.e. for Libtorch modify [Libtorch.cmake](cmake/LibTorch.cmake)  or pass the argument ``Torch_DIR``, for onnx-runtime modify [ONNXRuntime.cmake](cmake/ONNXRuntime.cmake) or pass the argument ``ORT_VERSION``, same apply to other backend local packages)
+   - **Note**: If the backend package is not installed on your system, set the path manually in the backend's CMake module or use the automated setup scripts.
 
-5. Build the project:
+4. Build the project:
 
    ```bash
    cmake --build .
@@ -61,7 +82,7 @@
 
 ## Usage
 
-To use the InferenceEngines library in your project, link against it and include necessary headers ( [check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)) :
+To use the InferenceEngines library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)):
 
 ```cmake
 target_link_libraries(your_project PRIVATE InferenceEngines)
@@ -69,3 +90,11 @@ target_include_directories(your_project PRIVATE path_to/InferenceEngines/include
 ```
 
 Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
+
+## Documentation
+
+For detailed documentation, see the [docs/](docs/) directory:
+
+- **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
+- **[Testing Design](docs/TESTING_DESIGN.md)** - Testing framework and methodology
+- **[README](docs/README.md)** - Comprehensive project overview and testing status
