@@ -176,13 +176,6 @@ The TensorFlow backend is fully integrated into the main testing framework:
 - `scripts/model_downloader.py` - Model download utility
 - `backends/{backend}/test/{Backend}InferTest.cpp` - Backend-specific tests
 
-#### Removed Redundant Files
-- ~~`scripts/run_libtensorflow_tests.sh`~~ - Replaced by integrated testing
-- ~~`scripts/README_libtensorflow_tests.md`~~ - No longer needed
-- ~~`scripts/test_hybrid_approach.sh`~~ - Unused
-- ~~`generate_saved_model.py`~~ - Duplicate functionality
-- ~~`backends/libtensorflow/test/generate_*.py`~~ - Integrated into main framework
-
 ### 14. Best Practices
 
 #### For Backend Developers
