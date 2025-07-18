@@ -32,9 +32,20 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
 {
     std::filesystem::path fs_path(model_path);
     std::string basename = fs_path.stem().string();
-    const std::string model_config = model_path.substr(0, model_path.find(".bin")) + ".xml";   
-    if (!std::filesystem::exists(fs_path)) {
-        throw std::runtime_error("XML file must have same name as model binary");
+    
+    // Handle both .xml and .bin paths
+    std::string model_config;
+    if (model_path.find(".xml") != std::string::npos) {
+        model_config = model_path;
+    } else if (model_path.find(".bin") != std::string::npos) {
+        model_config = model_path.substr(0, model_path.find(".bin")) + ".xml";
+    } else {
+        // Assume it's a base name, add .xml extension
+        model_config = model_path + ".xml";
+    }
+    
+    if (!std::filesystem::exists(model_config)) {
+        throw std::runtime_error("XML file not found: " + model_config);
     }    
 
     try {
@@ -97,7 +108,18 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
         // Set up device
         std::string device = use_gpu ? "GPU" : "CPU";
         LOG(INFO) << "Using device: " << device;
-        compiled_model_ = core_.compile_model(model_, device);
+        
+        try {
+            compiled_model_ = core_.compile_model(model_, device);
+        } catch (const ov::Exception& e) {
+            if (use_gpu && device == "GPU") {
+                LOG(WARNING) << "GPU not available, falling back to CPU: " << e.what();
+                device = "CPU";
+                compiled_model_ = core_.compile_model(model_, device);
+            } else {
+                throw; // Re-throw if it's not a GPU fallback case
+            }
+        }
         infer_request_ = compiled_model_.create_infer_request();
 
         // --- Process inputs after compilation ---
@@ -152,16 +174,15 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const cv::Mat& preprocessed_img) 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const cv::Mat& input_blob) 
 {
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
 
-        // Convert the input image to a blob swapping channels order from hwc to chw    
-        cv::Mat blob;
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+    // The input_blob is already in the correct format (NCHW)
+    // No need to convert again
           
-    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), blob.data);
+    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), input_blob.data);
     // Set input tensor for model with one input
     infer_request_.set_input_tensor(input_tensor);    
     infer_request_.infer();  // Perform inference
