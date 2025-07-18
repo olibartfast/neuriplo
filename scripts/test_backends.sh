@@ -391,7 +391,7 @@ test_backend() {
         fi
         
         # Build the project using available build system
-        if command -v ninja >/dev/null 2>&1; then
+        if command -v ninja >/dev/null 2>&1 && [ -f "build.ninja" ]; then
             ninja >> "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             make -j$PARALLEL_JOBS >> "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1

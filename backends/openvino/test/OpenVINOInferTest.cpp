@@ -82,12 +82,21 @@ TEST_F(OpenVINOInferTest, InitializationCPU) {
 // Test GPU initialization (if available)
 TEST_F(OpenVINOInferTest, InitializationGPU) {
     // This test will gracefully handle GPU unavailability
-    ASSERT_NO_THROW({
+    try {
         OVInfer infer(model_path, true); // Try GPU, may fallback to CPU
         auto model_info = infer.get_model_info();
         ASSERT_FALSE(model_info.getInputs().empty());
         ASSERT_FALSE(model_info.getOutputs().empty());
-    });
+    } catch (const std::exception& e) {
+        // If GPU is not available, that's acceptable
+        std::string error_msg = e.what();
+        if (error_msg.find("GPU") != std::string::npos || 
+            error_msg.find("device") != std::string::npos) {
+            GTEST_SKIP() << "GPU not available: " << error_msg;
+        } else {
+            throw; // Re-throw if it's not a GPU-related error
+        }
+    }
 }
 
 // Test inference results
@@ -96,7 +105,7 @@ TEST_F(OpenVINOInferTest, InferenceResults) {
     OVInfer infer(model_path, use_gpu);
 
     // Create test input (ResNet-18 expects 224x224)
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
+    cv::Mat input = cv::Mat::zeros(224, 224, CV_8UC3); // Use 8-bit unsigned int
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
     
@@ -163,7 +172,7 @@ TEST_F(OpenVINOInferTest, DynamicShapes) {
     OVInfer infer(model_path, false, 1, input_sizes);
     
     // Test inference with standard input
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
+    cv::Mat input = cv::Mat::zeros(224, 224, CV_8UC3); // Use 8-bit unsigned int
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
     
