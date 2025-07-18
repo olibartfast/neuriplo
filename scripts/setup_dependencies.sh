@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
         -f|--force) FORCE=true; shift ;;
         -h|--help) 
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -24,7 +24,7 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
@@ -115,6 +115,24 @@ EOF
     echo "OpenVINO $version installed successfully to $dir"
 }
 
+# Setup TensorFlow C++ Libraries
+setup_libtensorflow() {
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local setup_script="$script_dir/setup_libtensorflow.sh"
+    
+    if [[ ! -f "$setup_script" ]]; then
+        echo "Error: TensorFlow setup script not found at $setup_script"
+        exit 1
+    fi
+    
+    echo "Setting up TensorFlow C++ libraries..."
+    if [[ "$FORCE" == "true" ]]; then
+        "$setup_script" --force
+    else
+        "$setup_script"
+    fi
+}
+
 # Validate installation
 validate_installation() {
     case $1 in
@@ -127,6 +145,8 @@ validate_installation() {
             [[ -f "$DEPENDENCY_ROOT/libtorch/share/cmake/Torch/TorchConfig.cmake" ]] || { echo "Error: LibTorch validation failed"; exit 1; } ;;
         OPENVINO)
             [[ -f "$DEPENDENCY_ROOT/openvino_2025.2.0/runtime/include/openvino/openvino.hpp" && -f "$DEPENDENCY_ROOT/openvino_2025.2.0/runtime/lib/intel64/libopenvino.so" ]] || { echo "Error: OpenVINO validation failed"; exit 1; } ;;
+        LIBTENSORFLOW)
+            [[ -f "$DEPENDENCY_ROOT/tensorflow/include/tensorflow/cc/saved_model/loader.h" && -f "$DEPENDENCY_ROOT/tensorflow/lib/libtensorflow_cc.so" ]] || { echo "Error: TensorFlow C++ validation failed"; exit 1; } ;;
     esac
 }
 
@@ -140,7 +160,8 @@ export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2"
 export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.7.0.23"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
 export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$LD_LIBRARY_PATH"
+export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$LD_LIBRARY_PATH"
 export PATH="\$OPENVINO_DIR/bin:\$PATH"
 EOF
     chmod +x "$env_file"
@@ -153,6 +174,7 @@ case $BACKEND in
     TENSORRT) setup_tensorrt ;;
     LIBTORCH) setup_libtorch ;;
     OPENVINO) setup_openvino ;;
+    LIBTENSORFLOW) setup_libtensorflow ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup
