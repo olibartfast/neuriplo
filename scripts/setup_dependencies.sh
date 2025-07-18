@@ -69,11 +69,50 @@ setup_libtorch() {
 
 # Setup OpenVINO
 setup_openvino() {
-    local version="2023.1.0"
-    local dir="$DEPENDENCY_ROOT/openvino-$version"
+    local version="2025.2.0"
+    local dir="$DEPENDENCY_ROOT/openvino_$version"
     [[ -d "$dir" && "$FORCE" != "true" ]] && return 0
-    echo "Error: Install OpenVINO $version manually from https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html to $dir"
-    [[ -d "$dir" ]] || exit 1
+    
+    echo "Installing OpenVINO $version to $dir..."
+    mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
+    
+    # Download OpenVINO toolkit
+    local tarball="openvino_2025.2.0.tgz"
+    if [[ ! -f "$tarball" ]]; then
+        echo "Downloading OpenVINO toolkit..."
+        curl -L "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64.tgz" --output "$tarball"
+    fi
+    
+    # Extract and move to final location
+    echo "Extracting OpenVINO..."
+    tar -xf "$tarball"
+    if [[ -d "$dir" ]]; then
+        rm -rf "$dir"
+    fi
+    mv openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64 "$dir"
+    rm -f "$tarball"
+    
+    # Create a local Python virtual environment for OpenVINO tools
+    echo "Setting up OpenVINO Python tools..."
+    local venv_dir="$dir/python_env"
+    python3 -m venv "$venv_dir"
+    source "$venv_dir/bin/activate"
+    pip install openvino-dev
+    deactivate
+    
+    # Create wrapper script for ovc
+    mkdir -p "$dir/bin"
+    cat > "$dir/bin/ovc" << 'EOF'
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/../python_env"
+source "$VENV_DIR/bin/activate"
+ovc "$@"
+deactivate
+EOF
+    chmod +x "$dir/bin/ovc"
+    
+    echo "OpenVINO $version installed successfully to $dir"
 }
 
 # Validate installation
@@ -87,7 +126,7 @@ validate_installation() {
         LIBTORCH)
             [[ -f "$DEPENDENCY_ROOT/libtorch/share/cmake/Torch/TorchConfig.cmake" ]] || { echo "Error: LibTorch validation failed"; exit 1; } ;;
         OPENVINO)
-            [[ -f "$DEPENDENCY_ROOT/openvino-2023.1.0/include/openvino/openvino.hpp" && -f "$DEPENDENCY_ROOT/openvino-2023.1.0/lib/libopenvino.so" ]] || { echo "Error: OpenVINO validation failed"; exit 1; } ;;
+            [[ -f "$DEPENDENCY_ROOT/openvino_2025.2.0/runtime/include/openvino/openvino.hpp" && -f "$DEPENDENCY_ROOT/openvino_2025.2.0/runtime/lib/intel64/libopenvino.so" ]] || { echo "Error: OpenVINO validation failed"; exit 1; } ;;
     esac
 }
 
@@ -100,8 +139,9 @@ export DEPENDENCY_ROOT="$DEPENDENCY_ROOT"
 export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2"
 export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.7.0.23"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
-export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino-2023.1.0"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/lib:\$LD_LIBRARY_PATH"
+export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$LD_LIBRARY_PATH"
+export PATH="\$OPENVINO_DIR/bin:\$PATH"
 EOF
     chmod +x "$env_file"
 }

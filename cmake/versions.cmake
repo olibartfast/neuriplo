@@ -5,7 +5,7 @@
 set(ONNX_RUNTIME_VERSION "1.19.2" CACHE STRING "ONNX Runtime version")
 set(TENSORRT_VERSION "10.7.0.23" CACHE STRING "TensorRT version")
 set(LIBTORCH_VERSION "2.0.0" CACHE STRING "LibTorch version")
-set(OPENVINO_VERSION "2023.1.0" CACHE STRING "OpenVINO version")
+set(OPENVINO_VERSION "2025.2.0" CACHE STRING "OpenVINO version")
 set(TENSORFLOW_VERSION "2.19.0" CACHE STRING "TensorFlow version")
 
 # CUDA Version (for GPU support)
@@ -27,7 +27,7 @@ endif()
 set(ONNX_RUNTIME_DIR "${DEFAULT_DEPENDENCY_ROOT}/onnxruntime-linux-x64-gpu-${ONNX_RUNTIME_VERSION}" CACHE PATH "ONNX Runtime installation directory")
 set(TENSORRT_DIR "${DEFAULT_DEPENDENCY_ROOT}/TensorRT-${TENSORRT_VERSION}" CACHE PATH "TensorRT installation directory")
 set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch installation directory")
-set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino-${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
+set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
 
 # Version validation functions
 function(validate_version_found found_version required_version component_name)

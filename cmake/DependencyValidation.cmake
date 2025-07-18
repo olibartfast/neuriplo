@@ -77,8 +77,8 @@ function(validate_openvino)
         
         # Check for required files
         set(required_files
-            "${OPENVINO_DIR}/include/openvino/openvino.hpp"
-            "${OPENVINO_DIR}/lib/libopenvino.so"
+            "${OPENVINO_DIR}/runtime/include/openvino/openvino.hpp"
+            "${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so"
         )
         
         foreach(file ${required_files})
