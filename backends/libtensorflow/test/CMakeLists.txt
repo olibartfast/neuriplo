@@ -33,5 +33,5 @@ target_link_libraries(TensorFlowInferTest PRIVATE
 
 add_test(NAME TensorFlowInferTest COMMAND TensorFlowInferTest)
 
-# Copy scripts to the build directory
-configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_tf_model.py  ${CMAKE_CURRENT_BINARY_DIR}/generate_tf_model.py COPYONLY)
+# Copy model_downloader.py script to the build directory
+configure_file(${CMAKE_SOURCE_DIR}/scripts/model_downloader.py  ${CMAKE_CURRENT_BINARY_DIR}/model_downloader.py COPYONLY)
