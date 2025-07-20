@@ -1,0 +1,151 @@
+# docker build --rm -t inference-engines:libtensorflow -f docker/Dockerfile.libtensorflow .
+# docker run --rm inference-engines:libtensorflow
+
+# Stage 1: Base image with system dependencies
+FROM ubuntu:24.04 AS base
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TENSORFLOW_VERSION=2.19.0
+ENV TENSORFLOW_DIR=/opt/tensorflow
+ENV DEPENDENCIES_DIR=/opt/dependencies
+
+# Install system dependencies
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential=12.* \
+    libopencv-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    wget \
+    git \
+    curl \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    ninja-build \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Install TensorFlow
+FROM base AS tensorflow_install
+
+# Create virtual environment for TensorFlow
+RUN python3 -m venv /opt/tensorflow_env
+ENV PATH=/opt/tensorflow_env/bin:$PATH
+
+# Install TensorFlow and dependencies
+RUN pip install --upgrade pip && \
+    pip install "tensorflow==${TENSORFLOW_VERSION}" && \
+    pip install tensorflow-hub
+
+# Verify installation
+RUN python -c "import tensorflow as tf; print(f'TensorFlow version: {tf.__version__}')"
+
+# Setup TensorFlow C++ libraries (following setup_tensorflow_pip.sh pattern)
+RUN TF_SITE_PACKAGES=/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow && \
+    mkdir -p ${TENSORFLOW_DIR}/lib ${TENSORFLOW_DIR}/include && \
+    cp ${TF_SITE_PACKAGES}/libtensorflow_cc.so.2 ${TENSORFLOW_DIR}/lib/ && \
+    cp ${TF_SITE_PACKAGES}/libtensorflow_framework.so.2 ${TENSORFLOW_DIR}/lib/ && \
+    ln -sf libtensorflow_cc.so.2 ${TENSORFLOW_DIR}/lib/libtensorflow_cc.so && \
+    ln -sf libtensorflow_framework.so.2 ${TENSORFLOW_DIR}/lib/libtensorflow_framework.so && \
+    cp -r ${TF_SITE_PACKAGES}/include/* ${TENSORFLOW_DIR}/include/ && \
+    [ -d "${TF_SITE_PACKAGES}/core" ] && cp -r ${TF_SITE_PACKAGES}/core ${TENSORFLOW_DIR}/include/tensorflow/ || true && \
+    [ -d "${TF_SITE_PACKAGES}/cc" ] && cp -r ${TF_SITE_PACKAGES}/cc ${TENSORFLOW_DIR}/include/tensorflow/ || true
+
+# Create pkg-config file
+RUN mkdir -p ${TENSORFLOW_DIR}/lib/pkgconfig && \
+    cat > ${TENSORFLOW_DIR}/lib/pkgconfig/tensorflow.pc << EOF
+prefix=${TENSORFLOW_DIR}
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+Name: TensorFlow
+Version: ${TENSORFLOW_VERSION}
+Libs: -L\${libdir} -ltensorflow_cc -ltensorflow_framework
+Cflags: -I\${includedir}
+EOF
+
+# Set TensorFlow environment variables
+ENV TENSORFLOW_DIR=/opt/tensorflow
+ENV LD_LIBRARY_PATH=${TENSORFLOW_DIR}/lib:${LD_LIBRARY_PATH:-}
+ENV PKG_CONFIG_PATH=${TENSORFLOW_DIR}/lib/pkgconfig:${PKG_CONFIG_PATH:-}
+
+# Stage 3: Install Python dependencies for testing
+FROM tensorflow_install AS python_deps
+
+# Create and activate virtual environment for testing
+RUN python3 -m venv /opt/test_env
+ENV PATH=/opt/test_env/bin:$PATH
+
+# Install Python dependencies for model generation and testing
+RUN pip install --upgrade pip && \
+    pip install \
+    torch \
+    torchvision \
+    onnx \
+    numpy \
+    opencv-python \
+    pytest \
+    pytest-cov \
+    pytest-mock \
+    pytest-benchmark \
+    pytest-xdist \
+    coverage \
+    pytest-html \
+    pytest-json-report
+
+# Stage 4: Build application
+FROM python_deps AS builder
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Additional dependencies are already installed in tensorflow_install stage
+
+# Build the project with TensorFlow backend and tests enabled
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=LIBTENSORFLOW \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DTENSORFLOW_DIR=${TENSORFLOW_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 5: Generate test models
+FROM builder AS model_generator
+
+# Generate TensorFlow SavedModel using model_downloader.py
+WORKDIR /app/build/backends/libtensorflow/test
+RUN . /opt/tensorflow_env/bin/activate && \
+    /opt/tensorflow_env/bin/python /app/scripts/model_downloader.py LIBTENSORFLOW --output-dir . --keep-temp
+
+# Stage 6: Final runtime image for testing
+FROM tensorflow_install AS final
+
+# Create non-root user
+RUN useradd -m testuser && \
+    mkdir -p /app && \
+    chown -R testuser:testuser /app
+
+# Copy built binaries and test files
+COPY --from=model_generator --chown=testuser:testuser /app/build /app/build
+COPY --from=model_generator --chown=testuser:testuser /app/backends/libtensorflow/test /app/backends/libtensorflow/test
+
+# Set working directory to where the test files are located
+WORKDIR /app/build/backends/libtensorflow/test
+
+# Switch to test user
+USER testuser
+
+# Set library path
+ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:$LD_LIBRARY_PATH
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/build/lib/libInferenceEngines.so || exit 1
+
+# Default command to run TensorFlow tests
+CMD ["./TensorFlowInferTest"] 
