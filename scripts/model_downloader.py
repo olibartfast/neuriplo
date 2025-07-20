@@ -306,34 +306,31 @@ class ModelDownloader:
             
             logger.info("Attempting to load pretrained ResNet model for TensorFlow SavedModel...")
             
-            # Try TensorFlow Hub for a pretrained ResNet18 (or closest available)
-            hub_url = "https://tfhub.dev/google/imagenet/resnet_v2_50/classification/5"  # Using ResNet50 as ResNet18 is rare
-            try:
-                logger.info("Trying TensorFlow Hub for pretrained ResNet...")
-                model = tf.keras.Sequential([
-                    hub.KerasLayer(hub_url, input_shape=(224, 224, 3))
-                ])
-                logger.info("Loaded pretrained ResNet from TensorFlow Hub")
-            except Exception as hub_e:
-                logger.warning(f"Failed to load from TensorFlow Hub: {hub_e}")
-                logger.info("Trying Keras Applications ResNet50...")
-                
-                # Try Keras Applications ResNet50
-                try:
-                    model = tf.keras.applications.ResNet50(
-                        include_top=True,
-                        weights='imagenet',
-                        input_shape=(224, 224, 3),
-                        classes=1000
-                    )
-                    logger.info("Loaded pretrained ResNet50 from Keras Applications")
-                except Exception as keras_e:
-                    logger.error(f"Failed to load ResNet50 from Keras Applications: {keras_e}")
-                    logger.error("No pretrained model available")
-                    return None
+            # Load the pretrained ResNet model using Keras Applications
+            logger.info("Loading pretrained ResNet50 from Keras Applications...")
+            model = tf.keras.applications.ResNet50(
+                weights='imagenet',
+                include_top=True,
+                input_shape=(224, 224, 3),
+                classes=1000
+            )
+            logger.info("Successfully loaded pretrained ResNet50 model")
             
-            # Save as TensorFlow SavedModel
-            tf.keras.models.save_model(model, saved_model_dir, save_format='tf')
+            # Save as TensorFlow SavedModel using export method
+            model.export(saved_model_dir)
+            
+            # Verify the model was exported correctly
+            if not os.path.exists(saved_model_dir):
+                logger.error(f"Model export failed - directory {saved_model_dir} does not exist")
+                return None
+            
+            # Check for SavedModel files
+            saved_model_files = os.listdir(saved_model_dir)
+            if not saved_model_files:
+                logger.error(f"Model export failed - no files in {saved_model_dir}")
+                return None
+                
+            logger.info(f"SavedModel files: {saved_model_files}")
             
             logger.info(f"Generated TensorFlow SavedModel: {saved_model_dir}")
             return saved_model_dir
@@ -452,6 +449,15 @@ def main():
                         shutil.rmtree(output_path)
                     shutil.copytree(model_path, output_path)
                     print(output_path)
+                
+                # Create model_path.txt file for tests
+                model_path_file = os.path.join(args.output_dir, "model_path.txt")
+                with open(model_path_file, "w") as f:
+                    if os.path.isfile(model_path):
+                        f.write(os.path.basename(model_path))
+                    else:
+                        f.write(os.path.basename(model_path))
+                logger.info(f"Created model_path.txt: {model_path_file}")
             else:
                 print(model_path)
             
