@@ -15,7 +15,7 @@ if(DEFINED ENV{OPENVINO_DIR})
     link_directories("$ENV{OPENVINO_DIR}/runtime/lib/intel64")
 else()
     # Set default OpenVINO path
-    set(OpenVINO_DIR "/home/oli/dependencies/openvino_2025.2.0/runtime/cmake")
+    set(OpenVINO_DIR "/home/oli/dependencies/${OPENVINO_VERSION}/runtime/cmake")
 endif()
 
 find_package(OpenVINO REQUIRED)
