@@ -1,0 +1,132 @@
+# docker build --rm -t inference-engines:libtorch -f docker/Dockerfile.libtorch .
+# docker run --rm inference-engines:libtorch
+
+# Stage 1: Base image with system dependencies
+FROM ubuntu:24.04 AS base
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LIBTORCH_VERSION=2.3.0
+ENV LIBTORCH_DIR=/opt/libtorch
+ENV DEPENDENCIES_DIR=/opt/dependencies
+
+# Install system dependencies
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential=12.* \
+    libopencv-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    wget \
+    git \
+    curl \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    ninja-build \
+    pkg-config \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Install LibTorch
+FROM base AS libtorch_install
+
+# Download and install LibTorch
+ARG COMPUTE_PLATFORM=cpu 
+RUN wget https://download.pytorch.org/libtorch/$COMPUTE_PLATFORM/libtorch-cxx11-abi-shared-with-deps-$LIBTORCH_VERSION%2B$COMPUTE_PLATFORM.zip && \
+    unzip libtorch-cxx11-abi-shared-with-deps-$LIBTORCH_VERSION+$COMPUTE_PLATFORM.zip -d /tmp && \
+    mv /tmp/libtorch ${LIBTORCH_DIR} && \
+    rm libtorch-cxx11-abi-shared-with-deps-$LIBTORCH_VERSION+$COMPUTE_PLATFORM.zip    
+
+# Create virtual environment for PyTorch
+RUN python3 -m venv /opt/pytorch_env
+ENV PATH=/opt/pytorch_env/bin:$PATH
+
+# Install PyTorch and torchvision for model generation
+RUN pip install --upgrade pip && \
+    pip install torch torchvision
+
+# Verify installation
+RUN python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
+
+# Set LibTorch environment variables
+ENV LIBTORCH_DIR=/opt/libtorch
+ENV LD_LIBRARY_PATH=${LIBTORCH_DIR}/lib:${LD_LIBRARY_PATH:-}
+ENV CMAKE_PREFIX_PATH=${LIBTORCH_DIR}:${CMAKE_PREFIX_PATH:-}
+
+# Stage 3: Install Python dependencies for testing
+FROM libtorch_install AS python_deps
+
+# Create and activate virtual environment for testing
+RUN python3 -m venv /opt/test_env
+ENV PATH=/opt/test_env/bin:$PATH
+
+# Install Python dependencies for model generation and testing
+RUN pip install --upgrade pip && \
+    pip install \
+    onnx \
+    numpy \
+    opencv-python \
+    pytest \
+    pytest-cov \
+    pytest-mock \
+    pytest-benchmark \
+    pytest-xdist \
+    coverage \
+    pytest-html \
+    pytest-json-report
+
+# Stage 4: Build application
+FROM python_deps AS builder
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Build the project with LibTorch backend and tests enabled
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=LIBTORCH \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DCMAKE_PREFIX_PATH=${LIBTORCH_DIR} \
+    -DLIBTORCH_DIR=${LIBTORCH_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 5: Generate test models
+FROM builder AS model_generator
+
+# Generate LibTorch model using model_downloader.py
+WORKDIR /app/build/backends/libtorch/test
+RUN . /opt/pytorch_env/bin/activate && \
+    /opt/pytorch_env/bin/python /app/scripts/model_downloader.py LIBTORCH --output-dir . --keep-temp
+
+# Stage 6: Final runtime image for testing
+FROM libtorch_install AS final
+
+# Create non-root user
+RUN useradd -m testuser && \
+    mkdir -p /app && \
+    chown -R testuser:testuser /app
+
+# Copy built binaries and test files
+COPY --from=model_generator --chown=testuser:testuser /app/build /app/build
+COPY --from=model_generator --chown=testuser:testuser /app/backends/libtorch/test /app/backends/libtorch/test
+
+# Set working directory to where the test files are located
+WORKDIR /app/build/backends/libtorch/test
+
+# Switch to test user
+USER testuser
+
+# Set library path
+ENV LD_LIBRARY_PATH=/app/build/lib:${LIBTORCH_DIR}/lib:$LD_LIBRARY_PATH
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/build/lib/libInferenceEngines.so || exit 1
+
+# Default command to run LibTorch tests
+CMD ["./LibtorchInferTest"] 
