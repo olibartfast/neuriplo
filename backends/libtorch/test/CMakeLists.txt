@@ -29,7 +29,6 @@ target_link_libraries(LibtorchInferTest PRIVATE
 add_test(NAME LibtorchInferTest COMMAND LibtorchInferTest)
 
 
-# Copy scripts to the build directory
-configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_model.sh  ${CMAKE_CURRENT_BINARY_DIR}/generate_model.sh FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
-configure_file(${CMAKE_CURRENT_LIST_DIR}/export_torchvision_classifier.py  ${CMAKE_CURRENT_BINARY_DIR}/export_torchvision_classifier.py COPYONLY)
+# Copy model_downloader.py script to the build directory
+configure_file(${CMAKE_SOURCE_DIR}/scripts/model_downloader.py  ${CMAKE_CURRENT_BINARY_DIR}/model_downloader.py COPYONLY)
 

@@ -47,7 +47,9 @@ protected:
             if (!model_path.empty() && fs::exists(model_path)) {
                 has_real_model = true;
                 try {
-                    real_infer = std::make_unique<LibtorchInfer>(model_path, false);
+                    // ResNet-18 expects input shape [1, 3, 224, 224] for batch_size=1
+                    std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 224, 224}};
+                    real_infer = std::make_unique<LibtorchInfer>(model_path, false, 1, input_sizes);
                     std::cout << "Using real model: " << model_path << std::endl;
                 } catch (const std::exception& e) {
                     std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
@@ -159,7 +161,8 @@ TEST_F(LibtorchInferTest, GPUTest) {
     
     try {
         // Try to create a GPU inference engine
-        auto gpu_infer = std::make_unique<LibtorchInfer>(model_path, true);
+        std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 224, 224}};
+        auto gpu_infer = std::make_unique<LibtorchInfer>(model_path, true, 1, input_sizes);
         
         // If we got here, GPU is available, test inference
         cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
