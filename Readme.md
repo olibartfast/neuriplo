@@ -13,13 +13,13 @@
 - OpenCV
 - glog
 
-### Supported Backends (In parentheses, version tested in this project):
-* OpenCV DNN module (4.11.0) ✅
-* ONNX Runtime (1.19.2 gpu package) ✅
-* LibTorch (2.0.1-cu118) ✅
-* TensorRT (10.0.7.23) ✅
-* OpenVINO (2025.2.0) ✅
-* LibTensorFlow (2.19.0) ✅ - inference on saved models, not graph
+### Supported Backends (Inside [versions.env](versions.env) file, versions tested in this project):
+* OpenCV DNN module
+* ONNX Runtime 
+* Pytorch (Libtorch) 
+* TensorRT 
+* OpenVINO 
+* Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 
 ### Optional
 * CUDA (if you want to use GPU)
