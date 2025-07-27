@@ -15,6 +15,7 @@ RUN apt-get update && apt-get upgrade -y && \
     build-essential=12.* \
     libopencv-dev \
     libgoogle-glog-dev \
+    libgtest-dev \
     wget \
     git \
     && rm -rf /var/lib/apt/lists/*
@@ -40,12 +41,13 @@ RUN wget --tries=3 --retry-connrefused \
 # Set TensorRT environment variables
 ENV LD_LIBRARY_PATH=/opt/TensorRT-${TRT_VERSION}/lib:${LD_LIBRARY_PATH}
 ENV LIBRARY_PATH=/opt/TensorRT-${TRT_VERSION}/lib:${LIBRARY_PATH}
-ENV CPATH=/opt/TensorRT-${TRT_VERSION}/include:${CPATH}
+ENV CPATH=/opt/TensorRT-${TRT_VERSION}/include
 
 # Set TensorRT environment variables
+ENV TENSORRT_DIR=/opt/TensorRT-${TRT_VERSION}
 ENV LD_LIBRARY_PATH=${TENSORRT_DIR}/lib:${LD_LIBRARY_PATH}
 ENV LIBRARY_PATH=${TENSORRT_DIR}/lib:${LIBRARY_PATH}
-ENV PATH=${TENSORRT_DIR}/include:${PATH}
+ENV PATH=${TENSORRT_DIR}/bin:${PATH}
 
 # Stage 3: Build application
 FROM backend_dependencies AS builder
@@ -58,10 +60,12 @@ COPY . .
 ARG BACKEND=TENSORRT
 
 # Build the project
-RUN cmake -Bbuild -H. \
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
     -DDEFAULT_BACKEND=${BACKEND} \
     -DTRT_VERSION=${TRT_VERSION} \
     -DTENSORRT_DIR=${TENSORRT_DIR} \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
     && cmake --build build --config Release \
     && ls -la /app/build # Check the output to find the library
     # you can add also:
@@ -76,10 +80,18 @@ RUN useradd -m appuser && \
     mkdir -p /app/data && \
     mkdir -p /app/include && \
     mkdir -p /app/lib && \
+    mkdir -p /app/test && \
     chown -R appuser:appuser /app
 
 # Copy built library from builder stage (Adjust the paths if needed)
 COPY --from=builder --chown=appuser:appuser /app/build/libInferenceEngines.so /app/lib/
+# Copy test executables
+COPY --from=builder --chown=appuser:appuser /app/build/backends/tensorrt/test/TensorRTInferTest /app/test/
+# Copy test data files
+COPY --from=builder --chown=appuser:appuser /app/backends/tensorrt/test/resnet18.engine /app/test/
+COPY --from=builder --chown=appuser:appuser /app/backends/tensorrt/test/resnet18.onnx /app/test/
+COPY --from=builder --chown=appuser:appuser /app/backends/tensorrt/test/generate_trt_engine.sh /app/test/
+RUN chmod +x /app/test/generate_trt_engine.sh
 # If you have a specific directory for public headers:
 COPY --from=builder --chown=appuser:appuser /app/include /app/include
 # Or, if headers are in the build directory (less common for libraries):
@@ -92,10 +104,6 @@ USER appuser
 # Add volume for persistent data
 VOLUME ["/app/data"]
 
-# Add metadata
-LABEL maintainer="olibartfast@gmail.com"
-LABEL version="0.1"
-LABEL description="CUDA and TensorRT inference engine container"
 
 # Set library path
 ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
