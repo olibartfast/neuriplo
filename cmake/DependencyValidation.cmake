@@ -128,12 +128,25 @@ function(validate_all_dependencies)
     message(STATUS "=== Validating InferenceEngines Dependencies ===")
     
     validate_system_dependencies()
-    validate_opencv_dnn()
-    validate_onnx_runtime()
-    validate_tensorrt()
-    validate_libtorch()
-    validate_libtensorflow()
-    validate_openvino()
+    
+    # Only validate the selected backend
+    if(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+        validate_opencv_dnn()
+    elseif(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
+        validate_onnx_runtime()
+    elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")
+        validate_tensorrt()
+    elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
+        validate_libtorch()
+    elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
+        validate_libtensorflow()
+    elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
+        validate_openvino()
+    else()
+        message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
+    endif()
+    
+    # Validate CUDA if needed for the selected backend
     validate_cuda()
     
     message(STATUS "=== All InferenceEngines Dependencies Validated Successfully ===")
