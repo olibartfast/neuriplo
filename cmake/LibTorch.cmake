@@ -1,7 +1,10 @@
 # LibTorch Configuration
 
-# Set LibTorch directory (modify accordingly)
-set(Torch_DIR $ENV{HOME}/libtorch/share/cmake/Torch/ CACHE PATH "Path to libtorch")
+# Set LibTorch directory to the correct location
+set(Torch_DIR $ENV{HOME}/dependencies/libtorch/share/cmake/Torch/ CACHE PATH "Path to libtorch")
+
+# Add LibTorch to CMAKE_PREFIX_PATH to help find_package
+list(APPEND CMAKE_PREFIX_PATH $ENV{HOME}/dependencies/libtorch)
 
 # Find LibTorch
 find_package(Torch REQUIRED)
