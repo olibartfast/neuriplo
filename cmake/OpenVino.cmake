@@ -16,6 +16,13 @@ if(DEFINED ENV{OPENVINO_DIR})
 else()
     # Set default OpenVINO path
     set(OpenVINO_DIR "${HOME}/dependencies/${OPENVINO_VERSION}/runtime/cmake")
+    set(InferenceEngine_DIR "${HOME}/dependencies/${OPENVINO_VERSION}/runtime/cmake")
+    
+    # Add include directories
+    include_directories("${HOME}/dependencies/${OPENVINO_VERSION}/runtime/include")
+    
+    # Add library directories
+    link_directories("${HOME}/dependencies/${OPENVINO_VERSION}/runtime/lib/intel64")
 endif()
 
 find_package(OpenVINO REQUIRED)
