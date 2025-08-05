@@ -26,16 +26,6 @@
 
 ## Quick Start
 ### Automated Setup and Testing
-#### Test All Backends
-```bash
-./scripts/test_backends.sh
-````
-
-#### Test a Specific Backend
-
-```bash
-./scripts/test_backends.sh --backend <BACKEND_NAME>
-```
 
 #### Setup Dependencies for a Specific Backend
 
@@ -51,7 +41,17 @@ Supported `<BACKEND_NAME>` values:
 * `TENSORRT`
 * `LIBTENSORFLOW`
 * `OPENVINO`
-* `HUGGING_FACE`
+
+#### Test All Backends
+```bash
+./scripts/test_backends.sh
+````
+
+#### Test a Specific Backend
+
+```bash
+./scripts/test_backends.sh --backend <BACKEND_NAME>
+```
 
 
 ### Manual Build Instructions
