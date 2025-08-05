@@ -53,8 +53,6 @@ Supported `<BACKEND_NAME>` values:
 * `OPENVINO`
 * `HUGGING_FACE`
 
-```
-
 
 ### Manual Build Instructions
 
