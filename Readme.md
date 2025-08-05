@@ -43,8 +43,8 @@ The project includes comprehensive automated testing and setup scripts:
 ./scripts/test_backends.sh --backend OPENVINO
 
 # Setup dependencies for specific backend
-./scripts/setup_dependencies.sh --backend TENSORRT
-./scripts/setup_dependencies.sh --backend OPENVINO
+./scripts/setup_dependencies.sh --backend <BACKEND NAME AS ABOVE>
+
 ```
 
 ### Manual Build Instructions
