@@ -103,5 +103,3 @@ Ensure you have initialized and set up the selected backend(s) appropriately in 
 For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
-- **[Testing Design](docs/TESTING_DESIGN.md)** - Testing framework and methodology
-- **[README](docs/README.md)** - Comprehensive project overview and testing status
