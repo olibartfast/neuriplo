@@ -25,27 +25,36 @@
 * CUDA (if you want to use GPU)
 
 ## Quick Start
-
 ### Automated Setup and Testing
+#### Test All Backends
+```bash
+./scripts/test_backends.sh
+````
 
-The project includes comprehensive automated testing and setup scripts:
+#### Test a Specific Backend
 
 ```bash
-# Test all backends
-./scripts/test_backends.sh
+./scripts/test_backends.sh --backend <BACKEND_NAME>
+```
 
-# Test specific backend
-./scripts/test_backends.sh --backend OPENCV_DNN
-./scripts/test_backends.sh --backend ONNX_RUNTIME
-./scripts/test_backends.sh --backend LIBTORCH
-./scripts/test_backends.sh --backend TENSORRT
-./scripts/test_backends.sh --backend LIBTENSORFLOW
-./scripts/test_backends.sh --backend OPENVINO
+#### Setup Dependencies for a Specific Backend
 
-# Setup dependencies for specific backend
-./scripts/setup_dependencies.sh --backend <BACKEND NAME AS ABOVE>
+```bash
+./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
+```
+
+Supported `<BACKEND_NAME>` values:
+
+* `OPENCV_DNN`
+* `ONNX_RUNTIME`
+* `LIBTORCH`
+* `TENSORRT`
+* `LIBTENSORFLOW`
+* `OPENVINO`
+* `HUGGING_FACE`
 
 ```
+
 
 ### Manual Build Instructions
 
