@@ -87,6 +87,7 @@ validate_all_dependencies()
    ./scripts/setup_dependencies.sh --backend LIBTORCH
    ./scripts/setup_dependencies.sh --backend OPENVINO
    ./scripts/setup_dependencies.sh --backend GGML
+   ...
    ```
 
 2. **Set environment variables**:
