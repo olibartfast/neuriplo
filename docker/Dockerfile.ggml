@@ -125,6 +125,10 @@ RUN useradd -m testuser && \
 COPY --from=model_generator --chown=testuser:testuser /app/build /app/build
 COPY --from=model_generator --chown=testuser:testuser /app/backends/ggml/test /app/backends/ggml/test
 
+# Copy GGML libraries and headers to final stage
+COPY --from=ggml_install --chown=testuser:testuser ${GGML_DIR}/lib /opt/ggml/lib
+COPY --from=ggml_install --chown=testuser:testuser ${GGML_DIR}/include /opt/ggml/include
+
 # Set working directory to where the test files are located
 WORKDIR /app/build/backends/ggml/test
 
@@ -132,7 +136,7 @@ WORKDIR /app/build/backends/ggml/test
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${GGML_DIR}/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/app/build/lib:/opt/ggml/lib:$LD_LIBRARY_PATH
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
