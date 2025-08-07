@@ -1,20 +1,35 @@
 #!/bin/bash
 
-# Individual LibTorch setup script for InferenceEngines
-# This script is a convenience wrapper around the unified setup script
+# Setup script for LibTorch backend
+# This script is called by the unified setup_dependencies.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UNIFIED_SCRIPT="$SCRIPT_DIR/setup_dependencies.sh"
+set -e
 
-if [[ ! -f "$UNIFIED_SCRIPT" ]]; then
-    echo "Error: Unified setup script not found at $UNIFIED_SCRIPT"
+echo "Setting up LibTorch backend..."
+
+# Load versions from versions.env
+if [ -f "versions.env" ]; then
+    source versions.env
+else
+    echo "Error: versions.env file not found"
     exit 1
 fi
 
-echo "LibTorch Setup for InferenceEngines"
-echo "==================================="
-echo "This script will install LibTorch dependencies."
-echo ""
+# Default installation directory
+local version="$PYTORCH_VERSION"
+local dir="$DEPENDENCY_ROOT/libtorch"
 
-# Run the unified script with LibTorch backend
-exec "$UNIFIED_SCRIPT" --backend LIBTORCH "$@" 
+# Check if already installed
+if [[ -d "$dir" && "$FORCE" != "true" ]]; then
+    echo "✓ LibTorch already installed at $dir"
+    exit 0
+fi
+
+echo "Installing LibTorch $version..."
+
+# Create directory and download
+mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
+wget -q "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-$version%2Bcpu.zip" -O tmp.zip
+unzip -q tmp.zip && rm tmp.zip
+
+echo "✓ LibTorch $version installed successfully at $dir"

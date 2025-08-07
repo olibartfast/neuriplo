@@ -50,5 +50,16 @@ std::vector<float> InferenceInterface::blob2vec(const cv::Mat& input_blob)
     cv::split(input_blob, chw);
 
     return input_data;    
+}
+
+void InferenceInterface::start_timer() {
+    inference_start_time_ = std::chrono::high_resolution_clock::now();
+}
+
+void InferenceInterface::end_timer() {
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - inference_start_time_);
+    last_inference_time_ms_ = duration.count() / 1000.0;
+    total_inferences_++;
 }	
 

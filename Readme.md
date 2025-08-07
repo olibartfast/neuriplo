@@ -20,6 +20,7 @@
 * TensorRT 
 * OpenVINO 
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
+* GGML - Efficient tensor library for machine learning
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -41,6 +42,7 @@ Supported `<BACKEND_NAME>` values:
 * `TENSORRT`
 * `LIBTENSORFLOW`
 * `OPENVINO`
+* `GGML`
 
 #### Test All Backends
 ```bash

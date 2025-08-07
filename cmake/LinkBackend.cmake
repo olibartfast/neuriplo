@@ -20,4 +20,12 @@ elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW" )
 elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
     target_include_directories(${PROJECT_NAME} PRIVATE ${InferenceEngine_INCLUDE_DIRS} ${INFER_ROOT}/openvino/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE openvino::runtime )
+elseif(DEFAULT_BACKEND STREQUAL "GGML")
+    target_include_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/include ${INFER_ROOT}/ggml/src)
+    target_link_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE 
+        ${GGML_DIR}/lib/libggml-base.so
+        ${GGML_DIR}/lib/libggml-cpu.so
+        ${GGML_DIR}/lib/libggml-blas.so
+    )
 endif()
