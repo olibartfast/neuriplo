@@ -13,6 +13,8 @@
 #include "TRTInfer.hpp"
 #elif USE_OPENVINO
 #include "OVInfer.hpp"
+#elif USE_GGML
+#include "GGMLInfer.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& model_path, bool use_gpu = false, 
