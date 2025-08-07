@@ -15,6 +15,8 @@ std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& mo
     return std::make_unique<TRTInfer>(model_path, true, batch_size, input_sizes); 
     #elif USE_OPENVINO
     return std::make_unique<OVInfer>(model_path, use_gpu, batch_size, input_sizes); 
+    #elif USE_GGML
+    return std::make_unique<GGMLInfer>(model_path, use_gpu, batch_size, input_sizes); 
     #endif
     return nullptr;
 
