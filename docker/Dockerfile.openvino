@@ -6,9 +6,15 @@ FROM ubuntu:24.04 AS base
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
-ENV OPENVINO_VERSION=2025.2.0.19140
-ENV OPENVINO_FILENAME=openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64.tgz
-ENV OPENVINO_DIR=/opt/openvino_${OPENVINO_VERSION}
+ENV OPENVINO_DIR=/opt/openvino
+
+# Load versions from versions.env
+COPY versions.env /tmp/versions.env
+RUN set -a && . /tmp/versions.env && set +a && \
+    echo "OPENVINO_VERSION=${OPENVINO_VERSION}" && \
+    echo "Loaded OpenVINO version: ${OPENVINO_VERSION}" && \
+    export OPENVINO_FILENAME=openvino_toolkit_ubuntu24_${OPENVINO_VERSION}.c01cd93e24d_x86_64.tgz && \
+    export OPENVINO_DIR=/opt/openvino_${OPENVINO_VERSION}
 
 # Install system dependencies
 RUN apt-get update && apt-get upgrade -y && \

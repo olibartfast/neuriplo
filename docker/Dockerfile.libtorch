@@ -6,9 +6,15 @@ FROM ubuntu:24.04 AS base
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
-ENV LIBTORCH_VERSION=2.3.0
 ENV LIBTORCH_DIR=/opt/libtorch
 ENV DEPENDENCIES_DIR=/opt/dependencies
+
+# Load versions from versions.env
+COPY versions.env /tmp/versions.env
+RUN set -a && . /tmp/versions.env && set +a && \
+    echo "PYTORCH_VERSION=${PYTORCH_VERSION}" && \
+    echo "Loaded PyTorch version: ${PYTORCH_VERSION}" && \
+    export LIBTORCH_VERSION=${PYTORCH_VERSION}
 
 # Install system dependencies
 RUN apt-get update && apt-get upgrade -y && \
