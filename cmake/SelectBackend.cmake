@@ -15,6 +15,9 @@ elseif (DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
     include(LibTensorFlow)
 elseif (DEFAULT_BACKEND STREQUAL "OPENVINO")
     # Set OpenVino
-    include(OpenVino)    
+    include(OpenVino)
+elseif (DEFAULT_BACKEND STREQUAL "GGML")
+    # Set GGML
+    include(GGML)
 endif()
 

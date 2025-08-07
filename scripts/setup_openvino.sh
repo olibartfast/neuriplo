@@ -1,21 +1,67 @@
 #!/bin/bash
 
-# Individual OpenVINO setup script for InferenceEngines
-# This script is a convenience wrapper around the unified setup script
+# Setup script for OpenVINO backend
+# This script is called by the unified setup_dependencies.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UNIFIED_SCRIPT="$SCRIPT_DIR/setup_dependencies.sh"
+set -e
 
-if [[ ! -f "$UNIFIED_SCRIPT" ]]; then
-    echo "Error: Unified setup script not found at $UNIFIED_SCRIPT"
+echo "Setting up OpenVINO backend..."
+
+# Load versions from versions.env
+if [ -f "versions.env" ]; then
+    source versions.env
+else
+    echo "Error: versions.env file not found"
     exit 1
 fi
 
-echo "OpenVINO Setup for InferenceEngines"
-echo "==================================="
-echo "This script will install OpenVINO dependencies."
-echo "Note: OpenVINO requires manual download from Intel website."
-echo ""
+# Default installation directory
+local version="$OPENVINO_VERSION"
+local dir="$DEPENDENCY_ROOT/openvino_$version"
 
-# Run the unified script with OpenVINO backend
-exec "$UNIFIED_SCRIPT" --backend OPENVINO "$@" 
+# Check if already installed
+if [[ -d "$dir" && "$FORCE" != "true" ]]; then
+    echo "✓ OpenVINO already installed at $dir"
+    exit 0
+fi
+
+echo "Installing OpenVINO $version to $dir..."
+mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
+
+# Download OpenVINO toolkit
+local tarball="openvino_${version}.tgz"
+if [[ ! -f "$tarball" ]]; then
+    echo "Downloading OpenVINO toolkit..."
+    curl -L "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/openvino_toolkit_ubuntu24_${version}.19140.c01cd93e24d_x86_64.tgz" --output "$tarball"
+fi
+
+# Extract and move to final location
+echo "Extracting OpenVINO..."
+tar -xf "$tarball"
+if [[ -d "$dir" ]]; then
+    rm -rf "$dir"
+fi
+mv openvino_toolkit_ubuntu24_${version}.19140.c01cd93e24d_x86_64 "$dir"
+rm -f "$tarball"
+
+# Create a local Python virtual environment for OpenVINO tools
+echo "Setting up OpenVINO Python tools..."
+local venv_dir="$dir/python_env"
+python3 -m venv "$venv_dir"
+source "$venv_dir/bin/activate"
+pip install openvino-dev
+deactivate
+
+# Create wrapper script for ovc
+mkdir -p "$dir/bin"
+cat > "$dir/bin/ovc" << 'EOF'
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/../python_env"
+source "$VENV_DIR/bin/activate"
+ovc "$@"
+deactivate
+EOF
+chmod +x "$dir/bin/ovc"
+
+echo "✓ OpenVINO $version installed successfully to $dir"

@@ -1,20 +1,35 @@
 #!/bin/bash
 
-# Individual ONNX Runtime setup script for InferenceEngines
-# This script is a convenience wrapper around the unified setup script
+# Setup script for ONNX Runtime backend
+# This script is called by the unified setup_dependencies.sh
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UNIFIED_SCRIPT="$SCRIPT_DIR/setup_dependencies.sh"
+set -e
 
-if [[ ! -f "$UNIFIED_SCRIPT" ]]; then
-    echo "Error: Unified setup script not found at $UNIFIED_SCRIPT"
+echo "Setting up ONNX Runtime backend..."
+
+# Load versions from versions.env
+if [ -f "versions.env" ]; then
+    source versions.env
+else
+    echo "Error: versions.env file not found"
     exit 1
 fi
 
-echo "ONNX Runtime Setup for InferenceEngines"
-echo "======================================="
-echo "This script will install ONNX Runtime dependencies."
-echo ""
+# Default installation directory
+local version="$ONNX_RUNTIME_VERSION"
+local dir="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$version"
 
-# Run the unified script with ONNX Runtime backend
-exec "$UNIFIED_SCRIPT" --backend ONNX_RUNTIME "$@" 
+# Check if already installed
+if [[ -d "$dir" && "$FORCE" != "true" ]]; then
+    echo "✓ ONNX Runtime already installed at $dir"
+    exit 0
+fi
+
+echo "Installing ONNX Runtime $version..."
+
+# Create directory and download
+mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
+wget -q "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-gpu-$version.tgz" -O tmp.tgz
+tar -xzf tmp.tgz && rm tmp.tgz
+
+echo "✓ ONNX Runtime $version installed successfully at $dir"

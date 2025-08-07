@@ -17,11 +17,11 @@ message(STATUS "InferenceEngines Cmake module path: ${CMAKE_MODULE_PATH}")
 
 # Read DEFAULT_BACKEND from the cache. If not set, provide a default.
 if(NOT DEFINED DEFAULT_BACKEND)
-    set(DEFAULT_BACKEND "LIBTENSORFLOW" CACHE STRING "Default backend for inference")
+    set(DEFAULT_BACKEND "OPENCV_DNN" CACHE STRING "Default backend for inference")
 endif()
 
 # Define the supported backends
-set(SUPPORTED_BACKENDS "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "OPENCV_DNN" "TENSORRT" "OPENVINO")
+set(SUPPORTED_BACKENDS "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "OPENCV_DNN" "TENSORRT" "OPENVINO" "GGML")
 
 # Check if the specified backend is supported
 list(FIND SUPPORTED_BACKENDS ${DEFAULT_BACKEND} SUPPORTED_BACKEND_INDEX)

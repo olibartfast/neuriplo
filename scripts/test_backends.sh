@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Supported backends
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML")
 
 # Test configuration
 PARALLEL_JOBS=4
@@ -32,24 +32,15 @@ MEMORY_LEAK_ITERATIONS=5000
 STRESS_TEST_THREADS=8
 STRESS_TEST_ITERATIONS=500
 
-# Extract version information from cmake/versions.cmake
-if [ -f "$PROJECT_ROOT/cmake/versions.cmake" ]; then
-    OPENCV_MIN_VERSION=$(grep "OPENCV_MIN_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | head -1 | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
-    ONNX_RUNTIME_VERSION=$(grep "ONNX_RUNTIME_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
-    TENSORRT_VERSION=$(grep "TENSORRT_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
-    LIBTORCH_VERSION=$(grep "LIBTORCH_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
-    OPENVINO_VERSION=$(grep "OPENVINO_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
-    TENSORFLOW_VERSION=$(grep "TENSORFLOW_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
-    CUDA_VERSION=$(grep "CUDA_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^\"]*"' | head -1 | sed 's/"//g')
+# Load versions from versions.env
+if [ -f "$PROJECT_ROOT/versions.env" ]; then
+    source "$PROJECT_ROOT/versions.env"
+    # Map versions to expected variable names
+    OPENCV_MIN_VERSION="$OPENCV_VERSION"
+    LIBTORCH_VERSION="$PYTORCH_VERSION"
 else
-    # Default values if cmake file not found
-    OPENCV_MIN_VERSION="4.6.0"
-    ONNX_RUNTIME_VERSION="1.19.2"
-    TENSORRT_VERSION="10.7.0.23"
-    LIBTORCH_VERSION="2.0.0"
-    OPENVINO_VERSION="2023.1.0"
-    TENSORFLOW_VERSION="2.13.0"
-    CUDA_VERSION="12.6"
+    echo "Error: versions.env file not found"
+    exit 1
 fi
 
 # Log functions
@@ -102,7 +93,7 @@ check_backend_availability() {
         "ONNX_RUNTIME")
             local onnx_runtime_dir="${HOME}/onnxruntime"
             local alt_onnx_runtime_dir="/usr/local/lib/onnxruntime"
-            local deps_onnx_runtime_dir="${HOME}/dependencies/onnxruntime-linux-x64-gpu-1.19.2"
+            local deps_onnx_runtime_dir="${HOME}/dependencies/onnxruntime-linux-x64-gpu-$ONNX_RUNTIME_VERSION"
             local expected_version="$ONNX_RUNTIME_VERSION"
             
             if [ -d "$onnx_runtime_dir" ] || [ -d "$alt_onnx_runtime_dir" ] || [ -d "$deps_onnx_runtime_dir" ]; then
@@ -177,7 +168,7 @@ check_backend_availability() {
         "TENSORRT")
             local tensorrt_dir_pattern="${HOME}/TensorRT-*"
             local alt_tensorrt_dir="/usr/local/TensorRT"
-            local deps_tensorrt_dir="${HOME}/dependencies/TensorRT-10.7.0.23"
+            local deps_tensorrt_dir="${HOME}/dependencies/TensorRT-$TENSORRT_VERSION"
             local expected_version="$TENSORRT_VERSION"
             
             if [ -d "${HOME}/TensorRT-${expected_version}" ]; then
@@ -237,6 +228,25 @@ check_backend_availability() {
                 return 1
             fi
             ;;
+        "GGML")
+            local ggml_dir="${HOME}/dependencies/ggml"
+            local alt_ggml_dir="/usr/local/ggml"
+            local legacy_ggml_dir="${HOME}/.local/ggml"
+            
+            if [ -d "$ggml_dir" ] && [ -f "$ggml_dir/lib/libggml.so" ] && [ -f "$ggml_dir/include/ggml.h" ]; then
+                log_success "GGML found in dependencies directory"
+                return 0
+            elif [ -d "$alt_ggml_dir" ] && [ -f "$alt_ggml_dir/lib/libggml.so" ]; then
+                log_success "GGML found in system directory"
+                return 0
+            elif [ -d "$legacy_ggml_dir" ] && [ -f "$legacy_ggml_dir/lib/libggml.so" ]; then
+                log_success "GGML found in legacy user directory"
+                return 0
+            else
+                log_warning "GGML not found"
+                return 1
+            fi
+            ;;
         *)
             log_error "Unknown backend: $backend"
             return 1
@@ -254,6 +264,7 @@ get_backend_dir() {
         "LIBTENSORFLOW") echo "libtensorflow" ;;
         "TENSORRT") echo "tensorrt" ;;
         "OPENVINO") echo "openvino" ;;
+        "GGML") echo "ggml" ;;
         *) echo "unknown" ;;
     esac
 }
@@ -268,6 +279,7 @@ get_test_executable_name() {
         "LIBTENSORFLOW") echo "TensorFlowInferTest" ;;
         "TENSORRT") echo "TensorRTInferTest" ;;
         "OPENVINO") echo "OpenVINOInferTest" ;;
+        "GGML") echo "GGMLInferTest" ;;
         *) echo "UnknownInferTest" ;;
     esac
 }
@@ -385,7 +397,9 @@ test_backend() {
         elif [ "$backend" = "LIBTORCH" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTorch_DIR="$HOME/dependencies/libtorch-2.0.1/share/cmake/Torch" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "TENSORRT" ]; then
-            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTENSORRT_DIR="$HOME/dependencies/TensorRT-10.7.0.23" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTENSORRT_DIR="$HOME/dependencies/TensorRT-$TENSORRT_VERSION" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "GGML" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DGGML_DIR="$HOME/dependencies/ggml" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi
@@ -456,6 +470,52 @@ EOF
         # Create model_path.txt for the test
         echo "$BUILD_DIR/saved_model" > "$BUILD_DIR/model_path.txt"
         log_success "TensorFlow model setup completed"
+    fi
+    
+    # Setup GGML model if needed
+    if [ "$backend" = "GGML" ]; then
+        log_info "Setting up GGML model for testing..."
+        cd "$BUILD_DIR"
+        
+        # Check if model already exists
+        if [ ! -f "resnet18.ggml" ]; then
+            # Check if conversion script exists
+            local conversion_script="$PROJECT_ROOT/scripts/convert_to_ggml.sh"
+            if [ -f "$conversion_script" ]; then
+                log_info "Converting ResNet18 to GGML format..."
+                
+                # Create temporary Python environment for conversion
+                python3 -m venv /tmp/ggml_test_env
+                source /tmp/ggml_test_env/bin/activate
+                
+                # Install PyTorch dependencies
+                pip install --upgrade pip > /dev/null 2>&1
+                pip install torch torchvision numpy > /dev/null 2>&1
+                
+                # Run conversion
+                python3 "$PROJECT_ROOT/scripts/convert_resnet18_to_ggml.py" --output "resnet18.ggml" --test-dir "." > "${TEST_RESULTS_DIR}/${backend_dir}_model_generation.log" 2>&1
+                
+                # Cleanup
+                deactivate
+                rm -rf /tmp/ggml_test_env
+                
+                if [ ! -f "resnet18.ggml" ]; then
+                    log_error "Failed to generate GGML model"
+                    return 1
+                fi
+            else
+                log_warning "GGML conversion script not found, creating placeholder model"
+                # Create a simple placeholder model file
+                echo "GGML" > "resnet18.ggml"
+                echo "1" >> "resnet18.ggml"
+                echo "1000" >> "resnet18.ggml"
+                echo "150528" >> "resnet18.ggml"
+            fi
+        fi
+        
+        # Create model_path.txt for the test
+        echo "$BUILD_DIR/resnet18.ggml" > "$BUILD_DIR/model_path.txt"
+        log_success "GGML model setup completed"
     fi
     
     # Run tests

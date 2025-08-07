@@ -93,7 +93,7 @@ endfunction()
 
 # Function to validate CUDA (if GPU support is requested)
 function(validate_cuda)
-    if(DEFAULT_BACKEND STREQUAL "TENSORRT" OR DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
+    if(DEFAULT_BACKEND STREQUAL "TENSORRT" OR DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME" OR DEFAULT_BACKEND STREQUAL "GGML")
         find_package(CUDA QUIET)
         if(CUDA_FOUND)
             message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
@@ -142,6 +142,8 @@ function(validate_all_dependencies)
         validate_libtensorflow()
     elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
         validate_openvino()
+    elseif(DEFAULT_BACKEND STREQUAL "GGML")
+        validate_ggml()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -168,19 +170,20 @@ function(print_setup_instructions)
     message(STATUS "")
     
     if(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
-        message(STATUS "  ./scripts/setup_onnx_runtime.sh")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME")
     elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")
-        message(STATUS "  ./scripts/setup_tensorrt.sh")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend TENSORRT")
     elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
-        message(STATUS "  ./scripts/setup_libtorch.sh")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTORCH")
     elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
-        message(STATUS "  For LibTensorFlow, please install TensorFlow C++ library manually")
-        message(STATUS "  or check the project documentation for installation instructions")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTENSORFLOW")
     elseif(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
         message(STATUS "  OpenCV DNN is included with OpenCV installation")
         message(STATUS "  Ensure OpenCV is installed with DNN module support")
     elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
-        message(STATUS "  ./scripts/setup_openvino.sh")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend OPENVINO")
+    elseif(DEFAULT_BACKEND STREQUAL "GGML")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend GGML")
     endif()
     
     message(STATUS "")
@@ -222,5 +225,27 @@ function(validate_libtensorflow)
         endif()
         
         message(STATUS "✓ LibTensorFlow validation passed")
+    endif()
+endfunction()
+
+# Function to validate GGML
+function(validate_ggml)
+    if(DEFAULT_BACKEND STREQUAL "GGML")
+        validate_dependency("GGML" "${GGML_DIR}")
+        
+        # Check for required files
+        set(required_files
+            "${GGML_DIR}/include/ggml.h"
+            "${GGML_DIR}/include/ggml-backend.h"
+            "${GGML_DIR}/lib/libggml.so"
+        )
+        
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "GGML installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+        
+        message(STATUS "✓ GGML validation passed")
     endif()
 endfunction()

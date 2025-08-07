@@ -2,6 +2,14 @@
 
 set -e
 
+# Load versions from versions.env
+if [ -f "versions.env" ]; then
+    source versions.env
+else
+    echo "Error: versions.env file not found"
+    exit 1
+fi
+
 # Defaults
 BACKEND=""
 DEPENDENCY_ROOT="$HOME/dependencies"
@@ -15,7 +23,7 @@ while [[ $# -gt 0 ]]; do
         -f|--force) FORCE=true; shift ;;
         -h|--help) 
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -24,7 +32,7 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
@@ -32,87 +40,34 @@ esac
 install_system_deps() {
     local os=$(grep -oP '^ID=\K.*' /etc/os-release 2>/dev/null || echo "linux")
     case $os in
-        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopencv-dev ;;
-        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config opencv-devel ;;
+        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopencv-dev libopenblas-dev ;;
+        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config opencv-devel openblas-devel ;;
         *) echo "Warning: Unsupported OS: $os. Install dependencies manually." ;;
     esac
 }
 
 # Setup ONNX Runtime
 setup_onnx_runtime() {
-    local version="1.19.2"
-    local dir="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$version"
-    [[ -d "$dir" && "$FORCE" != "true" ]] && return 0
-    mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
-    wget -q "https://github.com/microsoft/onnxruntime/releases/download/v$version/onnxruntime-linux-x64-gpu-$version.tgz" -O tmp.tgz
-    tar -xzf tmp.tgz && rm tmp.tgz
+    echo "Setting up ONNX Runtime..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_onnx_runtime.sh
 }
 
 # Setup TensorRT
 setup_tensorrt() {
-    local version="10.7.0.23"
-    local dir="$DEPENDENCY_ROOT/TensorRT-$version"
-    [[ -d "$dir" && "$FORCE" != "true" ]] && return 0
-    echo "Error: Install TensorRT $version manually from https://developer.nvidia.com/tensorrt to $dir"
-    [[ -d "$dir" ]] || exit 1
+    echo "Setting up TensorRT..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_tensorrt.sh
 }
 
 # Setup LibTorch
 setup_libtorch() {
-    local version="2.0.0"
-    local dir="$DEPENDENCY_ROOT/libtorch"
-    [[ -d "$dir" && "$FORCE" != "true" ]] && return 0
-    mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
-    wget -q "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-$version%2Bcpu.zip" -O tmp.zip
-    unzip -q tmp.zip && rm tmp.zip
+    echo "Setting up LibTorch..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_libtorch.sh
 }
 
 # Setup OpenVINO
 setup_openvino() {
-    local version="2025.2.0"
-    local dir="$DEPENDENCY_ROOT/openvino_$version"
-    [[ -d "$dir" && "$FORCE" != "true" ]] && return 0
-    
-    echo "Installing OpenVINO $version to $dir..."
-    mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
-    
-    # Download OpenVINO toolkit
-    local tarball="openvino_2025.2.0.tgz"
-    if [[ ! -f "$tarball" ]]; then
-        echo "Downloading OpenVINO toolkit..."
-        curl -L "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64.tgz" --output "$tarball"
-    fi
-    
-    # Extract and move to final location
-    echo "Extracting OpenVINO..."
-    tar -xf "$tarball"
-    if [[ -d "$dir" ]]; then
-        rm -rf "$dir"
-    fi
-    mv openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64 "$dir"
-    rm -f "$tarball"
-    
-    # Create a local Python virtual environment for OpenVINO tools
-    echo "Setting up OpenVINO Python tools..."
-    local venv_dir="$dir/python_env"
-    python3 -m venv "$venv_dir"
-    source "$venv_dir/bin/activate"
-    pip install openvino-dev
-    deactivate
-    
-    # Create wrapper script for ovc
-    mkdir -p "$dir/bin"
-    cat > "$dir/bin/ovc" << 'EOF'
-#!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/../python_env"
-source "$VENV_DIR/bin/activate"
-ovc "$@"
-deactivate
-EOF
-    chmod +x "$dir/bin/ovc"
-    
-    echo "OpenVINO $version installed successfully to $dir"
+    echo "Setting up OpenVINO..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_openvino.sh
 }
 
 # Setup TensorFlow C++ Libraries
@@ -133,20 +88,30 @@ setup_libtensorflow() {
     fi
 }
 
+# Setup GGML
+setup_ggml() {
+    echo "Setting up GGML library..."
+    
+    # Call the dedicated GGML setup script
+    DEPENDENCY_ROOT="${DEPENDENCY_ROOT}" FORCE="${FORCE}" ./scripts/setup_ggml.sh
+}
+
 # Validate installation
 validate_installation() {
     case $1 in
         ONNX_RUNTIME)
-            [[ -f "$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2/include/onnxruntime_cxx_api.h" && -f "$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2/lib/libonnxruntime.so" ]] || { echo "Error: ONNX Runtime validation failed"; exit 1; } ;;
+            [[ -f "$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$ONNX_RUNTIME_VERSION/include/onnxruntime_cxx_api.h" && -f "$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$ONNX_RUNTIME_VERSION/lib/libonnxruntime.so" ]] || { echo "Error: ONNX Runtime validation failed"; exit 1; } ;;
         TENSORRT)
-            [[ -f "$DEPENDENCY_ROOT/TensorRT-10.7.0.23/include/NvInfer.h" && -f "$DEPENDENCY_ROOT/TensorRT-10.7.0.23/lib/libnvinfer.so" ]] || { echo "Error: TensorRT validation failed"; exit 1; }
+            [[ -f "$DEPENDENCY_ROOT/TensorRT-$TENSORRT_VERSION/include/NvInfer.h" && -f "$DEPENDENCY_ROOT/TensorRT-$TENSORRT_VERSION/lib/libnvinfer.so" ]] || { echo "Error: TensorRT validation failed"; exit 1; }
             command -v nvcc &>/dev/null || echo "Warning: CUDA not found. Install from https://developer.nvidia.com/cuda-downloads" ;;
         LIBTORCH)
             [[ -f "$DEPENDENCY_ROOT/libtorch/share/cmake/Torch/TorchConfig.cmake" ]] || { echo "Error: LibTorch validation failed"; exit 1; } ;;
         OPENVINO)
-            [[ -f "$DEPENDENCY_ROOT/openvino_2025.2.0/runtime/include/openvino/openvino.hpp" && -f "$DEPENDENCY_ROOT/openvino_2025.2.0/runtime/lib/intel64/libopenvino.so" ]] || { echo "Error: OpenVINO validation failed"; exit 1; } ;;
+            [[ -f "$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION/runtime/include/openvino/openvino.hpp" && -f "$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION/runtime/lib/intel64/libopenvino.so" ]] || { echo "Error: OpenVINO validation failed"; exit 1; } ;;
         LIBTENSORFLOW)
             [[ -f "$DEPENDENCY_ROOT/tensorflow/include/tensorflow/cc/saved_model/loader.h" && -f "$DEPENDENCY_ROOT/tensorflow/lib/libtensorflow_cc.so" ]] || { echo "Error: TensorFlow C++ validation failed"; exit 1; } ;;
+        GGML)
+            [[ -f "$DEPENDENCY_ROOT/ggml/include/ggml.h" && -f "$DEPENDENCY_ROOT/ggml/lib/libggml.so" ]] || { echo "Error: GGML validation failed"; exit 1; } ;;
     esac
 }
 
@@ -156,12 +121,13 @@ create_env_setup() {
     cat > "$env_file" << EOF
 #!/bin/bash
 export DEPENDENCY_ROOT="$DEPENDENCY_ROOT"
-export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2"
-export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.7.0.23"
+export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$ONNX_RUNTIME_VERSION"
+export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-$TENSORRT_VERSION"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
-export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
+export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$LD_LIBRARY_PATH"
+export GGML_DIR="\$DEPENDENCY_ROOT/ggml"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$LD_LIBRARY_PATH"
 export PATH="\$OPENVINO_DIR/bin:\$PATH"
 EOF
     chmod +x "$env_file"
@@ -175,6 +141,7 @@ case $BACKEND in
     LIBTORCH) setup_libtorch ;;
     OPENVINO) setup_openvino ;;
     LIBTENSORFLOW) setup_libtensorflow ;;
+    GGML) setup_ggml ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup

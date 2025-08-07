@@ -58,14 +58,20 @@ The main setup script `scripts/setup_dependencies.sh` supports the following inf
 
 #### Individual Backend Scripts
 
-Individual scripts are available for all backends:
+All backends can be set up using the unified script:
 
-- `scripts/setup_onnx_runtime.sh`
-- `scripts/setup_tensorrt.sh`
-- `scripts/setup_libtorch.sh`
-- `scripts/setup_openvino.sh`
-- `scripts/setup_libtensorflow.sh`
-- `scripts/setup_tensorflow_pip.sh`
+```bash
+./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
+```
+
+Supported backend values:
+- `OPENCV_DNN` - Setup OpenCV DNN backend
+- `ONNX_RUNTIME` - Setup ONNX Runtime backend
+- `LIBTORCH` - Setup LibTorch backend
+- `TENSORRT` - Setup TensorRT backend
+- `LIBTENSORFLOW` - Setup TensorFlow C++ backend
+- `OPENVINO` - Setup OpenVINO backend
+- `GGML` - Setup GGML backend
 
 ## Usage
 
@@ -145,7 +151,7 @@ validate_all_dependencies()
 
 #### CMake Variables
 
-- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN)
+- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML)
 - `BUILD_INFERENCE_ENGINE_TESTS`: Enable/disable test building (ON/OFF)
 - `DEPENDENCY_ROOT`: Set custom dependency installation root (default: `$HOME/dependencies`)
 - `ONNX_RUNTIME_VERSION`: Override ONNX Runtime version
@@ -307,7 +313,7 @@ When adding new inference backends:
 1. **Update versions.cmake**: Add version variables for the new backend
 2. **Update DependencyValidation.cmake**: Add validation functions for the backend
 3. **Update setup_dependencies.sh**: Add installation logic (if automatic download is possible)
-4. **Create individual script**: Add `scripts/setup_<backend>.sh` for backend-specific setup
+4. **Update unified setup**: Add installation logic to `scripts/setup_dependencies.sh` for the new backend
 5. **Update CMakeLists.txt**: Add backend to `SUPPORTED_BACKENDS` list
 6. **Create backend implementation**: Add source files in `backends/<backend>/src/`
 7. **Add tests**: Create test files in `backends/<backend>/test/`
