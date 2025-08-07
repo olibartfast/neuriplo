@@ -72,25 +72,35 @@ ENV GGML_DIR=${GGML_DIR}
 ENV LD_LIBRARY_PATH=${GGML_DIR}/lib
 ENV PKG_CONFIG_PATH=${GGML_DIR}/lib/pkgconfig
 
-# Stage 3: Download pre-built ONNX models
-FROM ggml_install AS model_downloader
+# Stage 3: Download and convert models
+FROM ggml_install AS model_converter
 
-# Install wget for downloading models
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+# Install wget and Python packages for model conversion
+RUN apt-get update && apt-get install -y wget python3 python3-onnx python3-numpy && rm -rf /var/lib/apt/lists/*
 
 # Create model directory
 RUN mkdir -p /opt/models
 
 # Download ResNet18 ONNX model from ONNX Model Zoo
 RUN wget -O /opt/models/resnet18.onnx \
-https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/resnet/model/resnet18-v1-7.onnx
+    https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/resnet/model/resnet18-v1-7.onnx
 
 # Verify the model was downloaded
 RUN ls -la /opt/models/ && \
     echo "ResNet18 ONNX model downloaded successfully"
 
+# Convert ONNX to GGML format using the conversion script
+WORKDIR /app
+COPY scripts/convert_onnx_to_ggml.py /app/scripts/
+RUN python3 /app/scripts/convert_onnx_to_ggml.py \
+    --input /opt/models/resnet18.onnx \
+    --output /opt/models/resnet18.ggml \
+    --input-shape 3,224,224 \
+    --batch-size 1 && \
+    echo "Model converted to GGML format successfully"
+
 # Stage 4: Build application
-FROM model_downloader AS builder
+FROM model_converter AS builder
 
 WORKDIR /app
 
@@ -108,10 +118,14 @@ RUN rm -rf build && \
 # Stage 5: Copy pre-downloaded models
 FROM builder AS model_generator
 
-# Copy the pre-downloaded ResNet18 ONNX model to test directory
+# Copy the converted GGML model to test directory
 WORKDIR /app/build/backends/ggml/test
-RUN cp /opt/models/resnet18.onnx . && \
-    echo "ResNet18 ONNX model copied to test directory"
+RUN cp /opt/models/resnet18.ggml . && \
+    echo "ResNet18 GGML model copied to test directory"
+
+# Create model_path.txt file for the test
+RUN echo "$(pwd)/resnet18.ggml" > model_path.txt && \
+    echo "Model path file created: $(cat model_path.txt)"
 
 # Stage 6: Final runtime image for testing
 FROM ggml_install AS final

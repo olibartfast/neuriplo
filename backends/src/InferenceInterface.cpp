@@ -4,8 +4,13 @@ InferenceInterface::InferenceInterface(const std::string& weights,
     bool use_gpu, 
     size_t batch_size,
     const std::vector<std::vector<int64_t>>& input_sizes)
+    : model_path_(weights)
+    , gpu_available_(use_gpu)
+    , batch_size_(batch_size)
+    , last_inference_time_ms_(0.0)
+    , total_inferences_(0)
+    , memory_usage_mb_(0)
 {
-
 }
 
 ModelInfo InferenceInterface::get_model_info() noexcept {
