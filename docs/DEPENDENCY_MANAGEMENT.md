@@ -41,17 +41,8 @@ The `cmake/DependencyValidation.cmake` module provides validation:
 The main setup script `scripts/setup_dependencies.sh` supports the following inference backends:
 
 ```bash
-# Setup ONNX Runtime
-./scripts/setup_dependencies.sh --backend ONNX_RUNTIME
-
-# Setup TensorRT (requires manual download)
-./scripts/setup_dependencies.sh --backend TENSORRT
-
-# Setup LibTorch
-./scripts/setup_dependencies.sh --backend LIBTORCH
-
-# Setup OpenVINO (requires manual download)
-./scripts/setup_dependencies.sh --backend OPENVINO
+# Setup any backend
+./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
 **Note**: TensorFlow (LIBTENSORFLOW) and OpenCV DNN (OPENCV_DNN) backends are supported by the CMake build system but require separate setup procedures (see individual backend scripts below).
@@ -64,14 +55,7 @@ All backends can be set up using the unified script:
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-Supported backend values:
-- `OPENCV_DNN` - Setup OpenCV DNN backend
-- `ONNX_RUNTIME` - Setup ONNX Runtime backend
-- `LIBTORCH` - Setup LibTorch backend
-- `TENSORRT` - Setup TensorRT backend
-- `LIBTENSORFLOW` - Setup TensorFlow C++ backend
-- `OPENVINO` - Setup OpenVINO backend
-- `GGML` - Setup GGML backend
+Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`
 
 ## Usage
 
@@ -94,23 +78,15 @@ validate_all_dependencies()
 
 1. **Choose your backend**:
    ```bash
-   # For ONNX Runtime (automatic download)
+   # Setup any backend
+   ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
+   
+   # Examples:
    ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME
-   
-   # For TensorRT (requires manual download)
    ./scripts/setup_dependencies.sh --backend TENSORRT
-   
-   # For LibTorch (automatic download)
    ./scripts/setup_dependencies.sh --backend LIBTORCH
-   
-   # For OpenVINO (requires manual download)
    ./scripts/setup_dependencies.sh --backend OPENVINO
-   
-   # For TensorFlow (use individual script)
-   ./scripts/setup_libtensorflow.sh
-   
-   # Alternative: Install TensorFlow via pip first
-   ./scripts/setup_tensorflow_pip.sh
+   ./scripts/setup_dependencies.sh --backend GGML
    ```
 
 2. **Set environment variables**:
@@ -122,29 +98,16 @@ validate_all_dependencies()
    ```bash
    mkdir build && cd build
    
-   # Build with TensorFlow backend
-   cmake .. -DDEFAULT_BACKEND=LIBTENSORFLOW -DBUILD_INFERENCE_ENGINE_TESTS=ON
+   # Build with any backend
+   cmake .. -DDEFAULT_BACKEND=<BACKEND_NAME> -DBUILD_INFERENCE_ENGINE_TESTS=ON
    make
    
-   # Or build with ONNX Runtime backend
+   # Examples:
    cmake .. -DDEFAULT_BACKEND=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   make
-   
-   # Or build with LibTorch backend
-   cmake .. -DDEFAULT_BACKEND=LIBTORCH -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   make
-   
-   # Or build with TensorRT backend
    cmake .. -DDEFAULT_BACKEND=TENSORRT -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   make
-   
-   # Or build with OpenVINO backend
+   cmake .. -DDEFAULT_BACKEND=LIBTORCH -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=OPENVINO -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   make
-   
-   # Or build with OpenCV DNN backend
-   cmake .. -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   make
+   cmake .. -DDEFAULT_BACKEND=GGML -DBUILD_INFERENCE_ENGINE_TESTS=ON
    ```
 
 ### Configuration Options
@@ -204,10 +167,10 @@ export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/li
 1. **Missing Dependencies**:
    ```bash
    # Reinstall with force flag for unified script
-   ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME --force
+   ./scripts/setup_dependencies.sh --backend <BACKEND_NAME> --force
    
-   # For TensorFlow, use individual script
-   ./scripts/setup_libtensorflow.sh
+   # Example:
+   ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME --force
    ```
 
 2. **Version Conflicts**:
@@ -244,13 +207,13 @@ For backends requiring manual installation:
 
 **TensorRT**:
 1. Download from [NVIDIA Developer](https://developer.nvidia.com/tensorrt)
-2. Extract to `$HOME/dependencies/TensorRT-10.7.0.23`
+2. Extract to `$HOME/dependencies/TensorRT-<VERSION>`
 3. Ensure CUDA is installed
 4. Run validation: `./scripts/setup_dependencies.sh --backend TENSORRT`
 
 **OpenVINO**:
 1. Download from [Intel Developer Zone](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html)
-2. Extract to `$HOME/dependencies/openvino-2023.1.0`
+2. Extract to `$HOME/dependencies/openvino-<VERSION>`
 3. Run validation: `./scripts/setup_dependencies.sh --backend OPENVINO`
 
 **TensorFlow**:
@@ -266,8 +229,11 @@ The testing framework supports all backends:
 
 ```bash
 # Test specific backend
-./scripts/test_backends.sh --backend LIBTENSORFLOW
+./scripts/test_backends.sh --backend <BACKEND_NAME>
+
+# Examples:
 ./scripts/test_backends.sh --backend ONNX_RUNTIME
+./scripts/test_backends.sh --backend TENSORRT
 ./scripts/test_backends.sh --backend LIBTORCH
 
 # Test all backends
