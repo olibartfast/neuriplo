@@ -93,7 +93,7 @@ Supported `<BACKEND_NAME>` values:
 
 ## Usage
 
-To use the neuriplo library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)):
+To use the Neuriplo library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)):
 
 ```cmake
 target_link_libraries(your_project PRIVATE neuriplo)
