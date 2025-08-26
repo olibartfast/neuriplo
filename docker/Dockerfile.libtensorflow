@@ -1,5 +1,5 @@
-# docker build --rm -t inference-engines:libtensorflow -f docker/Dockerfile.libtensorflow .
-# docker run --rm inference-engines:libtensorflow
+# docker build --rm -t neuriplo:libtensorflow -f docker/Dockerfile.libtensorflow .
+# docker run --rm neuriplo:libtensorflow
 
 # Stage 1: Base image with system dependencies
 FROM ubuntu:24.04 AS base

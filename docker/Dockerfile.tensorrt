@@ -1,4 +1,4 @@
-# docker build --rm -t inference-engines:tensorrt -f docker/Dockerfile.tensorrt .
+# docker build --rm -t neuriplo:tensorrt -f docker/Dockerfile.tensorrt .
 
 # Stage 1: Cuda dependencies
 ARG UBUNTU_VERSION=24.04
@@ -114,5 +114,5 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD test -f /app/lib/libInferenceEngines.so || exit 1
 
 # Default command (You probably don't need this for a library)
-# ENTRYPOINT ["/app/inference-engines"]
+# ENTRYPOINT ["/app/neuriplo"]
 # CMD ["--default-args"]

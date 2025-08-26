@@ -269,7 +269,7 @@ The InferenceEngines library is designed as a standalone component that can be i
 Example integration:
 ```cmake
 # In main project CMakeLists.txt
-add_subdirectory(inference-engines)
+add_subdirectory(neuriplo)
 target_link_libraries(my_project PRIVATE InferenceEngines)
 ```
 
