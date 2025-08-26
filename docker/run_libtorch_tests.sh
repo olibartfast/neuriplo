@@ -49,7 +49,7 @@ build_image() {
     fi
     
     # Build the image
-    docker build -f docker/Dockerfile.libtorch -t inference-engines-libtorch .
+    docker build -f docker/Dockerfile.libtorch -t neuriplo-libtorch .
     
     if [ $? -eq 0 ]; then
         print_success "LibTorch Docker image built successfully"
@@ -66,7 +66,7 @@ run_tests() {
     # Run the container with tests
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
-        inference-engines-libtorch \
+        neuriplo-libtorch \
         bash -c "
             echo 'Running LibTorch backend tests...'
             cd /app/build/backends/libtorch/test
@@ -110,7 +110,7 @@ run_tests_verbose() {
     # Run the container with verbose tests
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
-        inference-engines-libtorch \
+        neuriplo-libtorch \
         bash -c "
             echo 'Running LibTorch backend tests with verbose output...'
             cd /app/build/backends/libtorch/test
@@ -153,7 +153,7 @@ run_shell() {
     
     docker run --rm -it \
         -v "$(pwd)/test_results:/app/test_results" \
-        inference-engines-libtorch \
+        neuriplo-libtorch \
         bash
 }
 
@@ -162,7 +162,7 @@ cleanup() {
     print_status "Cleaning up Docker images..."
     
     # Remove the LibTorch image
-    docker rmi inference-engines-libtorch 2>/dev/null || true
+    docker rmi neuriplo-libtorch 2>/dev/null || true
     
     print_success "Cleanup completed"
 }
@@ -209,7 +209,7 @@ main() {
             ;;
         "test")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-libtorch >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-libtorch >/dev/null 2>&1; then
                 print_warning "LibTorch Docker image not found, building first..."
                 build_image
             fi
@@ -217,7 +217,7 @@ main() {
             ;;
         "test-verbose")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-libtorch >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-libtorch >/dev/null 2>&1; then
                 print_warning "LibTorch Docker image not found, building first..."
                 build_image
             fi
@@ -225,7 +225,7 @@ main() {
             ;;
         "shell")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-libtorch >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-libtorch >/dev/null 2>&1; then
                 print_warning "LibTorch Docker image not found, building first..."
                 build_image
             fi

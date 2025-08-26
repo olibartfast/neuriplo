@@ -58,18 +58,18 @@ If you prefer to use Docker commands directly:
 
 ```bash
 # Build the image
-docker build --rm -t inference-engines:openvino -f docker/Dockerfile.openvino .
+docker build --rm -t neuriplo:openvino -f docker/Dockerfile.openvino .
 
 # Run tests
-docker run --rm inference-engines:openvino
+docker run --rm neuriplo:openvino
 
 # Run tests with volume mount for results
 docker run --rm \
   -v $(pwd)/test_results:/app/test_results \
-  inference-engines:openvino
+  neuriplo:openvino
 
 # Interactive shell for debugging
-docker run --rm -it inference-engines:openvino /bin/bash
+docker run --rm -it neuriplo:openvino /bin/bash
 ```
 
 ## Docker Image Structure
@@ -158,7 +158,7 @@ PYTHONPATH=/opt/openvino_2025.2.0/python:$PYTHONPATH
 2. **Model generation fails**
    ```bash
    # Run interactive shell to debug
-   docker run --rm -it inference-engines:openvino /bin/bash
+   docker run --rm -it neuriplo:openvino /bin/bash
    cd /app/build/backends/openvino/test
    python3 export_torchvision_classifier.py
    ./generate_openvino_ir.sh
@@ -167,7 +167,7 @@ PYTHONPATH=/opt/openvino_2025.2.0/python:$PYTHONPATH
 3. **Test execution fails**
    ```bash
    # Check if models exist
-   docker run --rm inference-engines:openvino ls -la /app/build/backends/openvino/test/
+   docker run --rm neuriplo:openvino ls -la /app/build/backends/openvino/test/
    
    # Run with verbose output
    ./docker/run_openvino_tests.sh --run-only --verbose
@@ -189,7 +189,7 @@ For debugging, you can run an interactive shell:
 ./docker/run_openvino_tests.sh --build-only
 
 # Run interactive shell
-docker run --rm -it inference-engines:openvino /bin/bash
+docker run --rm -it neuriplo:openvino /bin/bash
 
 # Inside the container, you can:
 cd /app/build/backends/openvino/test

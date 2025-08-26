@@ -49,7 +49,7 @@ build_image() {
     fi
     
     # Build the image
-    docker build -f docker/Dockerfile.tensorrt -t inference-engines-tensorrt .
+    docker build -f docker/Dockerfile.tensorrt -t neuriplo-tensorrt .
     
     if [ $? -eq 0 ]; then
         print_success "TensorRT Docker image built successfully"
@@ -67,7 +67,7 @@ run_tests() {
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
         --gpus all \
-        inference-engines-tensorrt \
+        neuriplo-tensorrt \
         bash -c "
             echo 'Running TensorRT backend tests...'
             cd /app/test
@@ -112,7 +112,7 @@ run_tests_verbose() {
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
         --gpus all \
-        inference-engines-tensorrt \
+        neuriplo-tensorrt \
         bash -c "
             echo 'Running TensorRT backend tests with verbose output...'
             cd /app/test
@@ -157,7 +157,7 @@ run_tests_profiling() {
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
         --gpus all \
-        inference-engines-tensorrt \
+        neuriplo-tensorrt \
         bash -c "
             echo 'Running TensorRT backend tests with GPU profiling...'
             cd /app/test
@@ -207,7 +207,7 @@ run_shell() {
     docker run --rm -it \
         -v "$(pwd)/test_results:/app/test_results" \
         --gpus all \
-        inference-engines-tensorrt \
+        neuriplo-tensorrt \
         bash
 }
 
@@ -230,7 +230,7 @@ check_test_executable() {
     
     docker run --rm \
         --gpus all \
-        inference-engines-tensorrt \
+        neuriplo-tensorrt \
         bash -c "
             echo 'Checking for TensorRT test executable...'
             if [ -f '/app/test/TensorRTInferTest' ]; then
@@ -261,7 +261,7 @@ cleanup() {
     print_status "Cleaning up Docker images..."
     
     # Remove the TensorRT image
-    docker rmi inference-engines-tensorrt 2>/dev/null || true
+    docker rmi neuriplo-tensorrt 2>/dev/null || true
     
     print_success "Cleanup completed"
 }
@@ -307,7 +307,7 @@ run_tests_debug() {
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
         --gpus all \
-        inference-engines-tensorrt \
+        neuriplo-tensorrt \
         bash -c "
             echo 'Running TensorRT backend tests with debugging information...'
             cd /app/test
@@ -367,7 +367,7 @@ rebuild_image() {
     print_status "Rebuilding TensorRT Docker image..."
     
     # Remove existing image if it exists
-    docker rmi inference-engines-tensorrt 2>/dev/null || true
+    docker rmi neuriplo-tensorrt 2>/dev/null || true
     
     # Build the image
     build_image
@@ -397,7 +397,7 @@ main() {
             ;;
         "test")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-tensorrt >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-tensorrt >/dev/null 2>&1; then
                 print_warning "TensorRT Docker image not found, building first..."
                 build_image
             fi
@@ -411,7 +411,7 @@ main() {
             ;;
         "test-verbose")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-tensorrt >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-tensorrt >/dev/null 2>&1; then
                 print_warning "TensorRT Docker image not found, building first..."
                 build_image
             fi
@@ -425,7 +425,7 @@ main() {
             ;;
         "test-profiling")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-tensorrt >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-tensorrt >/dev/null 2>&1; then
                 print_warning "TensorRT Docker image not found, building first..."
                 build_image
             fi
@@ -439,7 +439,7 @@ main() {
             ;;
         "test-debug")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-tensorrt >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-tensorrt >/dev/null 2>&1; then
                 print_warning "TensorRT Docker image not found, building first..."
                 build_image
             fi
@@ -453,7 +453,7 @@ main() {
             ;;
         "check-test")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-tensorrt >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-tensorrt >/dev/null 2>&1; then
                 print_warning "TensorRT Docker image not found, building first..."
                 build_image
             fi
@@ -461,7 +461,7 @@ main() {
             ;;
         "shell")
             # Check if image exists, build if not
-            if ! docker image inspect inference-engines-tensorrt >/dev/null 2>&1; then
+            if ! docker image inspect neuriplo-tensorrt >/dev/null 2>&1; then
                 print_warning "TensorRT Docker image not found, building first..."
                 build_image
             fi

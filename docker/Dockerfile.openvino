@@ -1,5 +1,5 @@
-# docker build --rm -t inference-engines:openvino -f docker/Dockerfile.openvino .
-# docker run --rm inference-engines:openvino
+# docker build --rm -t neuriplo:openvino -f docker/Dockerfile.openvino .
+# docker run --rm neuriplo:openvino
 
 # Stage 1: Base image with OpenVINO dependencies
 FROM ubuntu:24.04 AS base

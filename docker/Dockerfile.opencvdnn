@@ -1,4 +1,4 @@
-# docker build --rm -t inference-engines:opencvdnn -f docker/Dockerfile.opencvdnn .
+# docker build --rm -t neuriplo:opencvdnn -f docker/Dockerfile.opencvdnn .
 
 # Stage 1: Base dependencies
 ARG UBUNTU_VERSION=24.04

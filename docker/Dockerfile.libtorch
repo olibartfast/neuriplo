@@ -1,5 +1,5 @@
-# docker build --rm -t inference-engines:libtorch -f docker/Dockerfile.libtorch .
-# docker run --rm inference-engines:libtorch
+# docker build --rm -t neuriplo:libtorch -f docker/Dockerfile.libtorch .
+# docker run --rm neuriplo:libtorch
 
 # Stage 1: Base image with system dependencies
 FROM ubuntu:24.04 AS base

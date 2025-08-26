@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-IMAGE_NAME="inference-engines:libtensorflow"
+IMAGE_NAME="neuriplo:libtensorflow"
 CONTAINER_NAME="libtensorflow-test-runner"
 
 # Colors for output

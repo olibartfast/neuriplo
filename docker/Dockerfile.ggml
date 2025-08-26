@@ -1,5 +1,5 @@
-# docker build --rm -t inference-engines:ggml -f docker/Dockerfile.ggml .
-# docker run --rm inference-engines:ggml
+# docker build --rm -t neuriplo:ggml -f docker/Dockerfile.ggml .
+# docker run --rm neuriplo:ggml
 
 # Stage 1: Base dependencies
 ARG UBUNTU_VERSION=24.04
