@@ -46,7 +46,7 @@ generate_final_report() {
     mkdir -p "$results_dir"
 
     {
-        echo "InferenceEngines Test Report"
+        echo "neuriplo Test Report"
         echo "Generated: $(date)"
         echo ""
         echo "Test Results:"
@@ -72,7 +72,7 @@ generate_final_report() {
 
 # Main workflow
 cd "$PROJECT_ROOT"
-echo "Starting InferenceEngines testing..."
+echo "Starting neuriplo testing..."
 
 if [[ "$quick_test" == "true" ]]; then
     echo "Running quick test"

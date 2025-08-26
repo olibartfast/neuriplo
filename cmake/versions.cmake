@@ -1,4 +1,4 @@
-# Centralized version management for InferenceEngines library
+# Centralized version management for neuriplo library
 # This file reads versions from versions.env to maintain consistency
 
 # Function to read versions from versions.env file
@@ -87,7 +87,7 @@ function(validate_version_exact found_version expected_version component_name)
 endfunction()
 
 # Print version information for debugging
-message(STATUS "=== InferenceEngines Dependency Versions (from versions.env) ===")
+message(STATUS "=== neuriplo Dependency Versions (from versions.env) ===")
 message(STATUS "ONNX Runtime: ${ONNX_RUNTIME_VERSION}")
 message(STATUS "TensorRT: ${TENSORRT_VERSION}")
 message(STATUS "LibTorch: ${LIBTORCH_VERSION}")

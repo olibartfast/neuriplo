@@ -1,4 +1,4 @@
-# Dependency validation and setup utilities for InferenceEngines library
+# Dependency validation and setup utilities for neuriplo library
 # This module provides functions to validate and setup inference backend dependencies
 
 include(CheckCXXSourceCompiles)
@@ -125,7 +125,7 @@ endfunction()
 
 # Function to validate all dependencies
 function(validate_all_dependencies)
-    message(STATUS "=== Validating InferenceEngines Dependencies ===")
+    message(STATUS "=== Validating neuriplo Dependencies ===")
     
     validate_system_dependencies()
     
@@ -151,7 +151,7 @@ function(validate_all_dependencies)
     # Validate CUDA if needed for the selected backend
     validate_cuda()
     
-    message(STATUS "=== All InferenceEngines Dependencies Validated Successfully ===")
+    message(STATUS "=== All neuriplo Dependencies Validated Successfully ===")
 endfunction()
 
 # Function to check if we're in a Docker environment

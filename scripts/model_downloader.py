@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dynamic Model Downloader and Converter for InferenceEngines Testing
+Dynamic Model Downloader and Converter for neuriplo Testing
 Downloads and converts models on-the-fly for each backend during testing.
 """
 
@@ -423,7 +423,7 @@ class ModelDownloader:
             return None
 
 def main():
-    parser = argparse.ArgumentParser(description="Download and convert models for InferenceEngines testing")
+    parser = argparse.ArgumentParser(description="Download and convert models for neuriplo testing")
     parser.add_argument("backend", help="Backend to prepare model for")
     parser.add_argument("--output-dir", help="Output directory for model files")
     parser.add_argument("--keep-temp", action="store_true", help="Keep temporary files")

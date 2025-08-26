@@ -17,7 +17,7 @@ target_include_directories(ONNXRuntimeInferTest PRIVATE
 )
 
 target_link_libraries(ONNXRuntimeInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so
     ${OpenCV_LIBS}
     gtest

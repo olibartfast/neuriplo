@@ -21,7 +21,7 @@ target_include_directories(TensorFlowInferTest PRIVATE
 )
 
 target_link_libraries(TensorFlowInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     ${TensorFlow_CC_LIBRARY}
     ${TensorFlow_FRAMEWORK_LIBRARY}
     ${OpenCV_LIBS}

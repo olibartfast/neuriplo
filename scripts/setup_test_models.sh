@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Model Setup Script for InferenceEngines Testing
+# Model Setup Script for neuriplo Testing
 # This script sets up test models for all backends
 
 set -e
@@ -212,7 +212,7 @@ verify_models() {
 
 # Main function
 main() {
-    log_info "Starting model setup for InferenceEngines backends"
+    log_info "Starting model setup for neuriplo backends"
     
     # Parse command line arguments
     local verify_only=false

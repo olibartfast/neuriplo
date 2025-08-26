@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Enhanced Test Results Analyzer for InferenceEngines
+# Enhanced Test Results Analyzer for neuriplo
 # Analyzes test results and generates comprehensive reports
 
 set -e
@@ -182,7 +182,7 @@ generate_comprehensive_report() {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>InferenceEngines Test Report</title>
+    <title>neuriplo Test Report</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
         .header { background-color: #f0f0f0; padding: 20px; border-radius: 5px; }
@@ -206,9 +206,9 @@ generate_comprehensive_report() {
 </head>
 <body>
     <div class="header">
-        <h1>InferenceEngines Test Report</h1>
+        <h1>neuriplo Test Report</h1>
         <p>Generated on: $(date)</p>
-        <p>Project: InferenceEngines</p>
+        <p>Project: neuriplo</p>
     </div>
     
     <div class="summary">
@@ -372,7 +372,7 @@ generate_summary_stats() {
     mkdir -p "$REPORTS_DIR"
     
     {
-        echo "InferenceEngines Test Summary Statistics"
+        echo "neuriplo Test Summary Statistics"
         echo "Generated on: $(date)"
         echo "========================================="
         echo ""

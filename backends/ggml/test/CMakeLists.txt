@@ -17,7 +17,7 @@ target_include_directories(GGMLInferTest PRIVATE
 )
 
 target_link_libraries(GGMLInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     ${GGML_DIR}/lib/libggml.so

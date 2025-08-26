@@ -142,7 +142,7 @@ ENV LD_LIBRARY_PATH=/app/build/lib:$LD_LIBRARY_PATH
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD test -f /app/build/lib/libInferenceEngines.so || exit 1
+    CMD test -f /app/build/lib/libneuriplo.so || exit 1
 
 # Default command to run OpenVINO tests
 CMD ["/app/build/backends/openvino/test/OpenVINOInferTest"] 

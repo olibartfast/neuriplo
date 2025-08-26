@@ -79,7 +79,7 @@ RUN useradd -m appuser && \
     chown -R appuser:appuser /app
 
 # Copy built library from builder stage
-COPY --from=builder --chown=appuser:appuser /app/build/libInferenceEngines.so /app/lib/
+COPY --from=builder --chown=appuser:appuser /app/build/libneuriplo.so /app/lib/
 # Copy public headers
 COPY --from=builder --chown=appuser:appuser /app/include /app/include
 # Copy test executable and test directory structure
@@ -102,7 +102,7 @@ RUN echo '#!/bin/bash' > /usr/local/bin/verify-opencvdnn && \
     echo 'echo "OpenCV version:"' >> /usr/local/bin/verify-opencvdnn && \
     echo 'python3 -c "import cv2; print(f\"OpenCV version: {cv2.__version__}\")" 2>/dev/null || echo "Python OpenCV not available"' >> /usr/local/bin/verify-opencvdnn && \
     echo 'echo "Inference engine library:"' >> /usr/local/bin/verify-opencvdnn && \
-    echo 'ls -la /app/lib/libInferenceEngines.so 2>/dev/null || echo "Library not found"' >> /usr/local/bin/verify-opencvdnn && \
+    echo 'ls -la /app/lib/libneuriplo.so 2>/dev/null || echo "Library not found"' >> /usr/local/bin/verify-opencvdnn && \
     chmod +x /usr/local/bin/verify-opencvdnn
 
 # Set working directory and user
@@ -114,7 +114,7 @@ VOLUME ["/app/data"]
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD test -f /app/lib/libInferenceEngines.so || exit 1
+    CMD test -f /app/lib/libneuriplo.so || exit 1
 
 # Default command
 CMD ["/bin/bash"]

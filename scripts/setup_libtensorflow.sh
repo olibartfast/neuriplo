@@ -35,7 +35,7 @@ if [[ ! -f "$SETUP_PIP_SCRIPT" ]]; then
     exit 1
 fi
 
-echo "TensorFlow C++ Setup for InferenceEngines"
+echo "TensorFlow C++ Setup for neuriplo"
 echo "=========================================="
 echo "This script will install TensorFlow C++ library dependencies using the pip-based method."
 echo ""
