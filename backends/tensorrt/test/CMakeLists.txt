@@ -24,7 +24,7 @@ target_link_directories(TensorRTInferTest PRIVATE
 )
 
 target_link_libraries(TensorRTInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     nvinfer
     nvonnxparser
     cudart

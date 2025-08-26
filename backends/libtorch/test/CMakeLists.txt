@@ -17,7 +17,7 @@ target_include_directories(LibtorchInferTest PRIVATE
 
 
 target_link_libraries(LibtorchInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     ${TORCH_LIBRARIES}
     ${OpenCV_LIBS}
     gtest

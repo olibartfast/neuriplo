@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Enhanced Backend Testing Script for InferenceEngines
+# Enhanced Backend Testing Script for neuriplo
 # This script tests each backend individually, builds them, and runs unit tests
-# Author: Generated for InferenceEngines project
+# Author: Generated for neuriplo project
 # Date: $(date)
 
 set -e  # Exit on any error
@@ -554,7 +554,7 @@ generate_test_summary() {
     
     log_info "Generating test summary..."
     
-    echo "InferenceEngines Backend Test Summary" > "$results_file"
+    echo "neuriplo Backend Test Summary" > "$results_file"
     echo "Generated on: $(date)" >> "$results_file"
     echo "=========================================" >> "$results_file"
     echo "" >> "$results_file"
@@ -631,7 +631,7 @@ run_parallel_tests() {
 
 # Main execution
 main() {
-    log_info "Starting Enhanced InferenceEngines Backend Testing"
+    log_info "Starting Enhanced neuriplo Backend Testing"
     log_info "Project root: $PROJECT_ROOT"
     
     # Parse command line arguments

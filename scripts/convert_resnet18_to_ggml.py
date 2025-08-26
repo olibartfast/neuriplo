@@ -221,7 +221,7 @@ def main():
         
         print("\n=== Conversion Complete ===")
         print(f"GGML model: {args.output}")
-        print("You can now use this model with the GGML backend in InferenceEngines")
+        print("You can now use this model with the GGML backend in neuriplo")
         
     except Exception as e:
         print(f"Error during conversion: {e}")

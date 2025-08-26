@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(InferenceEngines)
+project(neuriplo)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -13,7 +13,7 @@ find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-message(STATUS "InferenceEngines Cmake module path: ${CMAKE_MODULE_PATH}")
+message(STATUS "neuriplo Cmake module path: ${CMAKE_MODULE_PATH}")
 
 # Read DEFAULT_BACKEND from the cache. If not set, provide a default.
 if(NOT DEFINED DEFAULT_BACKEND)
@@ -42,16 +42,16 @@ set(SOURCES ${CMAKE_CURRENT_LIST_DIR}/backends/src/InferenceInterface.cpp ${CMAK
 include(SelectBackend)
 
 # Create the inference engines library
-add_library(InferenceEngines SHARED ${SOURCES})
-target_include_directories(InferenceEngines PUBLIC     
+add_library(neuriplo SHARED ${SOURCES})
+target_include_directories(neuriplo PUBLIC     
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>   
 )
-target_include_directories(InferenceEngines PRIVATE
+target_include_directories(neuriplo PRIVATE
     ${INFER_ROOT}/src
 )
 
-target_link_libraries(InferenceEngines PRIVATE
+target_link_libraries(neuriplo PRIVATE
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
 )

@@ -1,6 +1,6 @@
-# InferenceEngines Backend Testing Scripts
+# neuriplo Backend Testing Scripts
 
-This directory contains comprehensive testing scripts for all InferenceEngines backends. The testing framework is designed with atomic and mockable principles to ensure reliable, maintainable tests.
+This directory contains comprehensive testing scripts for all neuriplo backends. The testing framework is designed with atomic and mockable principles to ensure reliable, maintainable tests.
 
 ## Quick Start
 
@@ -169,7 +169,7 @@ All tests use ResNet-18 classifier as the standard model:
 The testing framework is designed for CI/CD:
 ```yaml
 # Example GitHub Actions step
-- name: Test InferenceEngines Backends
+- name: Test neuriplo Backends
   run: |
     ./scripts/setup_test_models.sh
     ./scripts/test_backends.sh
@@ -283,7 +283,7 @@ Follow the existing patterns:
 
 ## Testing Philosophy
 
-The InferenceEngines testing follows a hybrid approach combining:
+The neuriplo testing follows a hybrid approach combining:
 
 1. **Dependency Verification**: Tests verify installed dependencies against centralized versions in `cmake/versions.cmake`
 2. **Integration Testing**: Real model inference tests when dependencies and models are available

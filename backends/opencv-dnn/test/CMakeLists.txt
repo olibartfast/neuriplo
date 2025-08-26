@@ -18,7 +18,7 @@ target_include_directories(OCVDNNInferTest PRIVATE
 
 
 target_link_libraries(OCVDNNInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     ${TORCH_LIBRARIES}
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}

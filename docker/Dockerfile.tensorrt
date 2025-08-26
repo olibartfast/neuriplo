@@ -84,7 +84,7 @@ RUN useradd -m appuser && \
     chown -R appuser:appuser /app
 
 # Copy built library from builder stage (Adjust the paths if needed)
-COPY --from=builder --chown=appuser:appuser /app/build/libInferenceEngines.so /app/lib/
+COPY --from=builder --chown=appuser:appuser /app/build/libneuriplo.so /app/lib/
 # Copy test executables
 COPY --from=builder --chown=appuser:appuser /app/build/backends/tensorrt/test/TensorRTInferTest /app/test/
 # Copy test data files
@@ -111,7 +111,7 @@ ENV LD_LIBRARY_PATH=/app/lib:$LD_LIBRARY_PATH
 # Health check (This might need adjustment for a library)
 # You might want to check for the existence of the library instead
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD test -f /app/lib/libInferenceEngines.so || exit 1
+    CMD test -f /app/lib/libneuriplo.so || exit 1
 
 # Default command (You probably don't need this for a library)
 # ENTRYPOINT ["/app/neuriplo"]

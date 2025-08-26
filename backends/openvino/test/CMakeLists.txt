@@ -17,7 +17,7 @@ target_include_directories(OpenVINOInferTest PRIVATE
 )
 
 target_link_libraries(OpenVINOInferTest PRIVATE
-    InferenceEngines
+    neuriplo
     openvino::runtime
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}

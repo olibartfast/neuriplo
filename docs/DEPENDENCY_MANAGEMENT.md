@@ -1,6 +1,6 @@
-# Dependency Management for InferenceEngines
+# Dependency Management for neuriplo
 
-This document describes the dependency management system for the InferenceEngines library, which provides a unified approach to managing inference backend dependencies.
+This document describes the dependency management system for the neuriplo library, which provides a unified approach to managing inference backend dependencies.
 
 ## Architecture
 
@@ -259,7 +259,7 @@ Use `scripts/setup_test_models.sh` to download and prepare test models for all b
 
 ## Integration with Main Project
 
-The InferenceEngines library is designed as a standalone component that can be integrated into larger projects:
+The neuriplo library is designed as a standalone component that can be integrated into larger projects:
 
 1. **CMake Integration**: Can be included via `add_subdirectory()` or `FetchContent`
 2. **Version Synchronization**: All backend versions are managed centrally in this library
@@ -270,7 +270,7 @@ Example integration:
 ```cmake
 # In main project CMakeLists.txt
 add_subdirectory(neuriplo)
-target_link_libraries(my_project PRIVATE InferenceEngines)
+target_link_libraries(my_project PRIVATE neuriplo)
 ```
 
 ## Contributing
