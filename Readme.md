@@ -63,8 +63,8 @@ Supported `<BACKEND_NAME>` values:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/inference_engines.git
-   cd InferenceEngines
+   git clone https://github.com/neuriplo.git
+   cd neuriplo
    ```
 
 2. Create a build directory and navigate into it:
@@ -93,11 +93,11 @@ Supported `<BACKEND_NAME>` values:
 
 ## Usage
 
-To use the InferenceEngines library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)):
+To use the neuriplo library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/CMakeLists.txt)):
 
 ```cmake
-target_link_libraries(your_project PRIVATE InferenceEngines)
-target_include_directories(your_project PRIVATE path_to/InferenceEngines/include)
+target_link_libraries(your_project PRIVATE neuriplo)
+target_include_directories(your_project PRIVATE path_to/neuriplo/include)
 ```
 
 Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
