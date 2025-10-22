@@ -112,121 +112,51 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         {
             LOG(INFO) << "\tDetected Tuple output with " << tuple_type->elements().size() << " elements";
             
-            // Process each element in the tuple
+            // Process each element in the tuple - generic handling for all tuple sizes
             auto elements = tuple_type->elements();
             
-            // Special handling for 2-element tuples (common for detection models like RF-DETR)
-            if (elements.size() == 2)
+            for (size_t j = 0; j < elements.size(); ++j)
             {
-                LOG(INFO) << "\tDetected 2-element tuple - likely detection model (logits, boxes)";
-                
-                // Element 0: logits/scores
-                auto elem0_type = elements[0]->cast<c10::TensorType>();
-                if (elem0_type)
+                auto elem_type = elements[j]->cast<c10::TensorType>();
+                if (!elem_type)
                 {
-                    std::string elem0_name = name + "_elem_0";
-                    auto shapes0 = elem0_type->sizes().concrete_sizes();
-                    
-                    std::vector<int64_t> final_shape0;
-                    if (!shapes0 || shapes0->empty() || std::any_of(shapes0->begin(), shapes0->end(), [](int64_t s){ return s <= 0; }))
-                    {
-                        LOG(WARNING) << "\tElement 0 has dynamic shape - using detected dimension count";
-                        // Use dimension count from type if available
-                        auto ndim = elem0_type->dim();
-                        if (ndim.has_value())
-                        {
-                            final_shape0 = std::vector<int64_t>(ndim.value(), -1);
-                            final_shape0[0] = batch_size;
-                        }
-                        else
-                        {
-                            // Default: assume [batch, num_queries, num_classes]
-                            final_shape0 = {static_cast<int64_t>(batch_size), -1, -1};
-                        }
-                    }
-                    else
-                    {
-                        final_shape0 = *shapes0;
-                        final_shape0[0] = batch_size;
-                    }
-                    
-                    LOG(INFO) << "\t" << elem0_name << " : " << print_shape(final_shape0);
-                    model_info_.addOutput(elem0_name, final_shape0, batch_size);
+                    LOG(WARNING) << "\tTuple element " << j << " is not a tensor. Skipping.";
+                    continue;
                 }
                 
-                // Element 1: boxes
-                auto elem1_type = elements[1]->cast<c10::TensorType>();
-                if (elem1_type)
+                std::string elem_name = name + "_elem_" + std::to_string(j);
+                auto shapes = elem_type->sizes().concrete_sizes();
+                
+                std::vector<int64_t> final_shape;
+                if (!shapes || shapes->empty() || std::any_of(shapes->begin(), shapes->end(), [](int64_t s){ return s <= 0; }))
                 {
-                    std::string elem1_name = name + "_elem_1";
-                    auto shapes1 = elem1_type->sizes().concrete_sizes();
-                    
-                    std::vector<int64_t> final_shape1;
-                    if (!shapes1 || shapes1->empty() || std::any_of(shapes1->begin(), shapes1->end(), [](int64_t s){ return s <= 0; }))
+                    LOG(WARNING) << "\tTuple element " << j << " has dynamic shape";
+                    auto ndim = elem_type->dim();
+                    if (ndim.has_value())
                     {
-                        LOG(WARNING) << "\tElement 1 has dynamic shape - using detected dimension count";
-                        // Use dimension count from type if available
-                        auto ndim = elem1_type->dim();
-                        if (ndim.has_value())
+                        final_shape = std::vector<int64_t>(ndim.value(), -1);
+                        if (!final_shape.empty())
                         {
-                            final_shape1 = std::vector<int64_t>(ndim.value(), -1);
-                            final_shape1[0] = batch_size;
-                        }
-                        else
-                        {
-                            // Default: assume [batch, num_queries, 4]
-                            final_shape1 = {static_cast<int64_t>(batch_size), -1, 4};
-                        }
-                    }
-                    else
-                    {
-                        final_shape1 = *shapes1;
-                        final_shape1[0] = batch_size;
-                    }
-                    
-                    LOG(INFO) << "\t" << elem1_name << " : " << print_shape(final_shape1);
-                    model_info_.addOutput(elem1_name, final_shape1, batch_size);
-                }
-            }
-            else
-            {
-                // Generic tuple handling
-                for (size_t j = 0; j < elements.size(); ++j)
-                {
-                    auto elem_type = elements[j]->cast<c10::TensorType>();
-                    if (!elem_type)
-                    {
-                        LOG(WARNING) << "\tTuple element " << j << " is not a tensor. Skipping.";
-                        continue;
-                    }
-                    
-                    std::string elem_name = name + "_elem_" + std::to_string(j);
-                    auto shapes = elem_type->sizes().concrete_sizes();
-                    
-                    std::vector<int64_t> final_shape;
-                    if (!shapes || shapes->empty() || std::any_of(shapes->begin(), shapes->end(), [](int64_t s){ return s <= 0; }))
-                    {
-                        LOG(WARNING) << "\tTuple element " << j << " has dynamic shape";
-                        auto ndim = elem_type->dim();
-                        if (ndim.has_value())
-                        {
-                            final_shape = std::vector<int64_t>(ndim.value(), -1);
                             final_shape[0] = batch_size;
                         }
-                        else
-                        {
-                            final_shape = {static_cast<int64_t>(batch_size), -1};
-                        }
                     }
                     else
                     {
-                        final_shape = *shapes;
+                        // Unknown dimensions - use minimal placeholder
+                        final_shape = {static_cast<int64_t>(batch_size), -1};
+                    }
+                }
+                else
+                {
+                    final_shape = *shapes;
+                    if (!final_shape.empty())
+                    {
                         final_shape[0] = batch_size;
                     }
-                    
-                    LOG(INFO) << "\t" << elem_name << " : " << print_shape(final_shape);
-                    model_info_.addOutput(elem_name, final_shape, batch_size);
                 }
+                
+                LOG(INFO) << "\t" << elem_name << " : " << print_shape(final_shape);
+                model_info_.addOutput(elem_name, final_shape, batch_size);
             }
         }
         // Check if output is a List
@@ -259,14 +189,18 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         else if (auto tensor_type = output_type->cast<c10::TensorType>())
         {
             auto shapes = tensor_type->sizes().concrete_sizes();
-            if (!shapes)
+            if (!shapes || std::any_of(shapes->begin(), shapes->end(), [](int64_t s){ return s <= 0; }))
             {
                 LOG(WARNING) << "Output " << name << " has dynamic shape. Using (-1) as placeholder.";
-                shapes = std::vector<int64_t>(tensor_type->dim().value_or(1), -1);
+                auto ndim = tensor_type->dim();
+                shapes = std::vector<int64_t>(ndim.value_or(1), -1);
             }
 
             std::vector<int64_t> final_shape = *shapes;
-            final_shape[0] = batch_size; // Set batch size
+            if (!final_shape.empty())
+            {
+                final_shape[0] = batch_size; // Set batch size
+            }
 
             LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
             model_info_.addOutput(name, final_shape, batch_size);
