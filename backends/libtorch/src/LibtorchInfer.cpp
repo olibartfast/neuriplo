@@ -87,29 +87,196 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
     // Process outputs
     LOG(INFO) << "Output Node Name/Shape:";
     auto outputs = graph->outputs();
+    
     for (size_t i = 0; i < outputs.size(); ++i)
     {
         auto output = outputs[i];
         std::string name = output->debugName();
-        auto type = output->type()->cast<c10::TensorType>();
-        if (!type)
+        auto output_type = output->type();
+        
+        LOG(INFO) << "Inspecting output " << i << ": " << name;
+        LOG(INFO) << "  Type: " << output_type->str();
+        
+        // Try all possible casts with detailed logging
+        auto tensor_type = output_type->cast<c10::TensorType>();
+        auto tuple_type = output_type->cast<c10::TupleType>();
+        auto list_type = output_type->cast<c10::ListType>();
+        
+        LOG(INFO) << "  Cast results:";
+        LOG(INFO) << "    TensorType: " << (tensor_type ? "YES" : "NO");
+        LOG(INFO) << "    TupleType: " << (tuple_type ? "YES" : "NO");
+        LOG(INFO) << "    ListType: " << (list_type ? "YES" : "NO");
+        
+        // Check if output is a Tuple
+        if (tuple_type)
         {
-            LOG(WARNING) << "Output " << name << " is not a tensor. Skipping.";
+            LOG(INFO) << "\tDetected Tuple output with " << tuple_type->elements().size() << " elements";
+            
+            // Process each element in the tuple
+            auto elements = tuple_type->elements();
+            
+            // Special handling for 2-element tuples (common for detection models like RF-DETR)
+            if (elements.size() == 2)
+            {
+                LOG(INFO) << "\tDetected 2-element tuple - likely detection model (logits, boxes)";
+                
+                // Element 0: logits/scores
+                auto elem0_type = elements[0]->cast<c10::TensorType>();
+                if (elem0_type)
+                {
+                    std::string elem0_name = name + "_elem_0";
+                    auto shapes0 = elem0_type->sizes().concrete_sizes();
+                    
+                    std::vector<int64_t> final_shape0;
+                    if (!shapes0 || shapes0->empty() || std::any_of(shapes0->begin(), shapes0->end(), [](int64_t s){ return s <= 0; }))
+                    {
+                        LOG(WARNING) << "\tElement 0 has dynamic shape - using detected dimension count";
+                        // Use dimension count from type if available
+                        auto ndim = elem0_type->dim();
+                        if (ndim.has_value())
+                        {
+                            final_shape0 = std::vector<int64_t>(ndim.value(), -1);
+                            final_shape0[0] = batch_size;
+                        }
+                        else
+                        {
+                            // Default: assume [batch, num_queries, num_classes]
+                            final_shape0 = {static_cast<int64_t>(batch_size), -1, -1};
+                        }
+                    }
+                    else
+                    {
+                        final_shape0 = *shapes0;
+                        final_shape0[0] = batch_size;
+                    }
+                    
+                    LOG(INFO) << "\t" << elem0_name << " : " << print_shape(final_shape0);
+                    model_info_.addOutput(elem0_name, final_shape0, batch_size);
+                }
+                
+                // Element 1: boxes
+                auto elem1_type = elements[1]->cast<c10::TensorType>();
+                if (elem1_type)
+                {
+                    std::string elem1_name = name + "_elem_1";
+                    auto shapes1 = elem1_type->sizes().concrete_sizes();
+                    
+                    std::vector<int64_t> final_shape1;
+                    if (!shapes1 || shapes1->empty() || std::any_of(shapes1->begin(), shapes1->end(), [](int64_t s){ return s <= 0; }))
+                    {
+                        LOG(WARNING) << "\tElement 1 has dynamic shape - using detected dimension count";
+                        // Use dimension count from type if available
+                        auto ndim = elem1_type->dim();
+                        if (ndim.has_value())
+                        {
+                            final_shape1 = std::vector<int64_t>(ndim.value(), -1);
+                            final_shape1[0] = batch_size;
+                        }
+                        else
+                        {
+                            // Default: assume [batch, num_queries, 4]
+                            final_shape1 = {static_cast<int64_t>(batch_size), -1, 4};
+                        }
+                    }
+                    else
+                    {
+                        final_shape1 = *shapes1;
+                        final_shape1[0] = batch_size;
+                    }
+                    
+                    LOG(INFO) << "\t" << elem1_name << " : " << print_shape(final_shape1);
+                    model_info_.addOutput(elem1_name, final_shape1, batch_size);
+                }
+            }
+            else
+            {
+                // Generic tuple handling
+                for (size_t j = 0; j < elements.size(); ++j)
+                {
+                    auto elem_type = elements[j]->cast<c10::TensorType>();
+                    if (!elem_type)
+                    {
+                        LOG(WARNING) << "\tTuple element " << j << " is not a tensor. Skipping.";
+                        continue;
+                    }
+                    
+                    std::string elem_name = name + "_elem_" + std::to_string(j);
+                    auto shapes = elem_type->sizes().concrete_sizes();
+                    
+                    std::vector<int64_t> final_shape;
+                    if (!shapes || shapes->empty() || std::any_of(shapes->begin(), shapes->end(), [](int64_t s){ return s <= 0; }))
+                    {
+                        LOG(WARNING) << "\tTuple element " << j << " has dynamic shape";
+                        auto ndim = elem_type->dim();
+                        if (ndim.has_value())
+                        {
+                            final_shape = std::vector<int64_t>(ndim.value(), -1);
+                            final_shape[0] = batch_size;
+                        }
+                        else
+                        {
+                            final_shape = {static_cast<int64_t>(batch_size), -1};
+                        }
+                    }
+                    else
+                    {
+                        final_shape = *shapes;
+                        final_shape[0] = batch_size;
+                    }
+                    
+                    LOG(INFO) << "\t" << elem_name << " : " << print_shape(final_shape);
+                    model_info_.addOutput(elem_name, final_shape, batch_size);
+                }
+            }
+        }
+        // Check if output is a List
+        else if (auto list_type = output_type->cast<c10::ListType>())
+        {
+            LOG(INFO) << "\tDetected List output";
+            
+            // Get the element type of the list
+            auto elem_type = list_type->getElementType();
+            LOG(INFO) << "\tList element type: " << elem_type->str();
+            
+            // Check if element is a tensor type
+            if (auto tensor_elem = elem_type->cast<c10::TensorType>())
+            {
+                LOG(INFO) << "\tList contains tensors";
+                LOG(INFO) << "\tList outputs will be processed dynamically at runtime";
+                LOG(INFO) << "\tNote: List size and shapes are determined during first inference";
+                
+                // Mark that we have a list output - actual shapes determined at runtime
+                // We'll add a placeholder to indicate list output exists
+                std::string list_marker = name + "_list";
+                model_info_.addOutput(list_marker, {-1}, batch_size);
+            }
+            else
+            {
+                LOG(WARNING) << "\tList element type is not a tensor. Skipping.";
+            }
+        }
+        // Check if output is a Tensor
+        else if (auto tensor_type = output_type->cast<c10::TensorType>())
+        {
+            auto shapes = tensor_type->sizes().concrete_sizes();
+            if (!shapes)
+            {
+                LOG(WARNING) << "Output " << name << " has dynamic shape. Using (-1) as placeholder.";
+                shapes = std::vector<int64_t>(tensor_type->dim().value_or(1), -1);
+            }
+
+            std::vector<int64_t> final_shape = *shapes;
+            final_shape[0] = batch_size; // Set batch size
+
+            LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
+            model_info_.addOutput(name, final_shape, batch_size);
+        }
+        else
+        {
+            LOG(WARNING) << "Output " << name << " is neither a tensor, tuple, nor list. Skipping.";
+            LOG(WARNING) << "  Type string: " << output_type->str();
             continue;
         }
-
-        auto shapes = type->sizes().concrete_sizes();
-        if (!shapes)
-        {
-            LOG(WARNING) << "Output " << name << " has dynamic shape. Using (-1) as placeholder.";
-            shapes = std::vector<int64_t>(type->dim().value_or(1), -1);
-        }
-
-        std::vector<int64_t> final_shape = *shapes;
-        final_shape[0] = batch_size; // Set batch size
-
-        LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
-        model_info_.addOutput(name, final_shape, batch_size);
     }
 }
 
@@ -176,6 +343,22 @@ LibtorchInfer::get_infer_results(const cv::Mat& preprocessed_img)
             output_vectors.push_back(process_tensor(tensor));
             shape_vectors.push_back(tensor.sizes().vec());
         }
+    } else if (output.isList()) {
+        // Handle list output (new!)
+        auto list_outputs = output.toList();
+        for (size_t i = 0; i < list_outputs.size(); ++i) {
+            auto element = list_outputs.get(i);
+            if (!element.isTensor()) {
+                continue;
+            }
+            
+            torch::Tensor tensor = element.toTensor()
+                                          .to(torch::kCPU)
+                                          .contiguous();
+            
+            output_vectors.push_back(process_tensor(tensor));
+            shape_vectors.push_back(tensor.sizes().vec());
+        }
     } else if (output.isTensor()) {
         // Handle single tensor output
         torch::Tensor tensor = output.toTensor()
@@ -185,7 +368,7 @@ LibtorchInfer::get_infer_results(const cv::Mat& preprocessed_img)
         output_vectors.push_back(process_tensor(tensor));
         shape_vectors.push_back(tensor.sizes().vec());
     } else {
-        LOG(ERROR) << "Unsupported output type: neither tensor nor tuple";
+        LOG(ERROR) << "Unsupported output type: neither tensor, tuple, nor list";
         std::exit(1);
     }
 
