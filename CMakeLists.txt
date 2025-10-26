@@ -59,6 +59,26 @@ target_link_libraries(neuriplo PRIVATE
 include(LinkBackend)
 include(SetCompilerFlags)
 
+# Server/Client mode support (optional)
+option(BUILD_SERVER "Build inference server" OFF)
+option(BUILD_CLIENT "Build inference client" OFF)
+
+if(BUILD_SERVER OR BUILD_CLIENT)
+    message(STATUS "Building with server/client support")
+    
+    # Add server library and executable
+    if(BUILD_SERVER)
+        message(STATUS "Building inference server")
+        add_subdirectory(server)
+    endif()
+    
+    # Add client library
+    if(BUILD_CLIENT)
+        message(STATUS "Building inference client")
+        add_subdirectory(client)
+    endif()
+endif()
+
 # Add GoogleTest
 # Include directories for tests
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include ${gtest_SOURCE_DIR}/include)

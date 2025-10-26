@@ -10,6 +10,16 @@
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Object Detection Inference Project](https://github.com/olibartfast/object-detection-inference)
 
+## Operation Modes
+
+Neuriplo supports two modes of operation:
+
+1. **OFFLINE Mode** (Default): Traditional local inference where models run directly on your machine
+2. **CLIENT/SERVER Mode** (New): Deploy models on a server and run inference from remote clients via HTTP
+   - Perfect for centralizing GPU resources
+   - Scale inference across multiple client applications
+   - See [Server/Client Usage Guide](docs/SERVER_CLIENT_USAGE.md) for details
+
 ## Dependencies 
 - C++17
 - OpenCV
