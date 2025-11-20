@@ -4,15 +4,25 @@ if (DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
 elseif (DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
     target_include_directories(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/include ${INFER_ROOT}/onnx-runtime/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/lib)
-    target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so)
+    if(WIN32)
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/lib/onnxruntime.lib)
+    else()
+        target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so)
+    endif()
 elseif (DEFAULT_BACKEND STREQUAL "LIBTORCH")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/libtorch/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${TORCH_LIBRARIES})
     target_compile_definitions(${PROJECT_NAME} PRIVATE C10_USE_GLOG)
 elseif (DEFAULT_BACKEND STREQUAL "TENSORRT")
-    target_include_directories(${PROJECT_NAME} PRIVATE /usr/local/cuda/include ${TENSORRT_DIR}/include ${INFER_ROOT}/tensorrt/src)
-    target_link_directories(${PROJECT_NAME} PRIVATE  /usr/local/cuda/lib64 ${TENSORRT_DIR}/lib)
-    target_link_libraries(${PROJECT_NAME} PRIVATE nvinfer nvonnxparser cudart)
+    if(WIN32)
+        target_include_directories(${PROJECT_NAME} PRIVATE ${CUDA_TOOLKIT_ROOT_DIR}/include ${TENSORRT_DIR}/include ${INFER_ROOT}/tensorrt/src)
+        target_link_directories(${PROJECT_NAME} PRIVATE ${CUDA_TOOLKIT_ROOT_DIR}/lib/x64 ${TENSORRT_DIR}/lib)
+        target_link_libraries(${PROJECT_NAME} PRIVATE nvinfer.lib nvonnxparser.lib cudart.lib)
+    else()
+        target_include_directories(${PROJECT_NAME} PRIVATE /usr/local/cuda/include ${TENSORRT_DIR}/include ${INFER_ROOT}/tensorrt/src)
+        target_link_directories(${PROJECT_NAME} PRIVATE  /usr/local/cuda/lib64 ${TENSORRT_DIR}/lib)
+        target_link_libraries(${PROJECT_NAME} PRIVATE nvinfer nvonnxparser cudart)
+    endif()
 elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW" )
     # Set TensorFlow include directories for the target
     target_include_directories(${PROJECT_NAME} PRIVATE ${TensorFlow_INCLUDE_DIR} ${INFER_ROOT}/libtensorflow/src)
@@ -23,9 +33,17 @@ elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
 elseif(DEFAULT_BACKEND STREQUAL "GGML")
     target_include_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/include ${INFER_ROOT}/ggml/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/lib)
-    target_link_libraries(${PROJECT_NAME} PRIVATE 
-        ${GGML_DIR}/lib/libggml-base.so
-        ${GGML_DIR}/lib/libggml-cpu.so
-        ${GGML_DIR}/lib/libggml-blas.so
-    )
+    if(WIN32)
+        target_link_libraries(${PROJECT_NAME} PRIVATE 
+            ${GGML_DIR}/lib/ggml-base.lib
+            ${GGML_DIR}/lib/ggml-cpu.lib
+            ${GGML_DIR}/lib/ggml-blas.lib
+        )
+    else()
+        target_link_libraries(${PROJECT_NAME} PRIVATE 
+            ${GGML_DIR}/lib/libggml-base.so
+            ${GGML_DIR}/lib/libggml-cpu.so
+            ${GGML_DIR}/lib/libggml-blas.so
+        )
+    endif()
 endif()

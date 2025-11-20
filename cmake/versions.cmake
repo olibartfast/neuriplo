@@ -56,10 +56,21 @@ else()
 endif()
 
 # Dependency-specific paths
-set(ONNX_RUNTIME_DIR "${DEFAULT_DEPENDENCY_ROOT}/onnxruntime-linux-x64-gpu-${ONNX_RUNTIME_VERSION}" CACHE PATH "ONNX Runtime installation directory")
-set(TENSORRT_DIR "${DEFAULT_DEPENDENCY_ROOT}/TensorRT-${TENSORRT_VERSION}" CACHE PATH "TensorRT installation directory")
-set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch installation directory")
-set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
+if(WIN32)
+    # Windows paths with proper extensions
+    set(ONNX_RUNTIME_DIR "${DEFAULT_DEPENDENCY_ROOT}/onnxruntime-win-x64-gpu-${ONNX_RUNTIME_VERSION}" CACHE PATH "ONNX Runtime installation directory")
+    set(TENSORRT_DIR "${DEFAULT_DEPENDENCY_ROOT}/TensorRT-${TENSORRT_VERSION}" CACHE PATH "TensorRT installation directory")
+    set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch installation directory")
+    set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
+    set(GGML_DIR "${DEFAULT_DEPENDENCY_ROOT}/ggml" CACHE PATH "GGML installation directory")
+else()
+    # Linux/macOS paths
+    set(ONNX_RUNTIME_DIR "${DEFAULT_DEPENDENCY_ROOT}/onnxruntime-linux-x64-gpu-${ONNX_RUNTIME_VERSION}" CACHE PATH "ONNX Runtime installation directory")
+    set(TENSORRT_DIR "${DEFAULT_DEPENDENCY_ROOT}/TensorRT-${TENSORRT_VERSION}" CACHE PATH "TensorRT installation directory")
+    set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch installation directory")
+    set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
+    set(GGML_DIR "${DEFAULT_DEPENDENCY_ROOT}/ggml" CACHE PATH "GGML installation directory")
+endif()
 
 # Version validation functions
 function(validate_version_found found_version required_version component_name)

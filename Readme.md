@@ -30,7 +30,9 @@
 ## Quick Start
 ### Automated Setup and Testing
 
-#### Setup Dependencies for a Specific Backend
+#### Linux/macOS Setup
+
+##### Setup Dependencies for a Specific Backend
 
 ```bash
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
@@ -46,15 +48,52 @@ Supported `<BACKEND_NAME>` values:
 * `OPENVINO`
 * `GGML`
 
-#### Test All Backends
+##### Test All Backends
 ```bash
 ./scripts/test_backends.sh
-````
+```
 
-#### Test a Specific Backend
+##### Test a Specific Backend
 
 ```bash
 ./scripts/test_backends.sh --backend <BACKEND_NAME>
+```
+
+#### Windows Setup
+
+##### Prerequisites
+- Windows 10/11 (64-bit)
+- Visual Studio 2019 or later with C++ support
+- CMake 3.10 or higher
+- [vcpkg](https://vcpkg.io/) (recommended)
+- Git
+- CUDA Toolkit (for GPU backends)
+
+##### Install System Dependencies
+
+```powershell
+# Install via vcpkg
+vcpkg install opencv[contrib,dnn]:x64-windows
+vcpkg install glog:x64-windows
+```
+
+##### Setup Backend Dependencies
+
+```powershell
+# Setup specific backend
+.\scripts\setup_dependencies.ps1 -Backend ONNX_RUNTIME
+.\scripts\setup_dependencies.ps1 -Backend LIBTORCH
+.\scripts\setup_dependencies.ps1 -Backend GGML
+
+# Source environment variables
+. $env:USERPROFILE\dependencies\setup_neuriplo_env.ps1
+```
+
+##### Build with CMake
+
+```powershell
+cmake -B build -DDEFAULT_BACKEND=ONNX_RUNTIME
+cmake --build build --config Release
 ```
 
 

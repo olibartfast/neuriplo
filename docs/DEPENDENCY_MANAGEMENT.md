@@ -158,8 +158,38 @@ export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/li
 - Refer to individual setup scripts for guidance
 
 ### Windows
-- Not currently supported
-- Future development planned
+- **Full support** with PowerShell setup scripts
+- Automatic dependency installation for most backends
+- Uses vcpkg for OpenCV and glog dependencies
+- Manual download required for TensorRT and OpenVINO
+
+#### Windows Prerequisites
+- Windows 10/11 (64-bit)
+- PowerShell 5.1 or later
+- Visual Studio 2019 or later with C++ support
+- CMake 3.10 or higher
+- [vcpkg](https://vcpkg.io/) (recommended for dependencies)
+- Git (for GGML and source-based backends)
+- CUDA Toolkit (for GPU-accelerated backends)
+
+#### Windows Setup
+```powershell
+# Install system dependencies via vcpkg
+vcpkg install opencv[contrib,dnn]:x64-windows
+vcpkg install glog:x64-windows
+
+# Setup specific backend
+.\scripts\setup_dependencies.ps1 -Backend ONNX_RUNTIME
+.\scripts\setup_dependencies.ps1 -Backend LIBTORCH
+.\scripts\setup_dependencies.ps1 -Backend GGML
+
+# Source environment variables
+. $env:USERPROFILE\dependencies\setup_neuriplo_env.ps1
+
+# Build with CMake
+cmake -B build -DDEFAULT_BACKEND=ONNX_RUNTIME
+cmake --build build --config Release
+```
 
 ## Troubleshooting
 

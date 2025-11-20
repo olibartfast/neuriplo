@@ -19,11 +19,18 @@ function(validate_onnx_runtime)
     if(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
         validate_dependency("ONNX Runtime" "${ONNX_RUNTIME_DIR}")
         
-        # Check for required files
-        set(required_files
-            "${ONNX_RUNTIME_DIR}/include/onnxruntime_cxx_api.h"
-            "${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so"
-        )
+        # Check for required files (platform-specific)
+        if(WIN32)
+            set(required_files
+                "${ONNX_RUNTIME_DIR}/include/onnxruntime_cxx_api.h"
+                "${ONNX_RUNTIME_DIR}/lib/onnxruntime.lib"
+            )
+        else()
+            set(required_files
+                "${ONNX_RUNTIME_DIR}/include/onnxruntime_cxx_api.h"
+                "${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so"
+            )
+        endif()
         
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
@@ -40,11 +47,18 @@ function(validate_tensorrt)
     if(DEFAULT_BACKEND STREQUAL "TENSORRT")
         validate_dependency("TensorRT" "${TENSORRT_DIR}")
         
-        # Check for required files
-        set(required_files
-            "${TENSORRT_DIR}/include/NvInfer.h"
-            "${TENSORRT_DIR}/lib/libnvinfer.so"
-        )
+        # Check for required files (platform-specific)
+        if(WIN32)
+            set(required_files
+                "${TENSORRT_DIR}/include/NvInfer.h"
+                "${TENSORRT_DIR}/lib/nvinfer.lib"
+            )
+        else()
+            set(required_files
+                "${TENSORRT_DIR}/include/NvInfer.h"
+                "${TENSORRT_DIR}/lib/libnvinfer.so"
+            )
+        endif()
         
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
@@ -75,11 +89,18 @@ function(validate_openvino)
     if(DEFAULT_BACKEND STREQUAL "OPENVINO")
         validate_dependency("OpenVINO" "${OPENVINO_DIR}")
         
-        # Check for required files
-        set(required_files
-            "${OPENVINO_DIR}/runtime/include/openvino/openvino.hpp"
-            "${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so"
-        )
+        # Check for required files (platform-specific)
+        if(WIN32)
+            set(required_files
+                "${OPENVINO_DIR}/runtime/include/openvino/openvino.hpp"
+                "${OPENVINO_DIR}/runtime/lib/intel64/Release/openvino.lib"
+            )
+        else()
+            set(required_files
+                "${OPENVINO_DIR}/runtime/include/openvino/openvino.hpp"
+                "${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so"
+            )
+        endif()
         
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
@@ -169,26 +190,51 @@ function(print_setup_instructions)
     message(STATUS "If inference backend dependencies are missing, run the following commands:")
     message(STATUS "")
     
-    if(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME")
-    elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend TENSORRT")
-    elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTORCH")
-    elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTENSORFLOW")
-    elseif(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
-        message(STATUS "  OpenCV DNN is included with OpenCV installation")
-        message(STATUS "  Ensure OpenCV is installed with DNN module support")
-    elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend OPENVINO")
-    elseif(DEFAULT_BACKEND STREQUAL "GGML")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend GGML")
+    if(WIN32)
+        # Windows instructions
+        if(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
+            message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend ONNX_RUNTIME")
+        elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")
+            message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend TENSORRT")
+        elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
+            message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend LIBTORCH")
+        elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
+            message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend LIBTENSORFLOW")
+        elseif(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+            message(STATUS "  OpenCV DNN is included with OpenCV installation")
+            message(STATUS "  Ensure OpenCV is installed with DNN module support")
+        elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
+            message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend OPENVINO")
+        elseif(DEFAULT_BACKEND STREQUAL "GGML")
+            message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend GGML")
+        endif()
+        
+        message(STATUS "")
+        message(STATUS "Or run the unified setup script:")
+        message(STATUS "  .\\scripts\\setup_dependencies.ps1 -Backend ${DEFAULT_BACKEND}")
+    else()
+        # Unix/Linux/macOS instructions
+        if(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
+            message(STATUS "  ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME")
+        elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")
+            message(STATUS "  ./scripts/setup_dependencies.sh --backend TENSORRT")
+        elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
+            message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTORCH")
+        elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
+            message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTENSORFLOW")
+        elseif(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+            message(STATUS "  OpenCV DNN is included with OpenCV installation")
+            message(STATUS "  Ensure OpenCV is installed with DNN module support")
+        elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
+            message(STATUS "  ./scripts/setup_dependencies.sh --backend OPENVINO")
+        elseif(DEFAULT_BACKEND STREQUAL "GGML")
+            message(STATUS "  ./scripts/setup_dependencies.sh --backend GGML")
+        endif()
+        
+        message(STATUS "")
+        message(STATUS "Or run the unified setup script:")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend ${DEFAULT_BACKEND}")
     endif()
-    
-    message(STATUS "")
-    message(STATUS "Or run the unified setup script:")
-    message(STATUS "  ./scripts/setup_dependencies.sh --backend ${DEFAULT_BACKEND}")
     message(STATUS "")
 endfunction()
 
@@ -233,12 +279,20 @@ function(validate_ggml)
     if(DEFAULT_BACKEND STREQUAL "GGML")
         validate_dependency("GGML" "${GGML_DIR}")
         
-        # Check for required files
-        set(required_files
-            "${GGML_DIR}/include/ggml.h"
-            "${GGML_DIR}/include/ggml-backend.h"
-            "${GGML_DIR}/lib/libggml.so"
-        )
+        # Check for required files (platform-specific)
+        if(WIN32)
+            set(required_files
+                "${GGML_DIR}/include/ggml.h"
+                "${GGML_DIR}/include/ggml-backend.h"
+                "${GGML_DIR}/lib/ggml.lib"
+            )
+        else()
+            set(required_files
+                "${GGML_DIR}/include/ggml.h"
+                "${GGML_DIR}/include/ggml-backend.h"
+                "${GGML_DIR}/lib/libggml.so"
+            )
+        endif()
         
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
