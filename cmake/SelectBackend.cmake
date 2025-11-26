@@ -19,5 +19,8 @@ elseif (DEFAULT_BACKEND STREQUAL "OPENVINO")
 elseif (DEFAULT_BACKEND STREQUAL "GGML")
     # Set GGML
     include(GGML)
+elseif (DEFAULT_BACKEND STREQUAL "TVM")
+    # Set TVM
+    include(TVM)
 endif()
 

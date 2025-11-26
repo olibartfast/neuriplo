@@ -23,9 +23,13 @@ elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
 elseif(DEFAULT_BACKEND STREQUAL "GGML")
     target_include_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/include ${INFER_ROOT}/ggml/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/lib)
-    target_link_libraries(${PROJECT_NAME} PRIVATE 
+    target_link_libraries(${PROJECT_NAME} PRIVATE
         ${GGML_DIR}/lib/libggml-base.so
         ${GGML_DIR}/lib/libggml-cpu.so
         ${GGML_DIR}/lib/libggml-blas.so
     )
+elseif(DEFAULT_BACKEND STREQUAL "TVM")
+    target_include_directories(${PROJECT_NAME} PRIVATE ${TVM_DIR}/include ${INFER_ROOT}/tvm/src)
+    target_link_directories(${PROJECT_NAME} PRIVATE ${TVM_DIR}/lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${TVM_DIR}/lib/libtvm_runtime.so)
 endif()
