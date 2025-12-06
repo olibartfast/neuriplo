@@ -21,9 +21,9 @@ while [[ $# -gt 0 ]]; do
         -b|--backend) BACKEND="$2"; shift 2 ;;
         -r|--root) DEPENDENCY_ROOT="$2"; shift 2 ;;
         -f|--force) FORCE=true; shift ;;
-        -h|--help) 
+        -h|--help)
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -32,7 +32,7 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
@@ -91,9 +91,24 @@ setup_libtensorflow() {
 # Setup GGML
 setup_ggml() {
     echo "Setting up GGML library..."
-    
+
     # Call the dedicated GGML setup script
     DEPENDENCY_ROOT="${DEPENDENCY_ROOT}" FORCE="${FORCE}" ./scripts/setup_ggml.sh
+}
+
+# Setup TVM
+setup_tvm() {
+    echo "Setting up TVM library..."
+
+    # Check if setup script exists
+    if [[ -f "./scripts/setup_tvm.sh" ]]; then
+        DEPENDENCY_ROOT="${DEPENDENCY_ROOT}" FORCE="${FORCE}" ./scripts/setup_tvm.sh
+    else
+        echo "Note: scripts/setup_tvm.sh not found."
+        echo "Please refer to docs/TVM_BUILD_GUIDE.md for manual installation instructions."
+        echo "TVM should be installed to: $DEPENDENCY_ROOT/tvm"
+        exit 1
+    fi
 }
 
 # Validate installation
@@ -112,6 +127,8 @@ validate_installation() {
             [[ -f "$DEPENDENCY_ROOT/tensorflow/include/tensorflow/cc/saved_model/loader.h" && -f "$DEPENDENCY_ROOT/tensorflow/lib/libtensorflow_cc.so" ]] || { echo "Error: TensorFlow C++ validation failed"; exit 1; } ;;
         GGML)
             [[ -f "$DEPENDENCY_ROOT/ggml/include/ggml.h" && -f "$DEPENDENCY_ROOT/ggml/lib/libggml.so" ]] || { echo "Error: GGML validation failed"; exit 1; } ;;
+        TVM)
+            [[ -f "$DEPENDENCY_ROOT/tvm/include/tvm/runtime/c_runtime_api.h" && -f "$DEPENDENCY_ROOT/tvm/build/libtvm_runtime.so" ]] || { echo "Error: TVM validation failed"; exit 1; } ;;
     esac
 }
 
@@ -127,8 +144,10 @@ export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
 export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
 export GGML_DIR="\$DEPENDENCY_ROOT/ggml"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$LD_LIBRARY_PATH"
-export PATH="\$OPENVINO_DIR/bin:\$PATH"
+export TVM_DIR="\$DEPENDENCY_ROOT/tvm"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$LD_LIBRARY_PATH"
+export PATH="\$OPENVINO_DIR/bin:\$TVM_DIR/bin:\$PATH"
+export PYTHONPATH="\$TVM_DIR/python:\$PYTHONPATH"
 EOF
     chmod +x "$env_file"
 }
@@ -142,6 +161,7 @@ case $BACKEND in
     OPENVINO) setup_openvino ;;
     LIBTENSORFLOW) setup_libtensorflow ;;
     GGML) setup_ggml ;;
+    TVM) setup_tvm ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup
