@@ -1,5 +1,33 @@
-# Centralized version management for neuriplo library
-# This file reads versions from versions.env to maintain consistency
+# ==============================================================================
+# Centralized Version Management for neuriplo
+# ==============================================================================
+#
+# This file works with two other configuration files to maintain backend versions:
+#
+#   1. versions.env         → Defines version numbers (TVM_VERSION=0.18.0)
+#   2. scripts/backends.conf → Defines backend metadata and mappings
+#   3. cmake/versions.cmake  → Reads versions.env and validates consistency (this file)
+#
+# WORKFLOW:
+# ---------
+# 1. versions.env defines the version variables (e.g., TVM_VERSION=0.18.0)
+# 2. This file reads versions.env and makes variables available to CMake
+# 3. This file validates that every backend in backends.conf has a version
+# 4. Scripts source both files to get complete backend configuration
+#
+# ADDING A NEW BACKEND VERSION:
+# ------------------------------
+# 1. Add version to versions.env:
+#      NEW_BACKEND_VERSION=1.0.0
+#
+# 2. Add cache variable here (after read_versions_from_env()):
+#      set(NEW_BACKEND_VERSION "${NEW_BACKEND_VERSION}" CACHE STRING "New Backend version")
+#
+# 3. Add to cmake/versions.cmake validate function (if not auto-detected):
+#      The validate_backend_versions() function will check it automatically
+#      if the backend is defined in scripts/backends.conf
+#
+# ==============================================================================
 
 # Function to read versions from versions.env file
 function(read_versions_from_env)
