@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Supported backends
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
 
 # Test configuration
 PARALLEL_JOBS=4
@@ -232,7 +232,7 @@ check_backend_availability() {
             local ggml_dir="${HOME}/dependencies/ggml"
             local alt_ggml_dir="/usr/local/ggml"
             local legacy_ggml_dir="${HOME}/.local/ggml"
-            
+
             if [ -d "$ggml_dir" ] && [ -f "$ggml_dir/lib/libggml.so" ] && [ -f "$ggml_dir/include/ggml.h" ]; then
                 log_success "GGML found in dependencies directory"
                 return 0
@@ -244,6 +244,25 @@ check_backend_availability() {
                 return 0
             else
                 log_warning "GGML not found"
+                return 1
+            fi
+            ;;
+        "TVM")
+            local tvm_dir="${HOME}/dependencies/tvm"
+            local alt_tvm_dir="/usr/local/tvm"
+            local expected_version="$TVM_VERSION"
+
+            if [ -d "$tvm_dir" ] && [ -f "$tvm_dir/lib/libtvm.so" ]; then
+                log_success "TVM found in dependencies directory"
+                return 0
+            elif [ -d "$alt_tvm_dir" ] && [ -f "$alt_tvm_dir/lib/libtvm.so" ]; then
+                log_success "TVM found in system directory"
+                return 0
+            elif pkg-config --exists tvm; then
+                log_success "TVM found via pkg-config"
+                return 0
+            else
+                log_warning "TVM not found"
                 return 1
             fi
             ;;
@@ -265,6 +284,7 @@ get_backend_dir() {
         "TENSORRT") echo "tensorrt" ;;
         "OPENVINO") echo "openvino" ;;
         "GGML") echo "ggml" ;;
+        "TVM") echo "tvm" ;;
         *) echo "unknown" ;;
     esac
 }
@@ -280,6 +300,7 @@ get_test_executable_name() {
         "TENSORRT") echo "TensorRTInferTest" ;;
         "OPENVINO") echo "OpenVINOInferTest" ;;
         "GGML") echo "GGMLInferTest" ;;
+        "TVM") echo "TVMInferTest" ;;
         *) echo "UnknownInferTest" ;;
     esac
 }
@@ -400,6 +421,8 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTENSORRT_DIR="$HOME/dependencies/TensorRT-$TENSORRT_VERSION" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "GGML" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DGGML_DIR="$HOME/dependencies/ggml" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "TVM" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTVM_DIR="$HOME/dependencies/tvm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi
