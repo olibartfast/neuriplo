@@ -1,0 +1,225 @@
+# docker build --rm -t neuriplo:tvm -f docker/Dockerfile.tvm .
+# docker run --rm neuriplo:tvm
+
+# Stage 1: Base dependencies
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOME=/root
+ENV DEPENDENCIES_DIR=${HOME}/dependencies
+ENV TVM_DIR=${DEPENDENCIES_DIR}/tvm
+
+# Install system dependencies including LLVM for TVM
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential \
+    pkg-config \
+    wget \
+    git \
+    unzip \
+    curl \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    libopenblas-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    ninja-build \
+    libopencv-dev \
+    libopencv-contrib-dev \
+    llvm-12-dev \
+    libtinfo-dev \
+    zlib1g-dev \
+    libedit-dev \
+    libxml2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build and install GTest
+RUN cd /usr/src/gtest && \
+    cmake . && \
+    make && \
+    cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
+
+# Stage 2: Install TVM
+FROM base_dependencies AS tvm_install
+
+# Set TVM version (should match versions.env)
+ENV TVM_VERSION=0.18.0
+
+# Clone and build TVM
+RUN mkdir -p ${TVM_DIR} && \
+    cd ${DEPENDENCIES_DIR} && \
+    git clone --recursive https://github.com/apache/tvm tvm && \
+    cd tvm && \
+    git fetch --tags && \
+    git checkout v${TVM_VERSION} && \
+    git submodule update --init --recursive
+
+# Configure and build TVM
+RUN cd ${TVM_DIR} && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DUSE_LLVM=/usr/lib/llvm-12/bin/llvm-config \
+        -DUSE_CUDA=OFF \
+        -DUSE_OPENCL=OFF \
+        -DUSE_VULKAN=OFF \
+        -DUSE_METAL=OFF \
+        -DUSE_ROCM=OFF \
+        -DUSE_RTTI=ON \
+        -DUSE_GRAPH_EXECUTOR=ON \
+        -DUSE_GRAPH_EXECUTOR_DEBUG=ON \
+        -DUSE_RELAY_DEBUG=ON \
+        -DBUILD_SHARED_LIBS=ON && \
+    make -j$(nproc)
+
+# Install TVM Python package and dependencies
+RUN cd ${TVM_DIR}/python && \
+    pip3 install --break-system-packages -e . && \
+    pip3 install --break-system-packages \
+        numpy \
+        decorator \
+        attrs \
+        tornado \
+        psutil \
+        'xgboost>=1.1.0' \
+        cloudpickle \
+        onnx \
+        onnxruntime
+
+# Verify TVM installation
+RUN test -f ${TVM_DIR}/build/libtvm_runtime.so && \
+    test -f ${TVM_DIR}/build/libtvm.so && \
+    test -f ${TVM_DIR}/include/tvm/runtime/c_runtime_api.h && \
+    python3 -c "import tvm; print('TVM version:', tvm.__version__)"
+
+# Set TVM environment variables
+ENV TVM_HOME=${TVM_DIR}
+ENV PYTHONPATH=${TVM_DIR}/python:${PYTHONPATH}
+ENV LD_LIBRARY_PATH=${TVM_DIR}/build:${LD_LIBRARY_PATH}
+
+# Stage 3: Download and compile models with TVM
+FROM tvm_install AS model_compiler
+
+# Create model directory
+RUN mkdir -p /opt/models
+
+# Download ResNet18 ONNX model from ONNX Model Zoo
+RUN wget -O /opt/models/resnet18.onnx \
+    https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/resnet/model/resnet18-v1-7.onnx
+
+# Verify the model was downloaded
+RUN ls -la /opt/models/ && \
+    echo "ResNet18 ONNX model downloaded successfully"
+
+# Create TVM model compilation script
+RUN cat > /opt/models/compile_model.py << 'EOF'
+#!/usr/bin/env python3
+"""Compile ONNX model to TVM format"""
+import os
+import onnx
+import tvm
+from tvm import relay
+from tvm.contrib import graph_executor
+
+# Load ONNX model
+print("Loading ONNX model...")
+onnx_model = onnx.load("/opt/models/resnet18.onnx")
+
+# Get input shape from model
+input_name = "data"
+shape_dict = {input_name: (1, 3, 224, 224)}
+
+# Convert to Relay IR
+print("Converting to Relay IR...")
+mod, params = relay.frontend.from_onnx(onnx_model, shape_dict)
+
+# Set target (CPU with LLVM)
+target = "llvm -mcpu=core-avx2"
+
+# Compile with optimization level 3
+print("Compiling model with TVM (this may take a few minutes)...")
+with tvm.transform.PassContext(opt_level=3):
+    lib = relay.build(mod, target=target, params=params)
+
+# Export compiled model
+print("Exporting compiled model...")
+lib.export_library("/opt/models/resnet18_tvm.so")
+
+print("TVM compilation completed successfully!")
+print(f"Output: /opt/models/resnet18_tvm.so")
+EOF
+
+# Compile the model with TVM
+RUN chmod +x /opt/models/compile_model.py && \
+    python3 /opt/models/compile_model.py && \
+    echo "Model compiled to TVM format successfully" && \
+    ls -lh /opt/models/resnet18_tvm.so
+
+# Stage 4: Build application
+FROM model_compiler AS builder
+
+WORKDIR /app
+
+# Copy source code
+COPY . .
+
+# Build the project with TVM backend and tests enabled
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=TVM \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DTVM_DIR=${TVM_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 5: Copy pre-compiled models
+FROM builder AS model_generator
+
+# Copy the compiled TVM model to test directory
+WORKDIR /app/build/backends/tvm/test
+RUN cp /opt/models/resnet18_tvm.so . && \
+    echo "ResNet18 TVM model copied to test directory"
+
+# Create model_path.txt file for the test
+RUN echo "$(pwd)/resnet18_tvm.so" > model_path.txt && \
+    echo "Model path file created: $(cat model_path.txt)"
+
+# Stage 6: Final runtime image for testing
+FROM tvm_install AS final
+
+# Create non-root user
+RUN useradd -m testuser && \
+    mkdir -p /app && \
+    chown -R testuser:testuser /app
+
+# Copy built binaries and test files
+COPY --from=model_generator --chown=testuser:testuser /app/build /app/build
+COPY --from=model_generator --chown=testuser:testuser /app/backends/tvm/test /app/backends/tvm/test
+
+# Copy TVM libraries and headers to final stage
+COPY --from=tvm_install --chown=testuser:testuser ${TVM_DIR}/build /opt/tvm/build
+COPY --from=tvm_install --chown=testuser:testuser ${TVM_DIR}/include /opt/tvm/include
+COPY --from=tvm_install --chown=testuser:testuser ${TVM_DIR}/python /opt/tvm/python
+
+# Set working directory to where the test files are located
+WORKDIR /app/build/backends/tvm/test
+
+# Switch to test user
+USER testuser
+
+# Set TVM environment variables
+ENV TVM_HOME=/opt/tvm
+ENV PYTHONPATH=/opt/tvm/python:${PYTHONPATH}
+ENV LD_LIBRARY_PATH=/app/build/lib:/opt/tvm/build:$LD_LIBRARY_PATH
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/build/lib/libneuriplo.so || exit 1
+
+# Default command to run TVM tests
+CMD ["./TVMInferTest"]
