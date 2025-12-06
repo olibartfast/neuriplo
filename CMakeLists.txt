@@ -21,7 +21,30 @@ if(NOT DEFINED DEFAULT_BACKEND)
 endif()
 
 # Define the supported backends
-set(SUPPORTED_BACKENDS "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "OPENCV_DNN" "TENSORRT" "OPENVINO" "GGML" "TVM")
+# Parse from scripts/backends.conf to maintain single source of truth
+set(BACKENDS_CONF "${CMAKE_CURRENT_SOURCE_DIR}/scripts/backends.conf")
+if(EXISTS "${BACKENDS_CONF}")
+    file(READ "${BACKENDS_CONF}" BACKENDS_CONF_CONTENT)
+    # Extract the BACKENDS array using regex
+    string(REGEX MATCH "BACKENDS=\\(([^)]+)\\)" BACKENDS_MATCH "${BACKENDS_CONF_CONTENT}")
+    if(BACKENDS_MATCH)
+        set(BACKENDS_STR "${CMAKE_MATCH_1}")
+        # Remove quotes and split by whitespace
+        string(REGEX REPLACE "\"" "" BACKENDS_STR "${BACKENDS_STR}")
+        string(REGEX REPLACE "[ \t\n]+" ";" SUPPORTED_BACKENDS "${BACKENDS_STR}")
+        message(STATUS "Loaded backends from backends.conf: ${SUPPORTED_BACKENDS}")
+    else()
+        message(WARNING "Could not parse BACKENDS array from backends.conf")
+        set(SUPPORTED_BACKENDS "OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+    endif()
+else()
+    # Fallback if backends.conf is not found
+    message(WARNING "backends.conf not found, using hardcoded backend list")
+    set(SUPPORTED_BACKENDS "OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+endif()
+
+# Validate that all backends have corresponding versions in versions.env
+validate_backend_versions()
 
 # Check if the specified backend is supported
 list(FIND SUPPORTED_BACKENDS ${DEFAULT_BACKEND} SUPPORTED_BACKEND_INDEX)

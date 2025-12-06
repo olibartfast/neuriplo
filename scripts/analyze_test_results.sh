@@ -20,8 +20,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 REPORTS_DIR="$PROJECT_ROOT/reports"
 
-# Supported backends
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO")
+# Source centralized backend configuration
+source "$SCRIPT_DIR/backends.conf"
 
 # Log functions
 log_info() {
@@ -48,19 +48,7 @@ log_memory() {
     echo -e "${CYAN}[MEMORY]${NC} $1"
 }
 
-# Function to get backend directory name
-get_backend_dir() {
-    local backend=$1
-    case $backend in
-        "OPENCV_DNN") echo "opencv-dnn" ;;
-        "ONNX_RUNTIME") echo "onnx-runtime" ;;
-        "LIBTORCH") echo "libtorch" ;;
-        "LIBTENSORFLOW") echo "libtensorflow" ;;
-        "TENSORRT") echo "tensorrt" ;;
-        "OPENVINO") echo "openvino" ;;
-        *) echo "unknown" ;;
-    esac
-}
+# Note: get_backend_dir() function is now defined in backends.conf and sourced above
 
 # Function to analyze XML test results
 analyze_xml_results() {

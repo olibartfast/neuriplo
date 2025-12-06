@@ -6,6 +6,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Source centralized backend configuration
+source "$SCRIPT_DIR/backends.conf"
+
 # Parse arguments
 backend=""
 skip_models=false
@@ -18,9 +21,9 @@ while [[ $# -gt 0 ]]; do
         --skip-models) skip_models=true; shift ;;
         --clean) clean_flag=true; shift ;;
         --quick) quick_test=true; skip_models=true; shift ;;
-        --help) 
+        --help)
             echo "Usage: $0 [--backend BACKEND] [--skip-models] [--clean] [--quick] [--help]"
-            echo "Backends: OPENCV_DNN ONNX_RUNTIME LIBTORCH LIBTENSORFLOW TENSORRT OPENVINO"
+            echo "Backends: $(get_backends_list)"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -50,8 +53,9 @@ generate_final_report() {
         echo "Generated: $(date)"
         echo ""
         echo "Test Results:"
-        for backend in OPENCV_DNN ONNX_RUNTIME LIBTORCH LIBTENSORFLOW TENSORRT OPENVINO; do
-            local result_file="$results_dir/${backend,,}_results.xml"
+        for backend in "${BACKENDS[@]}"; do
+            local backend_dir=$(get_backend_dir "$backend")
+            local result_file="$results_dir/${backend_dir}_results.xml"
             if [[ -f "$result_file" ]]; then
                 local tests=$(grep -o 'tests="[0-9]*"' "$result_file" | cut -d'"' -f2)
                 local failures=$(grep -o 'failures="[0-9]*"' "$result_file" | cut -d'"' -f2)
