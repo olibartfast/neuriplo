@@ -90,6 +90,83 @@ function(validate_version_exact found_version expected_version component_name)
     endif()
 endfunction()
 
+# Function to validate backend-version consistency
+# Parses backends.conf to get version variable mappings and validates them
+function(validate_backend_versions)
+    message(STATUS "=== Validating Backend-Version Consistency ===")
+
+    set(BACKENDS_CONF "${CMAKE_CURRENT_SOURCE_DIR}/scripts/backends.conf")
+    set(VALIDATION_FAILED FALSE)
+    set(MISSING_VERSIONS "")
+
+    if(NOT EXISTS "${BACKENDS_CONF}")
+        message(WARNING "backends.conf not found, skipping validation")
+        return()
+    endif()
+
+    # Read backends.conf and extract BACKEND_DEFINITIONS
+    file(READ "${BACKENDS_CONF}" BACKENDS_CONF_CONTENT)
+
+    # Extract all backend definitions (format: "NAME|dir|exe|VERSION_VAR")
+    string(REGEX MATCHALL "\"[A-Z_]+\\|[^\"]+\"" BACKEND_DEFS "${BACKENDS_CONF_CONTENT}")
+
+    foreach(BACKEND_DEF ${BACKEND_DEFS})
+        # Remove quotes
+        string(REGEX REPLACE "\"" "" BACKEND_DEF "${BACKEND_DEF}")
+
+        # Split by pipe
+        string(REPLACE "|" ";" BACKEND_PARTS "${BACKEND_DEF}")
+        list(GET BACKEND_PARTS 0 BACKEND_NAME)
+        list(GET BACKEND_PARTS 3 VERSION_VAR_NAME)
+
+        # Get the version value by variable name
+        # Map version variable names to actual values
+        if(VERSION_VAR_NAME STREQUAL "OPENCV_VERSION")
+            set(VERSION_VAR "${OPENCV_MIN_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "ONNX_RUNTIME_VERSION")
+            set(VERSION_VAR "${ONNX_RUNTIME_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "PYTORCH_VERSION")
+            set(VERSION_VAR "${LIBTORCH_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "TENSORFLOW_VERSION")
+            set(VERSION_VAR "${TENSORFLOW_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "TENSORRT_VERSION")
+            set(VERSION_VAR "${TENSORRT_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "OPENVINO_VERSION")
+            set(VERSION_VAR "${OPENVINO_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "GGML_VERSION")
+            set(VERSION_VAR "${GGML_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "TVM_VERSION")
+            set(VERSION_VAR "${TVM_VERSION}")
+        else()
+            set(VERSION_VAR "")
+        endif()
+
+        # Check if version is defined
+        if(NOT VERSION_VAR OR VERSION_VAR STREQUAL "")
+            message(WARNING "Backend '${BACKEND_NAME}' is missing version variable '${VERSION_VAR_NAME}' in versions.env")
+            list(APPEND MISSING_VERSIONS "${BACKEND_NAME} (${VERSION_VAR_NAME})")
+            set(VALIDATION_FAILED TRUE)
+        else()
+            message(STATUS "  ✓ ${BACKEND_NAME} -> ${VERSION_VAR_NAME} = ${VERSION_VAR}")
+        endif()
+    endforeach()
+
+    if(VALIDATION_FAILED)
+        message(STATUS "")
+        message(WARNING "=== Backend-Version Validation FAILED ===")
+        message(WARNING "Missing version variables in versions.env:")
+        foreach(MISSING ${MISSING_VERSIONS})
+            message(WARNING "  - ${MISSING}")
+        endforeach()
+        message(WARNING "")
+        message(WARNING "Please add the missing version variables to versions.env")
+    else()
+        message(STATUS "=== Backend-Version Validation PASSED ===")
+    endif()
+
+    set(VALIDATION_FAILED ${VALIDATION_FAILED} PARENT_SCOPE)
+endfunction()
+
 # Print version information for debugging
 message(STATUS "=== neuriplo Dependency Versions (from versions.env) ===")
 message(STATUS "ONNX Runtime: ${ONNX_RUNTIME_VERSION}")
