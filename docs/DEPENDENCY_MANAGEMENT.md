@@ -55,7 +55,7 @@ All backends can be set up using the unified script:
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`
+Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`
 
 ## Usage
 
@@ -109,13 +109,14 @@ validate_all_dependencies()
    cmake .. -DDEFAULT_BACKEND=LIBTORCH -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=OPENVINO -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=GGML -DBUILD_INFERENCE_ENGINE_TESTS=ON
+   cmake .. -DDEFAULT_BACKEND=TVM -DBUILD_INFERENCE_ENGINE_TESTS=ON
    ```
 
 ### Configuration Options
 
 #### CMake Variables
 
-- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML)
+- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML, TVM)
 - `BUILD_INFERENCE_ENGINE_TESTS`: Enable/disable test building (ON/OFF)
 - `DEPENDENCY_ROOT`: Set custom dependency installation root (default: `$HOME/dependencies`)
 - `ONNX_RUNTIME_VERSION`: Override ONNX Runtime version
@@ -123,6 +124,7 @@ validate_all_dependencies()
 - `LIBTORCH_VERSION`: Override LibTorch version
 - `OPENVINO_VERSION`: Override OpenVINO version
 - `TENSORFLOW_VERSION`: Override TensorFlow version
+- `TVM_VERSION`: Override TVM version
 - `CUDA_VERSION`: Override CUDA version for GPU support
 
 #### Environment Variables
@@ -222,6 +224,26 @@ For backends requiring manual installation:
 2. Run setup script: `./scripts/setup_libtensorflow.sh`
 3. Alternative: Use `./scripts/setup_tensorflow_pip.sh` for automated pip installation
 
+**TVM**:
+1. Clone TVM repository: `git clone --recursive https://github.com/apache/tvm tvm`
+2. Build from source:
+   ```bash
+   cd tvm
+   mkdir build
+   cp cmake/config.cmake build/
+   cd build
+   # Edit config.cmake to enable desired features (LLVM, CUDA, etc.)
+   cmake ..
+   make -j$(nproc)
+   ```
+3. Install Python package:
+   ```bash
+   cd ../python
+   pip install -e .
+   ```
+4. Set TVM directory: `export TVM_DIR=$HOME/dependencies/tvm`
+5. For detailed instructions, see [TVM Installation Guide](https://tvm.apache.org/docs/install/from_source.html)
+
 ## Testing Integration
 
 ### Automated Testing
@@ -254,6 +276,8 @@ The testing framework supports all backends:
 - **LibTorch**: Tests with TorchScript models
 - **TensorRT**: Requires model conversion from ONNX or other formats
 - **OpenVINO**: Uses Intel OpenVINO IR format models
+- **GGML**: Uses quantized GGML format models
+- **TVM**: Requires model compilation using TVM compiler
 
 Use `scripts/setup_test_models.sh` to download and prepare test models for all backends.
 

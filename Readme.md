@@ -23,6 +23,7 @@
 * OpenVINO 
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 * GGML - Efficient tensor library for machine learning
+* TVM - Open deep learning compiler stack
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -45,6 +46,7 @@ Supported `<BACKEND_NAME>` values:
 * `LIBTENSORFLOW`
 * `OPENVINO`
 * `GGML`
+* `TVM`
 
 #### Test All Backends
 ```bash
@@ -107,3 +109,5 @@ Ensure you have initialized and set up the selected backend(s) appropriately in 
 For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
+- **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
+- **[Windows Build Guide](docs/WINDOWS_BUILD_GUIDE.md)** - Windows-specific build instructions
