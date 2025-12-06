@@ -104,6 +104,79 @@ target_include_directories(your_project PRIVATE path_to/neuriplo/include)
 
 Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
 
+## Backend Configuration System
+
+Neuriplo uses a centralized configuration system that makes it easy to add new backends. The system consists of three interconnected files:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Backend Configuration Flow                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  1. scripts/backends.conf                                        │
+│     ┌────────────────────────────────────────────────────┐      │
+│     │ Defines backend metadata:                          │      │
+│     │ "TVM|tvm|TVMInferTest|TVM_VERSION"                 │      │
+│     │      │   │       │            └─ Version variable  │      │
+│     │      │   │       └─ Test executable name           │      │
+│     │      │   └─ Directory name                         │      │
+│     │      └─ Backend name                               │      │
+│     └────────────────────────────────────────────────────┘      │
+│                           ↓                                      │
+│  2. versions.env                                                │
+│     ┌────────────────────────────────────────────────────┐      │
+│     │ Defines version numbers:                           │      │
+│     │ TVM_VERSION=0.18.0                                 │      │
+│     │ ONNX_RUNTIME_VERSION=1.19.2                        │      │
+│     │ PYTORCH_VERSION=2.3.0                              │      │
+│     └────────────────────────────────────────────────────┘      │
+│                           ↓                                      │
+│  3. cmake/versions.cmake                                        │
+│     ┌────────────────────────────────────────────────────┐      │
+│     │ Reads versions.env and validates consistency       │      │
+│     │ Ensures all backends have version variables        │      │
+│     └────────────────────────────────────────────────────┘      │
+│                           ↓                                      │
+│  ✓ All bash scripts and CMake automatically synchronized        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Adding a New Backend
+
+To add a new backend (e.g., NCNN), you only need to edit **two files**:
+
+1. **Add to `scripts/backends.conf`**:
+   ```bash
+   BACKEND_DEFINITIONS=(
+       ...
+       "NCNN|ncnn|NCNNInferTest|NCNN_VERSION"
+   )
+   ```
+
+2. **Add to `versions.env`**:
+   ```bash
+   NCNN_VERSION=1.0.34
+   ```
+
+3. **Add to `cmake/versions.cmake`**:
+   ```cmake
+   set(NCNN_VERSION "${NCNN_VERSION}" CACHE STRING "NCNN version")
+   ```
+
+That's it! The validation system will automatically verify consistency, and all scripts will recognize the new backend.
+
+### Validation
+
+The system automatically validates that every backend has a corresponding version:
+
+```bash
+# Bash validation
+source scripts/backends.conf && validate_backend_versions
+
+# CMake validation (runs automatically)
+cmake ..
+```
+
 ## Documentation
 
 For detailed documentation, see the [docs/](docs/) directory:
