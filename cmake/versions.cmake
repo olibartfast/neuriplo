@@ -118,6 +118,12 @@ endfunction()
 # Function to validate backend-version consistency
 # Validates that all backends have corresponding versions in versions.env
 function(validate_backend_versions)
+    # Skip validation if this is being used as a FetchContent dependency
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        message(STATUS "neuriplo used as subdirectory - skipping backend version validation")
+        return()
+    endif()
+    
     message(STATUS "=== Validating Backend-Version Consistency ===")
 
     # Define backend to version variable mapping directly
