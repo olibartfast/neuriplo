@@ -95,7 +95,11 @@ RUN cd ${TVM_DIR}/python && \
         onnxruntime
 
 # Verify TVM installation
-RUN test -f ${TVM_DIR}/build/libtvm_runtime.so && \
+RUN ls -la ${TVM_DIR}/build && \
+    export TVM_HOME=${TVM_DIR} && \
+    export PYTHONPATH=${TVM_DIR}/python:${PYTHONPATH} && \
+    export LD_LIBRARY_PATH=${TVM_DIR}/build:${LD_LIBRARY_PATH} && \
+    test -f ${TVM_DIR}/build/libtvm_runtime.so && \
     test -f ${TVM_DIR}/build/libtvm.so && \
     test -f ${TVM_DIR}/include/tvm/runtime/c_runtime_api.h && \
     python3 -c "import tvm; print('TVM version:', tvm.__version__)"
