@@ -16,8 +16,8 @@ else
 fi
 
 # Default installation directory
-local version="$TENSORRT_VERSION"
-local dir="$DEPENDENCY_ROOT/TensorRT-$version"
+version="$TENSORRT_VERSION"
+dir="$DEPENDENCY_ROOT/TensorRT-$version"
 
 # Check if already installed
 if [[ -d "$dir" && "$FORCE" != "true" ]]; then

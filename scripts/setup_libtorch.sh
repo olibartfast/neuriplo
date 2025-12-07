@@ -16,8 +16,8 @@ else
 fi
 
 # Default installation directory
-local version="$PYTORCH_VERSION"
-local dir="$DEPENDENCY_ROOT/libtorch"
+version="$PYTORCH_VERSION"
+dir="$DEPENDENCY_ROOT/libtorch"
 
 # Check if already installed
 if [[ -d "$dir" && "$FORCE" != "true" ]]; then

@@ -16,8 +16,8 @@ else
 fi
 
 # Default installation directory
-local version="$OPENVINO_VERSION"
-local dir="$DEPENDENCY_ROOT/openvino_$version"
+version="$OPENVINO_VERSION"
+dir="$DEPENDENCY_ROOT/openvino_$version"
 
 # Check if already installed
 if [[ -d "$dir" && "$FORCE" != "true" ]]; then
@@ -29,7 +29,7 @@ echo "Installing OpenVINO $version to $dir..."
 mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
 
 # Download OpenVINO toolkit
-local tarball="openvino_${version}.tgz"
+tarball="openvino_${version}.tgz"
 if [[ ! -f "$tarball" ]]; then
     echo "Downloading OpenVINO toolkit..."
     curl -L "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/openvino_toolkit_ubuntu24_${version}.19140.c01cd93e24d_x86_64.tgz" --output "$tarball"
@@ -46,7 +46,7 @@ rm -f "$tarball"
 
 # Create a local Python virtual environment for OpenVINO tools
 echo "Setting up OpenVINO Python tools..."
-local venv_dir="$dir/python_env"
+venv_dir="$dir/python_env"
 python3 -m venv "$venv_dir"
 source "$venv_dir/bin/activate"
 pip install openvino-dev
