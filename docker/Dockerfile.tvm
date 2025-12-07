@@ -27,11 +27,10 @@ RUN apt-get update && apt-get upgrade -y && \
     python3-venv \
     libopenblas-dev \
     libgoogle-glog-dev \
-    libgtest-dev \
     ninja-build \
     libopencv-dev \
     libopencv-contrib-dev \
-    llvm-12-dev \
+    llvm-18-dev \
     libtinfo-dev \
     zlib1g-dev \
     libedit-dev \
@@ -39,16 +38,19 @@ RUN apt-get update && apt-get upgrade -y && \
     && rm -rf /var/lib/apt/lists/*
 
 # Build and install GTest
-RUN cd /usr/src/gtest && \
-    cmake . && \
+# Build and install GTest manually
+RUN git clone https://github.com/google/googletest.git -b v1.14.0 /usr/src/gtest-build && \
+    cd /usr/src/gtest-build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_GMOCK=ON . && \
     make && \
-    cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
+    make install && \
+    cd / && rm -rf /usr/src/gtest-build
 
 # Stage 2: Install TVM
 FROM base_dependencies AS tvm_install
 
 # Set TVM version (should match versions.env)
-ENV TVM_VERSION=0.18.0
+ENV TVM_VERSION=0.22.0
 
 # Clone and build TVM
 RUN mkdir -p ${TVM_DIR} && \
@@ -65,7 +67,7 @@ RUN cd ${TVM_DIR} && \
     cd build && \
     cmake .. \
         -DCMAKE_BUILD_TYPE=Release \
-        -DUSE_LLVM=/usr/lib/llvm-12/bin/llvm-config \
+        -DUSE_LLVM=/usr/lib/llvm-18/bin/llvm-config \
         -DUSE_CUDA=OFF \
         -DUSE_OPENCL=OFF \
         -DUSE_VULKAN=OFF \
@@ -73,7 +75,7 @@ RUN cd ${TVM_DIR} && \
         -DUSE_ROCM=OFF \
         -DUSE_RTTI=ON \
         -DUSE_GRAPH_EXECUTOR=ON \
-        -DUSE_GRAPH_EXECUTOR_DEBUG=ON \
+        -DUSE_PROFILER=ON \
         -DUSE_RELAY_DEBUG=ON \
         -DBUILD_SHARED_LIBS=ON && \
     make -j$(nproc)
@@ -100,8 +102,8 @@ RUN test -f ${TVM_DIR}/build/libtvm_runtime.so && \
 
 # Set TVM environment variables
 ENV TVM_HOME=${TVM_DIR}
-ENV PYTHONPATH=${TVM_DIR}/python:${PYTHONPATH}
-ENV LD_LIBRARY_PATH=${TVM_DIR}/build:${LD_LIBRARY_PATH}
+ENV PYTHONPATH=${TVM_DIR}/python
+ENV LD_LIBRARY_PATH=${TVM_DIR}/build
 
 # Stage 3: Download and compile models with TVM
 FROM tvm_install AS model_compiler
@@ -214,8 +216,8 @@ USER testuser
 
 # Set TVM environment variables
 ENV TVM_HOME=/opt/tvm
-ENV PYTHONPATH=/opt/tvm/python:${PYTHONPATH}
-ENV LD_LIBRARY_PATH=/app/build/lib:/opt/tvm/build:$LD_LIBRARY_PATH
+ENV PYTHONPATH=/opt/tvm/python
+ENV LD_LIBRARY_PATH=/app/build/lib:/opt/tvm/build
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \

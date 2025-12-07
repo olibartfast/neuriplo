@@ -2,18 +2,16 @@
 # Centralized Version Management for neuriplo
 # ==============================================================================
 #
-# This file works with two other configuration files to maintain backend versions:
+# This file works with versions.env to maintain backend versions:
 #
-#   1. versions.env         → Defines version numbers (TVM_VERSION=0.18.0)
-#   2. scripts/backends.conf → Defines backend metadata and mappings
-#   3. cmake/versions.cmake  → Reads versions.env and validates consistency (this file)
+#   1. versions.env         → Defines version numbers (TVM_VERSION=0.18.0)  
+#   2. cmake/versions.cmake → Reads versions.env and validates consistency (this file)
 #
 # WORKFLOW:
 # ---------
 # 1. versions.env defines the version variables (e.g., TVM_VERSION=0.18.0)
 # 2. This file reads versions.env and makes variables available to CMake
-# 3. This file validates that every backend in backends.conf has a version
-# 4. Scripts source both files to get complete backend configuration
+# 3. This file validates that every backend has a corresponding version variable
 #
 # ADDING A NEW BACKEND VERSION:
 # ------------------------------
@@ -23,9 +21,8 @@
 # 2. Add cache variable here (after read_versions_from_env()):
 #      set(NEW_BACKEND_VERSION "${NEW_BACKEND_VERSION}" CACHE STRING "New Backend version")
 #
-# 3. Add to cmake/versions.cmake validate function (if not auto-detected):
-#      The validate_backend_versions() function will check it automatically
-#      if the backend is defined in scripts/backends.conf
+# 3. Add to BACKEND_VERSION_MAPPING in this file:
+#      Add "NEW_BACKEND:NEW_BACKEND_VERSION" to the mapping list
 #
 # ==============================================================================
 
@@ -119,36 +116,32 @@ function(validate_version_exact found_version expected_version component_name)
 endfunction()
 
 # Function to validate backend-version consistency
-# Parses backends.conf to get version variable mappings and validates them
+# Validates that all backends have corresponding versions in versions.env
 function(validate_backend_versions)
     message(STATUS "=== Validating Backend-Version Consistency ===")
 
-    set(BACKENDS_CONF "${CMAKE_CURRENT_SOURCE_DIR}/scripts/backends.conf")
+    # Define backend to version variable mapping directly
+    set(BACKEND_VERSION_MAPPING
+        "OPENCV_DNN:OPENCV_VERSION"
+        "ONNX_RUNTIME:ONNX_RUNTIME_VERSION" 
+        "LIBTORCH:PYTORCH_VERSION"
+        "LIBTENSORFLOW:TENSORFLOW_VERSION"
+        "TENSORRT:TENSORRT_VERSION"
+        "OPENVINO:OPENVINO_VERSION"
+        "GGML:GGML_VERSION"
+        "TVM:TVM_VERSION"
+    )
+
     set(VALIDATION_FAILED FALSE)
     set(MISSING_VERSIONS "")
 
-    if(NOT EXISTS "${BACKENDS_CONF}")
-        message(WARNING "backends.conf not found, skipping validation")
-        return()
-    endif()
-
-    # Read backends.conf and extract BACKEND_DEFINITIONS
-    file(READ "${BACKENDS_CONF}" BACKENDS_CONF_CONTENT)
-
-    # Extract all backend definitions (format: "NAME|dir|exe|VERSION_VAR")
-    string(REGEX MATCHALL "\"[A-Z_]+\\|[^\"]+\"" BACKEND_DEFS "${BACKENDS_CONF_CONTENT}")
-
-    foreach(BACKEND_DEF ${BACKEND_DEFS})
-        # Remove quotes
-        string(REGEX REPLACE "\"" "" BACKEND_DEF "${BACKEND_DEF}")
-
-        # Split by pipe
-        string(REPLACE "|" ";" BACKEND_PARTS "${BACKEND_DEF}")
-        list(GET BACKEND_PARTS 0 BACKEND_NAME)
-        list(GET BACKEND_PARTS 3 VERSION_VAR_NAME)
+    foreach(MAPPING ${BACKEND_VERSION_MAPPING})
+        # Split mapping by colon
+        string(REPLACE ":" ";" MAPPING_PARTS "${MAPPING}")
+        list(GET MAPPING_PARTS 0 BACKEND_NAME)
+        list(GET MAPPING_PARTS 1 VERSION_VAR_NAME)
 
         # Get the version value by variable name
-        # Map version variable names to actual values
         if(VERSION_VAR_NAME STREQUAL "OPENCV_VERSION")
             set(VERSION_VAR "${OPENCV_MIN_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "ONNX_RUNTIME_VERSION")
