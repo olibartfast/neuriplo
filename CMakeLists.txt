@@ -30,7 +30,11 @@ validate_backend_versions()
 # Check if the specified backend is supported
 list(FIND SUPPORTED_BACKENDS ${DEFAULT_BACKEND} SUPPORTED_BACKEND_INDEX)
 if(SUPPORTED_BACKEND_INDEX EQUAL -1)
-    message(FATAL_ERROR "Unsupported default backend: ${DEFAULT_BACKEND}")
+    if(PROJECT_IS_TOP_LEVEL)
+        message(FATAL_ERROR "Unsupported default backend: ${DEFAULT_BACKEND}")
+    else()
+        message(WARNING "neuriplo: Unsupported default backend: ${DEFAULT_BACKEND}")
+    endif()
 endif()
 
 message(STATUS "Default backend: ${DEFAULT_BACKEND}")

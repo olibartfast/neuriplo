@@ -7,8 +7,13 @@ include(CheckCXXCompilerFlag)
 # Function to validate a dependency exists
 function(validate_dependency dependency_name dependency_path)
     if(NOT EXISTS "${dependency_path}")
-        message(FATAL_ERROR "${dependency_name} not found at ${dependency_path}. 
+        if(PROJECT_IS_TOP_LEVEL)
+            message(FATAL_ERROR "${dependency_name} not found at ${dependency_path}. 
         Please ensure the inference backend is properly installed or run the setup script.")
+        else()
+            message(WARNING "neuriplo: ${dependency_name} not found at ${dependency_path}")
+            return()
+        endif()
     endif()
     
     message(STATUS "✓ ${dependency_name} found at ${dependency_path}")
@@ -105,6 +110,27 @@ endfunction()
 
 # Function to validate system dependencies
 function(validate_system_dependencies)
+    # When used as subdirectory, make these checks optional
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        # Try to find OpenCV but don't require it
+        find_package(OpenCV QUIET)
+        if(OpenCV_FOUND)
+            message(STATUS "✓ OpenCV ${OpenCV_VERSION} found")
+        else()
+            message(STATUS "OpenCV not found - parent project should handle OpenCV")
+        endif()
+        
+        # Try to find glog but don't require it
+        find_package(Glog QUIET)
+        if(Glog_FOUND)
+            message(STATUS "✓ glog found")
+        else()
+            message(STATUS "glog not found - parent project should handle glog")
+        endif()
+        
+        return()
+    endif()
+    
     # Validate OpenCV
     find_package(OpenCV REQUIRED)
     if(OpenCV_VERSION VERSION_LESS OPENCV_MIN_VERSION)
