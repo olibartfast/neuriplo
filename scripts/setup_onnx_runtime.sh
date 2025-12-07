@@ -16,8 +16,8 @@ else
 fi
 
 # Default installation directory
-local version="$ONNX_RUNTIME_VERSION"
-local dir="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$version"
+version="$ONNX_RUNTIME_VERSION"
+dir="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-$version"
 
 # Check if already installed
 if [[ -d "$dir" && "$FORCE" != "true" ]]; then
