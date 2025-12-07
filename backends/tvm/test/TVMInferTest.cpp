@@ -45,12 +45,9 @@ protected:
         if (modelPathFile) {
             std::getline(modelPathFile, model_path);
             if (!model_path.empty()) {
-                // Check if TVM model files exist (.so, .json, .params)
-                std::string lib_path = model_path + ".so";
-                std::string graph_path = model_path + ".json";
-                std::string params_path = model_path + ".params";
-
-                if (fs::exists(lib_path) && fs::exists(graph_path) && fs::exists(params_path)) {
+                // For TVM 0.22.0+, model is exported as a single .so file
+                // model_path should already point to the .so file
+                if (fs::exists(model_path)) {
                     has_real_model = true;
                     try {
                         // ResNet-18 expects input shape [1, 3, 224, 224] for batch_size=1
