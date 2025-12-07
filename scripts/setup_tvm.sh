@@ -133,7 +133,7 @@ else
 fi
 
 # Configure CMake build
-# Configuration aligned with working Docker setup
+# Use build directory directly (no installation needed)
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DUSE_LLVM="$USE_LLVM_FLAG" \
@@ -147,7 +147,6 @@ cmake .. \
     -DUSE_PROFILER=ON \
     -DUSE_RELAY_DEBUG=ON \
     -DBUILD_SHARED_LIBS=ON \
-    -DINSTALL_DEV=ON \
     -DUSE_GTEST=OFF
 
 # Fix DLPack header issue (aligned with Docker setup)
@@ -161,7 +160,6 @@ fi
 # Build TVM
 echo "Building TVM (this may take 10-30 minutes)..."
 make -j$(nproc)
-make install
 
 # Verify installation
 if [ -f "$BUILD_DIR/libtvm_runtime.so" ]; then
