@@ -125,6 +125,12 @@ endfunction()
 
 # Function to validate all dependencies
 function(validate_all_dependencies)
+    # Skip validation if this is being used as a FetchContent dependency
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        message(STATUS "neuriplo used as subdirectory - skipping dependency validation")
+        return()
+    endif()
+    
     message(STATUS "=== Validating neuriplo Dependencies ===")
     
     validate_system_dependencies()
