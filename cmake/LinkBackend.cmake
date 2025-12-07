@@ -29,7 +29,20 @@ elseif(DEFAULT_BACKEND STREQUAL "GGML")
         ${GGML_DIR}/lib/libggml-blas.so
     )
 elseif(DEFAULT_BACKEND STREQUAL "TVM")
-    target_include_directories(${PROJECT_NAME} PRIVATE ${TVM_DIR}/include ${INFER_ROOT}/tvm/src)
+    target_include_directories(${PROJECT_NAME} PRIVATE 
+        ${TVM_DIR}/include 
+        ${TVM_DIR}/3rdparty/dmlc-core/include
+        ${TVM_DIR}/3rdparty/dlpack/include
+        ${TVM_DIR}/3rdparty/dlpack
+        ${TVM_DIR}/3rdparty/tvm-ffi/3rdparty/dlpack/include
+        ${TVM_DIR}/3rdparty/tvm-ffi/include
+        ${TVM_DIR}/3rdparty
+        ${INFER_ROOT}/tvm/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${TVM_DIR}/build)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${TVM_DIR}/build/libtvm_runtime.so)
+    
+    # Suppress macro redefinition warnings between glog and DMLC
+    target_compile_options(${PROJECT_NAME} PRIVATE 
+        $<$<COMPILE_LANGUAGE:CXX>:-Wno-macro-redefined>
+        $<$<COMPILE_LANGUAGE:CXX>:-w>)
 endif()

@@ -144,6 +144,8 @@ function(validate_all_dependencies)
         validate_openvino()
     elseif(DEFAULT_BACKEND STREQUAL "GGML")
         validate_ggml()
+    elseif(DEFAULT_BACKEND STREQUAL "TVM")
+        validate_tvm()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -247,5 +249,44 @@ function(validate_ggml)
         endforeach()
         
         message(STATUS "✓ GGML validation passed")
+    endif()
+endfunction()
+
+function(validate_tvm)
+    if(DEFAULT_BACKEND STREQUAL "TVM")
+        validate_dependency("TVM" "${TVM_DIR}")
+        
+        # Check for required files - try multiple possible header paths for different TVM versions
+        set(possible_header_files
+            "${TVM_DIR}/include/tvm/runtime/c_runtime_api.h"
+            "${TVM_DIR}/include/tvm/runtime/c_backend_api.h"
+            "${TVM_DIR}/include/tvm/c_runtime_api.h"
+        )
+        
+        set(header_found FALSE)
+        foreach(header_file ${possible_header_files})
+            if(EXISTS "${header_file}")
+                set(header_found TRUE)
+                message(STATUS "✓ TVM header found: ${header_file}")
+                break()
+            endif()
+        endforeach()
+        
+        if(NOT header_found)
+            message(FATAL_ERROR "TVM installation incomplete. None of the expected header files found: ${possible_header_files}")
+        endif()
+        
+        set(required_files
+            "${TVM_DIR}/build/libtvm_runtime.so"
+            "${TVM_DIR}/build/libtvm.so"
+        )
+        
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "TVM installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+        
+        message(STATUS "✓ TVM validation passed")
     endif()
 endfunction()
