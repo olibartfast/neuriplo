@@ -1,9 +1,21 @@
 #pragma once
+
+// Define missing macros for TVM 0.22.0 compatibility BEFORE including TVM headers
+#ifndef TVM_ALWAYS_INLINE
+#define TVM_ALWAYS_INLINE inline
+#endif
+
 #include "InferenceInterface.hpp"
 #include <tvm/runtime/module.h>
 #include <tvm/runtime/packed_func.h>
-#include <tvm/runtime/registry.h>
 #include <dlpack/dlpack.h>
+
+// Forward declarations for TVM 0.22.0
+namespace tvm {
+namespace runtime {
+class NDArray;
+}
+}
 
 class TVMInfer : public InferenceInterface
 {
@@ -20,13 +32,11 @@ public:
 
 private:
     std::string print_shape(const std::vector<int64_t>& shape);
-    tvm::runtime::Module module_;
-    tvm::runtime::PackedFunc set_input_;
-    tvm::runtime::PackedFunc get_output_;
-    tvm::runtime::PackedFunc run_;
+    void* module_handle_;  // Use opaque pointer for TVM module
     DLDevice device_;
     std::vector<std::vector<int64_t>> input_shapes_;
     std::vector<std::vector<int64_t>> output_shapes_;
     int num_inputs_;
     int num_outputs_;
+    bool model_loaded_;
 };
