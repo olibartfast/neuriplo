@@ -20,8 +20,26 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 REPORTS_DIR="$PROJECT_ROOT/reports"
 
-# Source centralized backend configuration
-source "$SCRIPT_DIR/backends.conf"
+# Define backends directly (was in backends.conf)
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+
+# Backend directory mapping
+declare -A BACKEND_DIRS=(
+    ["OPENCV_DNN"]="opencv-dnn"
+    ["ONNX_RUNTIME"]="onnx-runtime" 
+    ["LIBTORCH"]="libtorch"
+    ["LIBTENSORFLOW"]="libtensorflow"
+    ["TENSORRT"]="tensorrt"
+    ["OPENVINO"]="openvino"
+    ["GGML"]="ggml"
+    ["TVM"]="tvm"
+)
+
+# Helper functions
+get_backend_dir() {
+    local backend=$1
+    echo "${BACKEND_DIRS[$backend]:-unknown}"
+}
 
 # Log functions
 log_info() {
@@ -48,7 +66,7 @@ log_memory() {
     echo -e "${CYAN}[MEMORY]${NC} $1"
 }
 
-# Note: get_backend_dir() function is now defined in backends.conf and sourced above
+# Backend helper function defined above
 
 # Function to analyze XML test results
 analyze_xml_results() {

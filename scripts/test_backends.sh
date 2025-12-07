@@ -22,8 +22,57 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
-# Source centralized backend configuration
-source "$SCRIPT_DIR/backends.conf"
+# Define backends directly (was in backends.conf)
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+
+# Backend directory mapping
+declare -A BACKEND_DIRS=(
+    ["OPENCV_DNN"]="opencv-dnn"
+    ["ONNX_RUNTIME"]="onnx-runtime" 
+    ["LIBTORCH"]="libtorch"
+    ["LIBTENSORFLOW"]="libtensorflow"
+    ["TENSORRT"]="tensorrt"
+    ["OPENVINO"]="openvino"
+    ["GGML"]="ggml"
+    ["TVM"]="tvm"
+)
+
+# Test executable mapping
+declare -A BACKEND_TEST_EXES=(
+    ["OPENCV_DNN"]="OCVDNNInferTest"
+    ["ONNX_RUNTIME"]="ONNXRuntimeInferTest"
+    ["LIBTORCH"]="LibtorchInferTest"
+    ["LIBTENSORFLOW"]="TensorFlowInferTest"
+    ["TENSORRT"]="TensorRTInferTest"
+    ["OPENVINO"]="OpenVINOInferTest"
+    ["GGML"]="GGMLInferTest"
+    ["TVM"]="TVMInferTest"
+)
+
+# Helper functions
+get_backend_dir() {
+    local backend=$1
+    echo "${BACKEND_DIRS[$backend]:-unknown}"
+}
+
+get_test_executable_name() {
+    local backend=$1
+    echo "${BACKEND_TEST_EXES[$backend]:-UnknownInferTest}"
+}
+
+get_backends_list() {
+    echo "${BACKENDS[@]}"
+}
+
+is_backend_supported() {
+    local backend=$1
+    for supported_backend in "${BACKENDS[@]}"; do
+        if [ "$supported_backend" = "$backend" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Test configuration
 PARALLEL_JOBS=4
@@ -273,8 +322,7 @@ check_backend_availability() {
     esac
 }
 
-# Note: get_backend_dir() and get_test_executable_name() functions
-# are now defined in backends.conf and sourced above
+# Backend helper functions defined above
 
 # Function to run performance benchmark
 run_performance_benchmark() {

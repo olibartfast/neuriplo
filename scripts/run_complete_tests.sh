@@ -6,8 +6,30 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source centralized backend configuration
-source "$SCRIPT_DIR/backends.conf"
+# Define backends directly (was in backends.conf)
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+
+# Backend directory mapping
+declare -A BACKEND_DIRS=(
+    ["OPENCV_DNN"]="opencv-dnn"
+    ["ONNX_RUNTIME"]="onnx-runtime" 
+    ["LIBTORCH"]="libtorch"
+    ["LIBTENSORFLOW"]="libtensorflow"
+    ["TENSORRT"]="tensorrt"
+    ["OPENVINO"]="openvino"
+    ["GGML"]="ggml"
+    ["TVM"]="tvm"
+)
+
+# Helper functions
+get_backend_dir() {
+    local backend=$1
+    echo "${BACKEND_DIRS[$backend]:-unknown}"
+}
+
+get_backends_list() {
+    echo "${BACKENDS[@]}"
+}
 
 # Parse arguments
 backend=""
