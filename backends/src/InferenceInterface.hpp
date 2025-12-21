@@ -3,7 +3,7 @@
 #include <variant>
 #include <stdexcept>
 #include <memory>
-using TensorElement = std::variant<float, int32_t, int64_t>;
+using TensorElement = std::variant<float, int32_t, int64_t, uint8_t>;
 
 #include "ModelInfo.hpp"
 
@@ -38,7 +38,7 @@ class InferenceInterface{
         get_infer_results(const cv::Mat& input_blob) = 0;
         
         // Model information
-        virtual ModelInfo get_model_info() noexcept;
+        virtual ModelInfo get_model_info();
         
         // Utility methods
         virtual bool is_gpu_available() const noexcept { return gpu_available_; }
