@@ -13,15 +13,10 @@ InferenceInterface::InferenceInterface(const std::string& weights,
 {
 }
 
-ModelInfo InferenceInterface::get_model_info() noexcept {
+ModelInfo InferenceInterface::get_model_info() {
     // OpenCV DNN module does not have a method to get input layer shapes and names 
     if (model_info_.getInputs().empty() && model_info_.getOutputs().empty()) {
-        // Add default input and output info if not set
-        std::vector<int64_t> input_shape = {3, 224, 224}; // CHW format
-        model_info_.addInput("input", input_shape, 1);
-        
-        std::vector<int64_t> output_shape = {1000}; // Classification output
-        model_info_.addOutput("output", output_shape, 1);
+        throw ModelLoadException("Model information is not available - inputs and outputs are empty");
     }
     return model_info_;
 }
