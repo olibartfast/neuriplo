@@ -5,7 +5,7 @@
 #include <memory>
 using TensorElement = std::variant<float, int32_t, int64_t, uint8_t>;
 
-#include "ModelInfo.hpp"
+#include "InferenceMetadata.hpp"
 
 // Custom exceptions for better error handling
 class InferenceException : public std::runtime_error {

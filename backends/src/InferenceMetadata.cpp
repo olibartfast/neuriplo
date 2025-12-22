@@ -1,4 +1,4 @@
-#include  "ModelInfo.hpp"
+#include  "InferenceMetadata.hpp"
 
 void ModelInfo::addInput(const std::string& name, const std::vector<int64_t>& shape, size_t batch_size) {
     inputs.push_back({name, shape, batch_size});
