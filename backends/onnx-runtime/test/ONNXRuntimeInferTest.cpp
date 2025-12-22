@@ -28,8 +28,8 @@ public:
         return std::make_tuple(output_vectors, shape_vectors);
     }
     
-    ModelInfo get_model_info() {
-        ModelInfo info;
+    InferenceMetadata get_inference_metadata() {
+        InferenceMetadata info;
         info.addInput("input", {1, 3, 224, 224}, 1);
         info.addOutput("output", {1, 1000}, 1);
         return info;
@@ -138,10 +138,10 @@ TEST_F(ONNXRuntimeInferTest, IntegrationTest) {
         ASSERT_TRUE(std::isfinite(value)) << "Output contains non-finite value";
     }
     
-    // Test model info retrieval
-    auto model_info = real_infer->get_model_info();
-    ASSERT_FALSE(model_info.getInputs().empty());
-    ASSERT_FALSE(model_info.getOutputs().empty());
+    // Test metadata retrieval
+    auto inference_metadata = real_infer->get_inference_metadata();
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+    ASSERT_FALSE(inference_metadata.getOutputs().empty());
 }
 
 // Unit test - only runs with mock
@@ -163,10 +163,10 @@ TEST_F(ONNXRuntimeInferTest, MockUnitTest) {
         ASSERT_FLOAT_EQ(expected, actual);
     }
     
-    // Test model info from mock
-    auto model_info = mock_infer->get_model_info();
-    ASSERT_FALSE(model_info.getInputs().empty());
-    ASSERT_FALSE(model_info.getOutputs().empty());
+    // Test metadata from mock
+    auto inference_metadata = mock_infer->get_inference_metadata();
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+    ASSERT_FALSE(inference_metadata.getOutputs().empty());
 }
 
 // GPU test - only runs if has_real_model and GPU available
@@ -206,12 +206,12 @@ TEST_F(ONNXRuntimeInferTest, BatchSizeHandling) {
         std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
         
         auto batch_infer = std::make_unique<ORTInfer>(model_path, false, batch_size, input_sizes);
-        auto model_info = batch_infer->get_model_info();
+        auto inference_metadata = batch_infer->get_inference_metadata();
         
-        ASSERT_FALSE(model_info.getInputs().empty());
+        ASSERT_FALSE(inference_metadata.getInputs().empty());
         
         // Check that batch size is properly set in input tensor
-        auto inputs = model_info.getInputs();
+        auto inputs = inference_metadata.getInputs();
         ASSERT_EQ(inputs[0].batch_size, batch_size);
     } catch (const std::exception& e) {
         GTEST_SKIP() << "Batch size test failed: " << e.what();

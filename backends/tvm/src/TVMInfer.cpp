@@ -82,7 +82,7 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         {
             std::string input_name = "input_" + std::to_string(i);
             LOG(INFO) << "\t" << input_name << " : " << print_shape(input_shapes_[i]);
-            model_info_.addInput(input_name, input_shapes_[i], batch_size);
+            inference_metadata_.addInput(input_name, input_shapes_[i], batch_size);
         }
 
         // Process output information
@@ -91,7 +91,7 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         {
             std::string output_name = "output_" + std::to_string(i);
             LOG(INFO) << "\t" << output_name << " : " << print_shape(output_shapes_[i]);
-            model_info_.addOutput(output_name, output_shapes_[i], batch_size);
+            inference_metadata_.addOutput(output_name, output_shapes_[i], batch_size);
         }
     }
     catch (const std::exception& e)

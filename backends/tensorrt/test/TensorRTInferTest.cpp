@@ -68,7 +68,7 @@ std::string TensorRTInferTest::model_path;
 TEST_F(TensorRTInferTest, InitializationGPU) {
     ASSERT_NO_THROW({
         TRTInfer infer(model_path, true); // TensorRT always uses GPU
-        // Don't call get_model_info() to avoid crash
+        // Don't call get_inference_metadata() to avoid crash
         std::cout << "TRTInfer object created successfully!" << std::endl;
     });
 }
@@ -111,16 +111,16 @@ TEST_F(TensorRTInferTest, InferenceResults) {
         }));
 }
 
-// Test model info retrieval - DISABLED due to crash
-TEST_F(TensorRTInferTest, ModelInfoRetrieval) {
+// Test metadata retrieval - DISABLED due to crash
+TEST_F(TensorRTInferTest, InferenceMetadataRetrieval) {
     TRTInfer infer(model_path, true);
-    // DISABLED: auto model_info = infer.get_model_info();
+    // DISABLED: auto inference_metadata = infer.get_inference_metadata();
     
     // Just verify the object was created successfully
-    std::cout << "TRTInfer object created for model info test" << std::endl;
+    std::cout << "TRTInfer object created for metadata test" << std::endl;
     
-    // Skip the actual model info retrieval for now
-    // TODO: Fix the crash in get_model_info()
+    // Skip the actual metadata retrieval for now
+    // TODO: Fix the crash in get_inference_metadata()
 }
 
 // Test with different batch sizes
@@ -130,7 +130,7 @@ TEST_F(TensorRTInferTest, BatchSizeHandling) {
     
     ASSERT_NO_THROW({
         TRTInfer infer(model_path, true, batch_size, input_sizes);
-        // Don't call get_model_info() to avoid crash
+        // Don't call get_inference_metadata() to avoid crash
         std::cout << "TRTInfer object created with batch size " << batch_size << std::endl;
     });
 }

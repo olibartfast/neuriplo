@@ -38,7 +38,7 @@ class InferenceInterface{
         get_infer_results(const cv::Mat& input_blob) = 0;
         
         // Model information
-        virtual ModelInfo get_model_info();
+        virtual InferenceMetadata get_inference_metadata();
         
         // Utility methods
         virtual bool is_gpu_available() const noexcept { return gpu_available_; }
@@ -54,7 +54,7 @@ class InferenceInterface{
         virtual size_t get_memory_usage_mb() const noexcept;
 
     protected:
-        ModelInfo model_info_;
+        InferenceMetadata inference_metadata_;
         std::string model_path_;
         bool gpu_available_;
         size_t batch_size_;

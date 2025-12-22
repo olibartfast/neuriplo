@@ -43,12 +43,12 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
         for (size_t i = 0; i < input_sizes.size(); i++)
         {
             std::vector<int64_t> shape = input_sizes[i];
-            model_info_.addInput("input" + std::to_string(i + 1), shape, batch_size);
+            inference_metadata_.addInput("input" + std::to_string(i + 1), shape, batch_size);
         }
 
         for (auto& outName : outNames_) {
             std::vector<int64_t> shape{-1, -1, -1};
-            model_info_.addOutput(outName, shape, batch_size);
+            inference_metadata_.addOutput(outName, shape, batch_size);
         }
 
 }

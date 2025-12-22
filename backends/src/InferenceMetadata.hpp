@@ -8,7 +8,7 @@ struct LayerInfo {
     size_t batch_size;
 };
 
-class ModelInfo {
+class InferenceMetadata {
 private:
     std::vector<LayerInfo> inputs;
     std::vector<LayerInfo> outputs;

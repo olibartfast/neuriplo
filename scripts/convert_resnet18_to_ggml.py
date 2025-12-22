@@ -13,14 +13,14 @@ import struct
 import argparse
 from pathlib import Path
 
-def create_ggml_header(f, model_info):
+def create_ggml_header(f, inference_metadata):
     """Write GGML model header"""
     # GGML file format header (simplified version)
     f.write(b'ggml')  # Magic number
     f.write(struct.pack('<I', 1))  # Version
-    f.write(struct.pack('<I', model_info['num_layers']))
-    f.write(struct.pack('<I', model_info['input_size']))
-    f.write(struct.pack('<I', model_info['output_size']))
+    f.write(struct.pack('<I', inference_metadata['num_layers']))
+    f.write(struct.pack('<I', inference_metadata['input_size']))
+    f.write(struct.pack('<I', inference_metadata['output_size']))
 
 def convert_conv_layer(f, conv_layer, layer_name):
     """Convert a convolutional layer to GGML format"""
@@ -131,7 +131,7 @@ def convert_resnet18_to_ggml(model, output_path):
         if isinstance(module, (torch.nn.Conv2d, torch.nn.BatchNorm2d, torch.nn.Linear)):
             num_layers += 1
     
-    model_info = {
+    inference_metadata = {
         'num_layers': num_layers,
         'input_size': 3 * 224 * 224,  # ResNet18 input size
         'output_size': 1000,  # ImageNet classes
@@ -139,7 +139,7 @@ def convert_resnet18_to_ggml(model, output_path):
     
     with open(output_path, 'wb') as f:
         # Write header
-        create_ggml_header(f, model_info)
+        create_ggml_header(f, inference_metadata)
         
         # Convert each layer
         for name, module in model.named_modules():

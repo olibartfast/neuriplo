@@ -13,12 +13,12 @@ InferenceInterface::InferenceInterface(const std::string& weights,
 {
 }
 
-ModelInfo InferenceInterface::get_model_info() {
+InferenceMetadata InferenceInterface::get_inference_metadata() {
     // OpenCV DNN module does not have a method to get input layer shapes and names 
-    if (model_info_.getInputs().empty() && model_info_.getOutputs().empty()) {
+    if (inference_metadata_.getInputs().empty() && inference_metadata_.getOutputs().empty()) {
         throw ModelLoadException("Model information is not available - inputs and outputs are empty");
     }
-    return model_info_;
+    return inference_metadata_;
 }
 
 void InferenceInterface::clear_cache() noexcept {

@@ -17,7 +17,7 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
   LOG(INFO) << "Initializing TensorRT for model " << model_path;
   batch_size_ = batch_size;
   initializeBuffers(model_path);
-  populateModelInfo(input_sizes);
+  populateInferenceMetadata(input_sizes);
   std::cout << "TRTInfer constructor finished!" << std::endl;
 }
 
@@ -298,7 +298,7 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
   return std::make_tuple(std::move(outputs), std::move(output_shapes));
 }
 
-void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_sizes) {
+void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>& input_sizes) {
     bool dynamic_axis_detected = false;
     
     // Process input tensors
@@ -333,7 +333,7 @@ void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_
                 }
             }
         }
-        model_info_.addInput(tensor_name, shape, batch_size_);
+        inference_metadata_.addInput(tensor_name, shape, batch_size_);
     }
 
     // Process output tensors
@@ -346,6 +346,6 @@ void TRTInfer::populateModelInfo(const std::vector<std::vector<int64_t>>& input_
                 shape.push_back(dims.d[j]);
             }
         }
-        model_info_.addOutput(tensor_name, shape, batch_size_);
+        inference_metadata_.addOutput(tensor_name, shape, batch_size_);
     }
 }

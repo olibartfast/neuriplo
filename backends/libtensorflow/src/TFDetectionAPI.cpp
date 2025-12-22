@@ -46,7 +46,7 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
     LOG(INFO) << "Reshaped Tensor (NCHW order, excluding batch): "
               << "[" << input_shape[0] << ", " << input_shape[1] << ", " << input_shape[2] << "]";
     
-    model_info_.addInput(input_name_, input_shape, batch_size);
+    inference_metadata_.addInput(input_name_, input_shape, batch_size);
 
     // Get output tensor names and shapes (excluding batch size)
     LOG(INFO) << "Tensor output names and shapes:";
@@ -69,7 +69,7 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
                 }
             }
         }
-        model_info_.addOutput(output_name, output_shape, batch_size);
+        inference_metadata_.addOutput(output_name, output_shape, batch_size);
     }
 }
 

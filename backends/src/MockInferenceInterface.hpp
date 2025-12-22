@@ -28,8 +28,8 @@ public:
         (override)
     );
     
-    // Mock model info retrieval
-    MOCK_METHOD(ModelInfo, get_model_info, (), (override));
+    // Mock inference retrieval
+    MOCK_METHOD(InferenceMetadata, get_inference_metadata, (), (override));
     
     // Mock performance methods
     MOCK_METHOD(double, get_last_inference_time_ms, (), (const, override));
@@ -49,9 +49,9 @@ public:
                 return result;
             }));
         
-        // Default behavior for get_model_info
-        ON_CALL(*this, get_model_info())
-            .WillByDefault(testing::Return(CreateMockModelInfo()));
+        // Default behavior for get_inference_metadata
+        ON_CALL(*this, get_inference_metadata())
+            .WillByDefault(testing::Return(CreateMockInferenceMetadata()));
             
         // Default performance behavior
         ON_CALL(*this, get_last_inference_time_ms())
@@ -90,8 +90,8 @@ public:
     }
     
     // Helper to create mock model info
-    ModelInfo CreateMockModelInfo() {
-        ModelInfo mock_info;
+    InferenceMetadata CreateMockInferenceMetadata() {
+        InferenceMetadata mock_info;
         
         // Add mock input
         std::vector<int64_t> input_shape = {3, 224, 224}; // CHW format
@@ -222,11 +222,11 @@ protected:
                 << "Output " << i << " size should match shape";
         }
     }
-    
-    // Validate model info structure
-    void ValidateModelInfo(const ModelInfo& model_info) {
-        auto inputs = model_info.getInputs();
-        auto outputs = model_info.getOutputs();
+
+    // Validate inference metadata structure
+    void ValidateInferenceMetadata(const InferenceMetadata& inference_metadata) {
+        auto inputs = inference_metadata.getInputs();
+        auto outputs = inference_metadata.getOutputs();
         
         ASSERT_FALSE(inputs.empty()) << "Model should have at least one input";
         ASSERT_FALSE(outputs.empty()) << "Model should have at least one output";

@@ -99,14 +99,14 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         }
         
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
-        model_info_.addInput(name, shapes, batch_size);
+        inference_metadata_.addInput(name, shapes, batch_size);
 
         std::string input_type_str = getDataTypeString(input_type);
         LOG(INFO) << "\tData Type: " << input_type_str;
     }
 
     // Log network dimensions from first input
-    const auto& first_input = model_info_.getInputs()[0].shape;
+    const auto& first_input = inference_metadata_.getInputs()[0].shape;
     const auto channels = static_cast<int>(first_input[1]);
     const auto network_height = static_cast<int>(first_input[2]);
     const auto network_width = static_cast<int>(first_input[3]);
@@ -123,7 +123,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         auto shapes = session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
         shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
-        model_info_.addOutput(name, shapes, batch_size);
+        inference_metadata_.addOutput(name, shapes, batch_size);
     }
 }
 
@@ -169,8 +169,8 @@ ORTInfer::get_infer_results(const cv::Mat& preprocessed_img)
 {
     cv::Mat blob;
     cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
-    const auto& inputs = model_info_.getInputs();
-    const auto& outputs = model_info_.getOutputs();
+    const auto& inputs = inference_metadata_.getInputs();
+    const auto& outputs = inference_metadata_.getOutputs();
    
     std::vector<std::vector<TensorElement>> output_tensors;
     std::vector<std::vector<int64_t>> shapes;
