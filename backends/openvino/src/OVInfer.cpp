@@ -132,14 +132,14 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
             std::vector<int64_t> shape_vec(shape.begin() + 1, shape.end());
 
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
-            model_info_.addInput(name, shape_vec, batch_size); // Pass the converted shape_vec
+            inference_metadata_.addInput(name, shape_vec, batch_size); // Pass the converted shape_vec
 
             ov::element::Type input_type = input.get_element_type();
             LOG(INFO) << "\tData Type: " << input_type.get_type_name();
         }
 
         // Log network dimensions from first input
-        const auto& first_input_shape_vec = model_info_.getInputs()[0].shape;
+        const auto& first_input_shape_vec = inference_metadata_.getInputs()[0].shape;
         const auto channels = static_cast<int>(first_input_shape_vec[1]);
         const auto network_height = static_cast<int>(first_input_shape_vec[2]);
         const auto network_width = static_cast<int>(first_input_shape_vec[3]);
@@ -165,7 +165,7 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
             std::vector<int64_t> shape_vec(shape.begin() + 1, shape.end());
 
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
-            model_info_.addOutput(name, shape_vec, batch_size); // Pass the converted shape_vec
+            inference_metadata_.addOutput(name, shape_vec, batch_size); // Pass the converted shape_vec
         }
     }
     catch (const ov::Exception& e) {

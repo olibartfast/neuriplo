@@ -29,8 +29,8 @@ public:
         return std::make_tuple(output_vectors, shape_vectors);
     }
     
-    ModelInfo get_model_info() {
-        ModelInfo info;
+    InferenceMetadata get_inference_metadata() {
+        InferenceMetadata info;
         info.addInput("input", {3, 224, 224}, 1);
         info.addOutput("output", {1000}, 1);
         return info;
@@ -188,27 +188,27 @@ TEST_F(TensorFlowInferTest, GPUTest) {
     }
 }
 
-// Model info test - works with both real model and mock
-TEST_F(TensorFlowInferTest, ModelInfoTest) {
+// Inference test - works with both real model and mock
+TEST_F(TensorFlowInferTest, InferenceMetadataTest) {
     if (has_real_model) {
-        auto model_info = real_infer->get_model_info();
+        auto inference_metadata = real_infer->get_inference_metadata();
         
         // Check inputs
-        auto inputs = model_info.getInputs();
+        auto inputs = inference_metadata.getInputs();
         ASSERT_FALSE(inputs.empty());
         
         // Check outputs  
-        auto outputs = model_info.getOutputs();
+        auto outputs = inference_metadata.getOutputs();
         ASSERT_FALSE(outputs.empty());
     } else {
-        auto model_info = mock_infer->get_model_info();
+        auto inference_metadata = mock_infer->get_inference_metadata();
         
         // Check inputs
-        auto inputs = model_info.getInputs();
+        auto inputs = inference_metadata.getInputs();
         ASSERT_FALSE(inputs.empty());
         
         // Check outputs  
-        auto outputs = model_info.getOutputs();
+        auto outputs = inference_metadata.getOutputs();
         ASSERT_FALSE(outputs.empty());
     }
 }

@@ -123,12 +123,12 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
         }
         
         std::string input_name = "input" + std::to_string(i + 1);
-        model_info_.addInput(input_name, shape, batch_size_);
+        inference_metadata_.addInput(input_name, shape, batch_size_);
     }
     
     // Setup output tensors (placeholder - would be determined from actual model)
     std::vector<int64_t> output_shape = {static_cast<int64_t>(batch_size_), 1000}; // Example: 1000 classes
-    model_info_.addOutput("output", output_shape, batch_size_);
+    inference_metadata_.addOutput("output", output_shape, batch_size_);
     
     output_names_.push_back("output");
 }

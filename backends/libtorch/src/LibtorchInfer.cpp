@@ -72,14 +72,14 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         std::vector<int64_t> final_shape = *shapes;
 
         LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
-        model_info_.addInput(name, final_shape, batch_size);
+        inference_metadata_.addInput(name, final_shape, batch_size);
 
         std::string input_type_str = type->scalarType().has_value() ? toString(type->scalarType().value()) : "Unknown";
         LOG(INFO) << "\tData Type: " << input_type_str;
     }
 
     // Log network dimensions from first input
-    const auto& first_input = model_info_.getInputs()[0].shape;
+    const auto& first_input = inference_metadata_.getInputs()[0].shape;
     for (size_t i = 0; i < first_input.size(); ++i) {
         LOG(INFO) << "Network Dimension " << i << ": " << first_input[i];
     }
@@ -156,7 +156,7 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
                 }
                 
                 LOG(INFO) << "\t" << elem_name << " : " << print_shape(final_shape);
-                model_info_.addOutput(elem_name, final_shape, batch_size);
+                inference_metadata_.addOutput(elem_name, final_shape, batch_size);
             }
         }
         // Check if output is a List
@@ -178,7 +178,7 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
                 // Mark that we have a list output - actual shapes determined at runtime
                 // We'll add a placeholder to indicate list output exists
                 std::string list_marker = name + "_list";
-                model_info_.addOutput(list_marker, {-1}, batch_size);
+                inference_metadata_.addOutput(list_marker, {-1}, batch_size);
             }
             else
             {
@@ -203,7 +203,7 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
             }
 
             LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
-            model_info_.addOutput(name, final_shape, batch_size);
+            inference_metadata_.addOutput(name, final_shape, batch_size);
         }
         else
         {

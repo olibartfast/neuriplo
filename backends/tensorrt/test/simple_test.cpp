@@ -12,10 +12,10 @@ int main() {
         
         std::cout << "TRTInfer object created successfully!" << std::endl;
         
-        // Try to get model info
-        std::cout << "Getting model info..." << std::endl;
-        auto model_info = infer->get_model_info();
-        std::cout << "Model info retrieved successfully!" << std::endl;
+        // Try to get inference metadata
+        std::cout << "Getting inference metadata..." << std::endl;
+        auto inference_metadata = infer->get_inference_metadata();
+        std::cout << "Inference metadata retrieved successfully!" << std::endl;
         
         return 0;
     } catch (const std::exception& e) {

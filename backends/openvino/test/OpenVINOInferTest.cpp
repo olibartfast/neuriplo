@@ -73,9 +73,9 @@ std::string OpenVINOInferTest::model_path;
 TEST_F(OpenVINOInferTest, InitializationCPU) {
     ASSERT_NO_THROW({
         OVInfer infer(model_path, false); // CPU only
-        auto model_info = infer.get_model_info();
-        ASSERT_FALSE(model_info.getInputs().empty());
-        ASSERT_FALSE(model_info.getOutputs().empty());
+        auto inference_metadata = infer.get_inference_metadata();
+        ASSERT_FALSE(inference_metadata.getInputs().empty());
+        ASSERT_FALSE(inference_metadata.getOutputs().empty());
     });
 }
 
@@ -84,9 +84,9 @@ TEST_F(OpenVINOInferTest, InitializationGPU) {
     // This test will gracefully handle GPU unavailability
     try {
         OVInfer infer(model_path, true); // Try GPU, may fallback to CPU
-        auto model_info = infer.get_model_info();
-        ASSERT_FALSE(model_info.getInputs().empty());
-        ASSERT_FALSE(model_info.getOutputs().empty());
+        auto inference_metadata = infer.get_inference_metadata();
+        ASSERT_FALSE(inference_metadata.getInputs().empty());
+        ASSERT_FALSE(inference_metadata.getOutputs().empty());
     } catch (const std::exception& e) {
         // If GPU is not available, that's acceptable
         std::string error_msg = e.what();
@@ -138,17 +138,17 @@ TEST_F(OpenVINOInferTest, InferenceResults) {
         }));
 }
 
-// Test model info retrieval
-TEST_F(OpenVINOInferTest, ModelInfoRetrieval) {
+// Test metadata retrieval
+TEST_F(OpenVINOInferTest, InferenceMetadataRetrieval) {
     OVInfer infer(model_path, false);
-    auto model_info = infer.get_model_info();
+    auto inference_metadata = infer.get_inference_metadata();
     
     // Check inputs
-    auto inputs = model_info.getInputs();
+    auto inputs = inference_metadata.getInputs();
     ASSERT_FALSE(inputs.empty());
     
     // Check outputs
-    auto outputs = model_info.getOutputs();
+    auto outputs = inference_metadata.getOutputs();
     ASSERT_FALSE(outputs.empty());
 }
 
@@ -159,8 +159,8 @@ TEST_F(OpenVINOInferTest, BatchSizeHandling) {
     
     ASSERT_NO_THROW({
         OVInfer infer(model_path, false, batch_size, input_sizes);
-        auto model_info = infer.get_model_info();
-        ASSERT_FALSE(model_info.getInputs().empty());
+        auto inference_metadata = infer.get_inference_metadata();
+        ASSERT_FALSE(inference_metadata.getInputs().empty());
     });
 }
 
