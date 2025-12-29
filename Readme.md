@@ -186,4 +186,3 @@ For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
-- **[Windows Build Guide](docs/WINDOWS_BUILD_GUIDE.md)** - Windows-specific build instructions
