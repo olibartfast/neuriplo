@@ -162,37 +162,49 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t> &dims) {
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-ORTInfer::get_infer_results(const cv::Mat &preprocessed_img) {
-  cv::Mat blob;
-  if (preprocessed_img.dims > 2) {
-    blob = preprocessed_img;
-  } else {
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(),
-                           cv::Scalar(), false, false);
+ORTInfer::get_infer_results(const std::vector<cv::Mat> &input_blobs) {
+  validate_input(input_blobs);
+  
+  // Process multiple input tensors
+  std::vector<cv::Mat> processed_blobs;
+  for (const auto& input_blob : input_blobs) {
+    cv::Mat blob;
+    if (input_blob.dims > 2) {
+      blob = input_blob;
+    } else {
+      cv::dnn::blobFromImage(input_blob, blob, 1.0, cv::Size(),
+                             cv::Scalar(), false, false);
+    }
+    processed_blobs.push_back(blob);
   }
+  
   const auto &inputs = inference_metadata_.getInputs();
   const auto &outputs = inference_metadata_.getOutputs();
 
   std::vector<std::vector<TensorElement>> output_tensors;
   std::vector<std::vector<int64_t>> shapes;
-  std::vector<std::vector<float>> input_tensors(session_.GetInputCount());
+  std::vector<std::vector<float>> input_tensor_data(std::min(processed_blobs.size(), static_cast<size_t>(session_.GetInputCount())));
   std::vector<Ort::Value> in_ort_tensors;
   Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
       OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
   std::vector<int64_t> orig_target_sizes;
 
-  input_tensors[0] = blob2vec(blob);
-  in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
-      memory_info, input_tensors[0].data(), getSizeByDim(inputs[0].shape),
-      inputs[0].shape.data(), inputs[0].shape.size()));
+  // Process user-provided input tensors
+  size_t num_user_inputs = std::min(processed_blobs.size(), static_cast<size_t>(session_.GetInputCount()));
+  for (size_t i = 0; i < num_user_inputs; ++i) {
+    input_tensor_data[i] = blob2vec(processed_blobs[i]);
+    in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
+        memory_info, input_tensor_data[i].data(), getSizeByDim(inputs[i].shape),
+        inputs[i].shape.data(), inputs[i].shape.size()));
+  }
 
-  // RTDETR case, two inputs
-  if (input_tensors.size() > 1) {
-    orig_target_sizes = {static_cast<int64_t>(blob.size[2]),
-                         static_cast<int64_t>(blob.size[3])};
-    in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64>(
-        memory_info, orig_target_sizes.data(), getSizeByDim(orig_target_sizes),
-        inputs[1].shape.data(), inputs[1].shape.size()));
+  // Handle models that need additional computed inputs (e.g., RTDETR orig_target_sizes)
+  if (session_.GetInputCount() > num_user_inputs) {
+    orig_target_sizes = {static_cast<int64_t>(processed_blobs[0].size[2]),
+                         static_cast<int64_t>(processed_blobs[0].size[3])};
+    in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
+        memory_info, orig_target_sizes.data(), orig_target_sizes.size(),
+        inputs[num_user_inputs].shape.data(), inputs[num_user_inputs].shape.size()));
   }
 
   // Run inference

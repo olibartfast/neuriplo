@@ -28,7 +28,7 @@ public:
     ~TVMInfer() override = default;
 
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-    get_infer_results(const cv::Mat& input_blob) override;
+    get_infer_results(const std::vector<cv::Mat>& input_tensors) override;
 
 private:
     std::string print_shape(const std::vector<int64_t>& shape);

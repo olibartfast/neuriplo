@@ -33,9 +33,9 @@ class InferenceInterface{
         
         virtual ~InferenceInterface() = default;
         
-        // Core inference method
+        // Core inference method - accepts vector of input tensors
         virtual std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
-        get_infer_results(const cv::Mat& input_blob) = 0;
+        get_infer_results(const std::vector<cv::Mat>& input_tensors) = 0;
         
         // Model information
         virtual InferenceMetadata get_inference_metadata();
@@ -65,7 +65,7 @@ class InferenceInterface{
         std::vector<float> blob2vec(const cv::Mat& input_blob);
         
         // Input validation
-        void validate_input(const cv::Mat& input_blob) const;
+        void validate_input(const std::vector<cv::Mat>& input_tensors) const;
         void validate_model_loaded() const;
         
         // Performance tracking

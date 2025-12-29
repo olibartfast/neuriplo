@@ -174,10 +174,19 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const cv::Mat& input_blob) 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const std::vector<cv::Mat>& input_tensors) 
 {
+    validate_input(input_tensors);
+    
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
+
+    // OpenVINO backend currently supports only single input models
+    if (input_tensors.size() != 1) {
+        throw std::runtime_error("OpenVINO backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+    }
+    
+    const cv::Mat& input_blob = input_tensors[0];
 
     // The input_blob is already in the correct format (NCHW)
     // No need to convert again

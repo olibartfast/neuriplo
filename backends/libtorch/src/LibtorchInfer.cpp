@@ -197,25 +197,31 @@ LibtorchInfer::LibtorchInfer(
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-LibtorchInfer::get_infer_results(const cv::Mat &preprocessed_img) {
-  // Convert the input image to a blob swapping channels order from hwc to chw
-  cv::Mat blob;
-  if (preprocessed_img.dims > 2) {
-    blob = preprocessed_img;
-  } else {
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(),
-                           cv::Scalar(), false, false);
+LibtorchInfer::get_infer_results(const std::vector<cv::Mat> &input_images) {
+  validate_input(input_images);
+  
+  // Convert input images to torch tensors
+  std::vector<torch::jit::IValue> torch_inputs;
+  
+  for (const auto& input_image : input_images) {
+    // Convert the input image to a blob swapping channels order from hwc to chw
+    cv::Mat blob;
+    if (input_image.dims > 2) {
+      blob = input_image;
+    } else {
+      cv::dnn::blobFromImage(input_image, blob, 1.0, cv::Size(),
+                             cv::Scalar(), false, false);
+    }
+    // Convert the input tensor to a Torch tensor
+    torch::Tensor input =
+        torch::from_blob(blob.data, {1, blob.size[1], blob.size[2], blob.size[3]},
+                         torch::kFloat32);
+    input = input.to(device_);
+    torch_inputs.push_back(input);
   }
-  // Convert the input tensor to a Torch tensor
-  torch::Tensor input =
-      torch::from_blob(blob.data, {1, blob.size[1], blob.size[2], blob.size[3]},
-                       torch::kFloat32);
-  input = input.to(device_);
 
   // Run inference
-  std::vector<torch::jit::IValue> inputs;
-  inputs.push_back(input);
-  auto output = module_.forward(inputs);
+  auto output = module_.forward(torch_inputs);
 
   std::vector<std::vector<TensorElement>> output_vectors;
   std::vector<std::vector<int64_t>> shape_vectors;
