@@ -144,8 +144,17 @@ void TRTInfer::createContextAndAllocateBuffers()
   }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const cv::Mat& preprocessed_img)
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TRTInfer::get_infer_results(const std::vector<cv::Mat>& input_tensors)
 {
+  validate_input(input_tensors);
+  
+  // TensorRT backend currently supports only single input models
+  if (input_tensors.size() != 1) {
+    throw std::runtime_error("TensorRT backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+  }
+  
+  const cv::Mat& preprocessed_img = input_tensors[0];
+  
   // Check if input is already a blob (4D tensor) or needs conversion
   cv::Mat blob;
   if (preprocessed_img.dims == 4) {
