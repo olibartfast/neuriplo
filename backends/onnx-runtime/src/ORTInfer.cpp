@@ -63,8 +63,8 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
     // Handle batch dimension first
     shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
 
-    // Handle other dimensions if dynamic
-    if (has_dynamic) {
+    // Handle dimensions if dynamic or if input_sizes provided
+    if (has_dynamic || (!input_sizes.empty() && i < input_sizes.size())) {
       if (input_sizes.empty() || i >= input_sizes.size()) {
         throw std::runtime_error(
             "Dynamic shapes found but no input sizes provided for input '" +
@@ -73,29 +73,43 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
 
       const auto &provided_shape = input_sizes[i];
 
-      // Check if provided shape has enough dimensions for dynamic inputs
-      size_t dynamic_dim_count = 0;
-      for (size_t j = 1; j < shapes.size(); j++) {
-        if (shapes[j] == -1)
-          dynamic_dim_count++;
-      }
+      if (has_dynamic) {
+        // Check if provided shape has enough dimensions for dynamic inputs
+        size_t dynamic_dim_count = 0;
+        for (size_t j = 1; j < shapes.size(); j++) {
+          if (shapes[j] == -1)
+            dynamic_dim_count++;
+        }
 
-      if (provided_shape.size() < dynamic_dim_count) {
-        throw std::runtime_error(
-            "Not enough dimensions provided for dynamic shapes in input '" +
-            name + "'");
-      }
+        if (provided_shape.size() < dynamic_dim_count) {
+          throw std::runtime_error(
+              "Not enough dimensions provided for dynamic shapes in input '" +
+              name + "'");
+        }
 
-      // Apply provided dimensions to dynamic shapes
-      size_t provided_idx = 0;
-      for (size_t j = 1; j < shapes.size(); j++) {
-        if (shapes[j] == -1) {
-          if (provided_idx >= provided_shape.size()) {
-            throw std::runtime_error("Insufficient input sizes provided for "
-                                     "dynamic dimensions in input '" +
-                                     name + "'");
+        // Apply provided dimensions to dynamic shapes
+        size_t provided_idx = 0;
+        for (size_t j = 1; j < shapes.size(); j++) {
+          if (shapes[j] == -1) {
+            if (provided_idx >= provided_shape.size()) {
+              throw std::runtime_error("Insufficient input sizes provided for "
+                                       "dynamic dimensions in input '" +
+                                       name + "'");
+            }
+            shapes[j] = provided_shape[provided_idx++];
           }
-          shapes[j] = provided_shape[provided_idx++];
+        }
+      } else {
+        // Override fixed dimensions with provided dimensions (skip batch dimension)
+        if (provided_shape.size() != shapes.size() - 1) {
+          throw std::runtime_error(
+              "Provided shape size mismatch for input '" + name + 
+              "'. Expected " + std::to_string(shapes.size() - 1) + 
+              " dimensions, got " + std::to_string(provided_shape.size()));
+        }
+        
+        for (size_t j = 1; j < shapes.size(); j++) {
+          shapes[j] = provided_shape[j - 1];
         }
       }
     }
