@@ -69,19 +69,36 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                 }
             }
 
-            if (has_dynamic) {
+            if (has_dynamic || (!input_sizes.empty() && i < input_sizes.size())) {
                 if (input_sizes.empty() || i >= input_sizes.size()) {
                     throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name + "'");
                 }
                 
                 const auto& provided_shape = input_sizes[i];
-                size_t provided_idx = 0;
-                for (size_t j = 0; j < partial_shape.size(); ++j) {
-                    if (partial_shape[j].is_dynamic()) {
-                        if (provided_idx >= provided_shape.size()) {
-                            throw std::runtime_error("Insufficient input sizes provided for dynamic dimensions in input '" + name + "'");
-                        }
-                        partial_shape[j] = provided_shape[provided_idx++];
+                
+                if (has_dynamic) {
+                    // Apply provided dimensions - map all non-batch dimensions
+                    if (provided_shape.size() != partial_shape.size() - 1) {
+                        throw std::runtime_error(
+                            "Provided shape size mismatch for input '" + name + 
+                            "'. Expected " + std::to_string(partial_shape.size() - 1) + 
+                            " dimensions, got " + std::to_string(provided_shape.size()));
+                    }
+                    
+                    for (size_t j = 1; j < partial_shape.size(); ++j) {
+                        partial_shape[j] = provided_shape[j - 1];
+                    }
+                } else {
+                    // Override fixed dimensions with provided dimensions (skip batch dimension)
+                    if (provided_shape.size() != partial_shape.size() - 1) {
+                        throw std::runtime_error(
+                            "Provided shape size mismatch for input '" + name + 
+                            "'. Expected " + std::to_string(partial_shape.size() - 1) + 
+                            " dimensions, got " + std::to_string(provided_shape.size()));
+                    }
+                    
+                    for (size_t j = 1; j < partial_shape.size(); ++j) {
+                        partial_shape[j] = provided_shape[j - 1];
                     }
                 }
             }

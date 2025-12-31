@@ -50,14 +50,36 @@ LibtorchInfer::LibtorchInfer(
     }
 
     auto shapes = type->sizes().concrete_sizes();
-    if (!shapes) {
+    bool has_dynamic = !shapes.has_value();
+    
+    if (has_dynamic || (!input_sizes.empty() && (i - 1) < input_sizes.size())) {
       if (input_sizes.empty() || (i - 1) >= input_sizes.size()) {
         throw std::runtime_error(
             "LibtorchInfer Initialitazion Error: Dynamic shapes found but no "
             "input sizes provided for input '" +
             name + "'");
       }
-      shapes = input_sizes[i - 1];
+      
+      if (has_dynamic) {
+        // Use provided dimensions for dynamic shapes
+        shapes = input_sizes[i - 1];
+      } else {
+        // Override fixed dimensions with provided dimensions
+        auto fixed_shapes = *shapes;
+        const auto& provided_shape = input_sizes[i - 1];
+        
+        if (provided_shape.size() != fixed_shapes.size() - 1) {
+          throw std::runtime_error(
+              "Provided shape size mismatch for input '" + name + 
+              "'. Expected " + std::to_string(fixed_shapes.size() - 1) + 
+              " dimensions, got " + std::to_string(provided_shape.size()));
+        }
+        
+        for (size_t j = 1; j < fixed_shapes.size(); ++j) {
+          fixed_shapes[j] = provided_shape[j - 1];
+        }
+        shapes = fixed_shapes;
+      }
     }
 
     std::vector<int64_t> final_shape = *shapes;
