@@ -87,17 +87,16 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
               name + "'");
         }
 
-        // Apply provided dimensions to dynamic shapes
-        size_t provided_idx = 0;
+        // Apply provided dimensions - map all non-batch dimensions
+        if (provided_shape.size() != shapes.size() - 1) {
+          throw std::runtime_error(
+              "Provided shape size mismatch for input '" + name + 
+              "'. Expected " + std::to_string(shapes.size() - 1) + 
+              " dimensions, got " + std::to_string(provided_shape.size()));
+        }
+        
         for (size_t j = 1; j < shapes.size(); j++) {
-          if (shapes[j] == -1) {
-            if (provided_idx >= provided_shape.size()) {
-              throw std::runtime_error("Insufficient input sizes provided for "
-                                       "dynamic dimensions in input '" +
-                                       name + "'");
-            }
-            shapes[j] = provided_shape[provided_idx++];
-          }
+          shapes[j] = provided_shape[j - 1];
         }
       } else {
         // Override fixed dimensions with provided dimensions (skip batch dimension)
