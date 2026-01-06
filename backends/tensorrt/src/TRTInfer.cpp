@@ -148,24 +148,24 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
 {
   validate_input(input_tensors);
   
-  // TensorRT backend currently supports only single input models
-  if (input_tensors.size() != 1) {
-    throw std::runtime_error("TensorRT backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
-  }
-  
-  const cv::Mat& preprocessed_img = input_tensors[0];
-  
-  // Check if input is already a blob (4D tensor) or needs conversion
-  cv::Mat blob;
-  if (preprocessed_img.dims == 4) {
-    // Input is already a blob, use it directly
-    blob = preprocessed_img;
-  } else {
-    // Convert the input image to a blob swapping channels order from hwc to chw
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+  // Process multiple input tensors
+  std::vector<cv::Mat> processed_blobs;
+  for (const auto& input_tensor : input_tensors) {
+    cv::Mat blob;
+    if (input_tensor.dims == 4) {
+      // Input is already a blob, use it directly
+      blob = input_tensor;
+    } else {
+      // Convert the input image to a blob swapping channels order from hwc to chw
+      cv::dnn::blobFromImage(input_tensor, blob, 1.0, cv::Size(), cv::Scalar(), false, false);
+    }
+    processed_blobs.push_back(blob);
   }
 
-  for (size_t i = 0; i < num_inputs_; ++i)
+  // Process user-provided input tensors
+  size_t num_user_inputs = std::min(processed_blobs.size(), num_inputs_);
+  
+  for (size_t i = 0; i < num_user_inputs; ++i)
   {
     std::string tensor_name = input_tensor_names_[i];
     nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
@@ -192,24 +192,67 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
         std::exit(1);
     }
 
-    if (tensor_name == "orig_target_sizes") // If there's a second input, e.g., for target sizes in RT-DETR/DFINE model
+    // Copy user-provided input data to device
+    CHECK_CUDA(cudaMemcpy(buffers_[i], processed_blobs[i].data, binding_size, cudaMemcpyHostToDevice));
+  }
+
+  // Handle models that need additional computed inputs (e.g., RT-DETR orig_target_sizes)
+  if (num_inputs_ > num_user_inputs)
+  {
+    for (size_t i = num_user_inputs; i < num_inputs_; ++i)
     {
-      if (data_type == nvinfer1::DataType::kINT32) {
-          std::vector<int32_t> orig_target_sizes = { static_cast<int32_t>(blob.size[2]), static_cast<int32_t>(blob.size[3]) };
-          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
-      } else if (data_type == nvinfer1::DataType::kINT64) {
-          std::vector<int64_t> orig_target_sizes = { static_cast<int64_t>(blob.size[2]), static_cast<int64_t>(blob.size[3]) };
-          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
-      } else {
-          LOG(ERROR) << "Unsupported data type for input tensor " << tensor_name;
+      std::string tensor_name = input_tensor_names_[i];
+      nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+      size_t size = getSizeByDim(dims);
+      size_t binding_size = 0;
+      nvinfer1::DataType data_type = engine_->getTensorDataType(tensor_name.c_str());
+
+      switch (data_type)
+      {
+        case nvinfer1::DataType::kFLOAT:
+          binding_size = size * sizeof(float);
+          break;
+        case nvinfer1::DataType::kINT32:
+          binding_size = size * sizeof(int32_t);
+          break;
+        case nvinfer1::DataType::kINT64:
+          binding_size = size * sizeof(int64_t);
+          break;
+        case nvinfer1::DataType::kHALF:
+          binding_size = size * sizeof(__half);
+          break;
+        default:
+          LOG(ERROR) << "Unsupported input data type for tensor " << tensor_name;
           std::exit(1);
       }
-    }else
-        CHECK_CUDA(cudaMemcpy(buffers_[i], blob.data, binding_size, cudaMemcpyHostToDevice));
+
+      if (tensor_name == "orig_target_sizes")
+      {
+        if (data_type == nvinfer1::DataType::kINT32) {
+          std::vector<int32_t> orig_target_sizes = { 
+            static_cast<int32_t>(processed_blobs[0].size[2]), 
+            static_cast<int32_t>(processed_blobs[0].size[3]) 
+          };
+          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
+        } else if (data_type == nvinfer1::DataType::kINT64) {
+          std::vector<int64_t> orig_target_sizes = { 
+            static_cast<int64_t>(processed_blobs[0].size[2]), 
+            static_cast<int64_t>(processed_blobs[0].size[3]) 
+          };
+          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(), binding_size, cudaMemcpyHostToDevice));
+        } else {
+          LOG(ERROR) << "Unsupported data type for input tensor " << tensor_name;
+          std::exit(1);
+        }
+      } else {
+        LOG(ERROR) << "Unknown computed input tensor: " << tensor_name;
+        std::exit(1);
+      }
+    }
   }
 
   // Perform inference
-  cudaStream_t stream = 0; // Assuming no stream, otherwise create one
+  cudaStream_t stream = 0;
   CHECK_CUDA(cudaStreamCreate(&stream));
 
   for (size_t i = 0; i < num_inputs_; ++i) {
