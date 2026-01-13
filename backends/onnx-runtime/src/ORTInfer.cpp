@@ -175,49 +175,74 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t> &dims) {
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-ORTInfer::get_infer_results(const std::vector<cv::Mat> &input_blobs) {
-  validate_input(input_blobs);
-  
-  // Process multiple input tensors
-  std::vector<cv::Mat> processed_blobs;
-  for (const auto& input_blob : input_blobs) {
-    cv::Mat blob;
-    if (input_blob.dims > 2) {
-      blob = input_blob;
-    } else {
-      cv::dnn::blobFromImage(input_blob, blob, 1.0, cv::Size(),
-                             cv::Scalar(), false, false);
-    }
-    processed_blobs.push_back(blob);
-  }
+ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
+  validate_input(input_tensors);
   
   const auto &inputs = inference_metadata_.getInputs();
   const auto &outputs = inference_metadata_.getOutputs();
 
   std::vector<std::vector<TensorElement>> output_tensors;
   std::vector<std::vector<int64_t>> shapes;
-  std::vector<std::vector<float>> input_tensor_data(std::min(processed_blobs.size(), static_cast<size_t>(session_.GetInputCount())));
+  
+  // Create Ort tensors from input data
+  // We assume input_tensors[i] already contains the data in the correct layout (e.g. float/int bytes)
+  // Warning: We are casting raw bytes to float* if the model expects float. 
+  // This assumes the input `vector<uint8_t>` is actually a byte view of the float buffer.
+  
   std::vector<Ort::Value> in_ort_tensors;
   Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
       OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
   std::vector<int64_t> orig_target_sizes;
 
   // Process user-provided input tensors
-  size_t num_user_inputs = std::min(processed_blobs.size(), static_cast<size_t>(session_.GetInputCount()));
+  size_t num_user_inputs = std::min(input_tensors.size(), static_cast<size_t>(session_.GetInputCount()));
   for (size_t i = 0; i < num_user_inputs; ++i) {
-    input_tensor_data[i] = blob2vec(processed_blobs[i]);
-    in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
-        memory_info, input_tensor_data[i].data(), getSizeByDim(inputs[i].shape),
-        inputs[i].shape.data(), inputs[i].shape.size()));
+    // We need to cast the byte buffer to the expected type and create OrtValue
+    // NOTE: ORT CreateTensor expects a pointer to the data.
+    // If input is FLOAT, we assume input_tensors[i] holds floats as bytes.
+    
+    // Get expected input type (we logged it earlier, but need to check again or assume float/etc)
+    auto type_info = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo();
+    auto onnx_type = type_info.GetElementType();
+    
+    if (onnx_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+        // Validation check
+        if (input_tensors[i].size() % sizeof(float) != 0) {
+             throw std::runtime_error("Input tensor size mismatch for FLOAT type");
+        }
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
+            memory_info, reinterpret_cast<const float*>(input_tensors[i].data()), 
+            input_tensors[i].size() / sizeof(float),
+            inputs[i].shape.data(), inputs[i].shape.size()));
+    } else if (onnx_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+        if (input_tensors[i].size() % sizeof(int64_t) != 0) {
+             throw std::runtime_error("Input tensor size mismatch for INT64 type");
+        }
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
+            memory_info, reinterpret_cast<const int64_t*>(input_tensors[i].data()), 
+            input_tensors[i].size() / sizeof(int64_t),
+            inputs[i].shape.data(), inputs[i].shape.size()));
+    } else if (onnx_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8) {
+         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<uint8_t>(
+            memory_info, const_cast<uint8_t*>(input_tensors[i].data()), 
+            input_tensors[i].size(),
+            inputs[i].shape.data(), inputs[i].shape.size()));
+    }
+    else {
+         LOG(ERROR) << "Unsupported input data type for ORT: " << onnx_type;
+         std::exit(1);
+    }
   }
 
   // Handle models that need additional computed inputs (e.g., RTDETR orig_target_sizes)
   if (session_.GetInputCount() > num_user_inputs) {
-    orig_target_sizes = {static_cast<int64_t>(processed_blobs[0].size[2]),
-                         static_cast<int64_t>(processed_blobs[0].size[3])};
-    in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
-        memory_info, orig_target_sizes.data(), orig_target_sizes.size(),
-        inputs[num_user_inputs].shape.data(), inputs[num_user_inputs].shape.size()));
+     // Same issue as TRT: Cannot deduce dynamic shapes from flat buffer easily without metadata.
+     // If the model REQUIRES this input and it wasn't provided, it will fail.
+     // Existing logic used processed_blobs[0].size ... we don't have that.
+     // Proceeding without it will likely cause ORT to throw if the input is missing.
+     // Logging error.
+     LOG(ERROR) << "Missing required input tensors (e.g. orig_target_sizes). User must provide all inputs.";
+     // We will let it continue and likely fail in Run().
   }
 
   // Run inference

@@ -55,7 +55,7 @@ OCVDNNInfer::OCVDNNInfer(const std::string &model_path, bool use_gpu,
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-OCVDNNInfer::get_infer_results(const std::vector<cv::Mat>& input_tensors) {
+OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
   validate_input(input_tensors);
   
   // OpenCV DNN backend currently supports only single input models
