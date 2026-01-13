@@ -193,53 +193,58 @@ std::tuple<std::vector<std::vector<TensorElement>>,
 TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
 
   // Process user-provided input tensors
-  size_t num_user_inputs = std::min(input_tensors.size(), (size_t)num_inputs_);
+  if (input_tensors.size() != num_inputs_) {
+       throw std::runtime_error("Input tensor count mismatch. Expected " + std::to_string(num_inputs_) + ", got " + std::to_string(input_tensors.size()));
+  }
 
-  for (size_t i = 0; i < num_user_inputs; ++i) {
+  for (size_t i = 0; i < num_inputs_; ++i) {
     std::string tensor_name = input_tensor_names_[i];
+    
+    // 1. Get dimensions to calculate expected element count
     nvinfer1::Dims dims;
     if (context_) {
        dims = context_->getTensorShape(tensor_name.c_str());
     } else {
        dims = engine_->getTensorShape(tensor_name.c_str());
     }
-    size_t size = getSizeByDim(dims);
-    size_t binding_size = 0;
-    nvinfer1::DataType data_type =
-        engine_->getTensorDataType(tensor_name.c_str());
+    
+    size_t vol = 1;
+    for(int d=0; d<dims.nbDims; d++) {
+        vol *= (dims.d[d] < 0 ? 1 : dims.d[d]);
+    }
+    
+    // 2. Query the Engine for the type
+    nvinfer1::DataType type = engine_->getTensorDataType(tensor_name.c_str());
 
-    switch (data_type) {
-    case nvinfer1::DataType::kFLOAT:
-      binding_size = size * sizeof(float);
-      break;
-    case nvinfer1::DataType::kINT32:
-      binding_size = size * sizeof(int32_t);
-      break;
-    case nvinfer1::DataType::kINT64:
-      binding_size = size * sizeof(int64_t);
-      break;
-    case nvinfer1::DataType::kHALF:
-      binding_size = size * sizeof(__half);
-      break;
+    // 3. Calculate required bytes based on type
+    size_t element_size = 0;
+    switch (type) {
+    case nvinfer1::DataType::kFLOAT: element_size = 4; break;
+    case nvinfer1::DataType::kHALF:  element_size = 2; break;
+    case nvinfer1::DataType::kINT32: element_size = 4; break;
+    case nvinfer1::DataType::kINT8:  element_size = 1; break;
+    case nvinfer1::DataType::kBOOL:  element_size = 1; break;
+    case nvinfer1::DataType::kINT64: element_size = 8; break; // Added support for INT64
+    case nvinfer1::DataType::kUINT8: element_size = 1; break; // Added support for UINT8
     default:
-      LOG(ERROR) << "Unsupported input data type for tensor " << tensor_name;
-      std::exit(1);
+        LOG(ERROR) << "Unsupported input data type for tensor " << tensor_name;
+        std::exit(1);
+    }
+    
+    size_t expected_bytes = vol * element_size;
+    size_t actual_bytes = input_tensors[i].size();
+
+    // 4. Validation
+    if (actual_bytes != expected_bytes) {
+         LOG(WARNING) << "Input tensor " << tensor_name << " size mismatch. Expected " << expected_bytes << " bytes, got " << actual_bytes << " bytes.";
     }
 
-    // Copy user-provided input data to device
-    CHECK_CUDA(cudaMemcpy(buffers_[i], input_tensors[i].data(), binding_size,
+    // 5. Pass to CUDA (No casting needed!)
+    CHECK_CUDA(cudaMemcpy(buffers_[i], input_tensors[i].data(), actual_bytes,
                           cudaMemcpyHostToDevice));
   }
 
-  // Handle models that need additional computed inputs
-  if (num_inputs_ > num_user_inputs) {
-    for (size_t i = num_user_inputs; i < num_inputs_; ++i) {
-      std::string tensor_name = input_tensor_names_[i];
-      // For now, fail if computed inputs are missing as we cannot deduce them without metadata
-      LOG(ERROR) << "Missing input tensor: " << tensor_name;
-      std::exit(1);
-    }
-  }
+
 
   // Perform inference
   cudaStream_t stream = 0;

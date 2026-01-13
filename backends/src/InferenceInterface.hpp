@@ -62,7 +62,7 @@ class InferenceInterface{
         size_t total_inferences_;
         
         // Utility methods
-        std::vector<float> blob2vec(const cv::Mat& input_blob);
+
         
         // Input validation
         void validate_input(const std::vector<std::vector<uint8_t>>& input_tensors) const;

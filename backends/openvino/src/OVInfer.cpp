@@ -201,12 +201,12 @@ std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int6
         throw std::runtime_error("OpenVINO backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
     }
     
-    const cv::Mat& input_blob = input_tensors[0];
-
-    // The input_blob is already in the correct format (NCHW)
-    // No need to convert again
-          
-    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), input_blob.data);
+    const std::vector<uint8_t>& input_data = input_tensors[0];
+            
+    // Create ov::Tensor from raw data
+    // We cast away constness because ov::Tensor expects void*, but for inference input it should be read-only
+    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), const_cast<uint8_t*>(input_data.data()));
+    
     // Set input tensor for model with one input
     infer_request_.set_input_tensor(input_tensor);    
     infer_request_.infer();  // Perform inference
