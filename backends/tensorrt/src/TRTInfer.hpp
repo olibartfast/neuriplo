@@ -27,9 +27,9 @@ class TRTInfer : public InferenceInterface
         const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
 
         // Create execution context and allocate input/output buffers
-        void createContextAndAllocateBuffers();
+        void createContextAndAllocateBuffers(const std::vector<std::vector<int64_t>>& input_sizes);
 
-        void initializeBuffers(const std::string& engine_path);
+        void initializeBuffers(const std::string& engine_path, const std::vector<std::vector<int64_t>>& input_sizes);
 
         // calculate size of tensor
         size_t getSizeByDim(const nvinfer1::Dims& dims);    
