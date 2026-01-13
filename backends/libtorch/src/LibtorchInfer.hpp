@@ -15,6 +15,7 @@ public:
 private:
     std::string print_shape(const std::vector<int64_t>& shape);
     torch::DeviceType device_;
-    torch::jit::script::Module module_;    
+    torch::jit::script::Module module_;
+    std::vector<c10::ScalarType> input_types_;    
   
 };

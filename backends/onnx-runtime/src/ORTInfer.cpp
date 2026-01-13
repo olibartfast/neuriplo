@@ -194,54 +194,94 @@ ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tenso
   std::vector<int64_t> orig_target_sizes;
 
   // Process user-provided input tensors
-  size_t num_user_inputs = std::min(input_tensors.size(), static_cast<size_t>(session_.GetInputCount()));
-  for (size_t i = 0; i < num_user_inputs; ++i) {
-    // We need to cast the byte buffer to the expected type and create OrtValue
-    // NOTE: ORT CreateTensor expects a pointer to the data.
-    // If input is FLOAT, we assume input_tensors[i] holds floats as bytes.
-    
-    // Get expected input type (we logged it earlier, but need to check again or assume float/etc)
+  size_t num_inputs = session_.GetInputCount();
+  if (input_tensors.size() != num_inputs) {
+       throw std::runtime_error("Input tensor count mismatch. Expected " + std::to_string(num_inputs) + ", got " + std::to_string(input_tensors.size()));
+  }
+  
+  for (size_t i = 0; i < num_inputs; ++i) {
     auto type_info = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo();
     auto onnx_type = type_info.GetElementType();
+    const auto& input_shape = inputs[i].shape; // Use our stored shape which handles dynamic/overrides
+
+    // Calculate expected size for validation
+    size_t element_size = 1;
+    switch (onnx_type) {
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+        element_size = 4;
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+        element_size = 1;
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+        element_size = 8;
+        break;
+    default:
+        LOG(ERROR) << "Unsupported input data type: " << onnx_type;
+        throw std::runtime_error("Unsupported input data type");
+    }
+
+    size_t expected_elements = 1;
+    for (int64_t dim : input_shape) {
+        if (dim < 0) {
+             LOG(WARNING) << "Input shape contains dynamic dimension: " << dim << ". Validation might be inaccurate.";
+        }
+        expected_elements *= (dim < 0 ? 1 : dim);
+    }
     
-    if (onnx_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
-        // Validation check
-        if (input_tensors[i].size() % sizeof(float) != 0) {
-             throw std::runtime_error("Input tensor size mismatch for FLOAT type");
-        }
+    size_t expected_bytes = expected_elements * element_size;
+    if (input_tensors[i].size() != expected_bytes) {
+         throw std::runtime_error("Input data size mismatch for tensor " + std::to_string(i) + 
+                                  ". Expected " + std::to_string(expected_bytes) + " bytes, got " + 
+                                  std::to_string(input_tensors[i].size()));
+    }
+
+    // Create tensor from raw bytes using the correct type
+    // We cast away constness as Ort::Value::CreateTensor expects mutable pointer
+    switch (onnx_type) {
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
-            memory_info, reinterpret_cast<const float*>(input_tensors[i].data()), 
-            input_tensors[i].size() / sizeof(float),
-            inputs[i].shape.data(), inputs[i].shape.size()));
-    } else if (onnx_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
-        if (input_tensors[i].size() % sizeof(int64_t) != 0) {
-             throw std::runtime_error("Input tensor size mismatch for INT64 type");
-        }
-        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
-            memory_info, reinterpret_cast<const int64_t*>(input_tensors[i].data()), 
-            input_tensors[i].size() / sizeof(int64_t),
-            inputs[i].shape.data(), inputs[i].shape.size()));
-    } else if (onnx_type == ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8) {
+            memory_info, reinterpret_cast<float*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
          in_ort_tensors.emplace_back(Ort::Value::CreateTensor<uint8_t>(
             memory_info, const_cast<uint8_t*>(input_tensors[i].data()), 
-            input_tensors[i].size(),
-            inputs[i].shape.data(), inputs[i].shape.size()));
-    }
-    else {
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int8_t>(
+            memory_info, reinterpret_cast<int8_t*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int32_t>(
+            memory_info, reinterpret_cast<int32_t*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
+            memory_info, reinterpret_cast<int64_t*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<bool>(
+            memory_info, reinterpret_cast<bool*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    default:
          LOG(ERROR) << "Unsupported input data type for ORT: " << onnx_type;
          std::exit(1);
     }
-  }
-
-  // Handle models that need additional computed inputs (e.g., RTDETR orig_target_sizes)
-  if (session_.GetInputCount() > num_user_inputs) {
-     // Same issue as TRT: Cannot deduce dynamic shapes from flat buffer easily without metadata.
-     // If the model REQUIRES this input and it wasn't provided, it will fail.
-     // Existing logic used processed_blobs[0].size ... we don't have that.
-     // Proceeding without it will likely cause ORT to throw if the input is missing.
-     // Logging error.
-     LOG(ERROR) << "Missing required input tensors (e.g. orig_target_sizes). User must provide all inputs.";
-     // We will let it continue and likely fail in Run().
   }
 
   // Run inference

@@ -87,9 +87,13 @@ LibtorchInfer::LibtorchInfer(
     LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
     inference_metadata_.addInput(name, final_shape, batch_size);
 
-    std::string input_type_str = type->scalarType().has_value()
-                                     ? toString(type->scalarType().value())
-                                     : "Unknown";
+    std::string input_type_str = "Unknown";
+    c10::ScalarType s_type = c10::ScalarType::Float; // default
+    if (type->scalarType().has_value()) {
+        s_type = type->scalarType().value();
+        input_type_str = toString(s_type);
+    }
+    input_types_.push_back(s_type);
     LOG(INFO) << "\tData Type: " << input_type_str;
   }
 
@@ -226,40 +230,34 @@ LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_
   const auto &inputs_meta = inference_metadata_.getInputs();
 
   // Process user-provided input tensors
-  size_t num_user_inputs = std::min(input_tensors.size(), inputs_meta.size());
+  if (input_tensors.size() != inputs_meta.size()) {
+       throw std::runtime_error("Input tensor count mismatch. Expected " + std::to_string(inputs_meta.size()) + ", got " + std::to_string(input_tensors.size()));
+  }
   
-  for (size_t i = 0; i < num_user_inputs; ++i) {
+  for (size_t i = 0; i < inputs_meta.size(); ++i) {
     const auto &input_data = input_tensors[i];
     const auto &shape = inputs_meta[i].shape;
     
-    // We assume the input data type matches float32 if not specified otherwise in metadata check.
-    // LibTorch model inputs usually are float32 tensors.
-    // We assume the flat buffer is a float array.
+    // Determine type from stored metadata
+    c10::ScalarType dtype = c10::ScalarType::Float;
+    if (i < input_types_.size()) {
+        dtype = input_types_[i];
+    }
     
-    // Safety check: buffer size must be multiple of float size if we are casting to float
-    if (input_data.size() % sizeof(float) != 0) {
-        throw std::runtime_error("Input buffer size not multiple of float size");
+    // Validate size
+    size_t element_size = c10::elementSize(dtype);
+    if (input_data.size() % element_size != 0) {
+        throw std::runtime_error("Input buffer size not multiple of element size for input " + std::to_string(i));
     }
     
     std::vector<int64_t> tensor_dims = shape;
-    // Handle batch dimension if it was -1 or if we want to support dynamic batch?
-    // inference_metadata_ stores shape with batch dim.
-    
-    // Create tensor from blob
-    // torch::from_blob doesn't own the data, so we must make a copy or ensure lifetime.
-    // Since input_tensors lives for duration of function, and we pass to forward which uses it,
-    // this view is safe IF we don't return it before forward.
-    // However, we call input.to(device_) which copies it if device is GPU.
-    // If device is CPU, it might wrap.
-    // But torch::from_blob takes void*, sizes, options.
-    
-    auto options = torch::TensorOptions().dtype(torch::kFloat32);
+
+    auto options = torch::TensorOptions().dtype(dtype);
     torch::Tensor input = torch::from_blob(
-        const_cast<uint8_t*>(input_data.data()), // cast to void* internally, but we give it a pointer
+        const_cast<uint8_t*>(input_data.data()), 
         tensor_dims,
         options);
         
-    // We must clone it if we want to own it, or just .to(device_) will copy it.
     input = input.to(device_);
     torch_inputs.push_back(input);
   }
