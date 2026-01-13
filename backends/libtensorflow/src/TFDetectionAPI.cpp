@@ -75,8 +75,7 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) 
 {
-    validate_input(input_tensors);
-    
+   
     // TensorFlow backend currently supports only single input models
     if (input_tensors.size() != 1) {
         throw std::runtime_error("TensorFlow backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");

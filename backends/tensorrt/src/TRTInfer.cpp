@@ -140,7 +140,6 @@ void TRTInfer::createContextAndAllocateBuffers() {
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
 TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
-  validate_input(input_tensors);
 
   // Process user-provided input tensors
   size_t num_user_inputs = std::min(input_tensors.size(), (size_t)num_inputs_);

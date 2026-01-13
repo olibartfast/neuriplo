@@ -63,20 +63,4 @@ void InferenceInterface::end_timer() {
     total_inferences_++;
 }
 
-void InferenceInterface::validate_input(const std::vector<std::vector<uint8_t>>& input_tensors) const {
-    if (input_tensors.empty()) {
-        throw std::invalid_argument("Input tensor vector cannot be empty");
-    }
-    
-    for (size_t i = 0; i < input_tensors.size(); ++i) {
-        const auto& tensor = input_tensors[i];
-        if (tensor.empty()) {
-            throw std::invalid_argument("Input tensor at index " + std::to_string(i) + " is empty");
-        }
-        
-        if (tensor.type() != CV_32F && tensor.type() != CV_8U) {
-            throw std::invalid_argument("Input tensor at index " + std::to_string(i) + " must be of type CV_32F or CV_8U");
-        }
-    }
-}
 

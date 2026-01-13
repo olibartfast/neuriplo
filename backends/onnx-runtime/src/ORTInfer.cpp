@@ -176,7 +176,6 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t> &dims) {
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
 ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
-  validate_input(input_tensors);
   
   const auto &inputs = inference_metadata_.getInputs();
   const auto &outputs = inference_metadata_.getOutputs();

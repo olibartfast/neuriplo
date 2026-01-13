@@ -104,7 +104,6 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
 TVMInfer::get_infer_results(const std::vector<cv::Mat>& input_images)
 {
-    validate_input(input_images);
     start_timer();
 
     if (!model_loaded_) {

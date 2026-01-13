@@ -220,8 +220,7 @@ LibtorchInfer::LibtorchInfer(
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
 LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
-  validate_input(input_tensors);
-  
+
   // Convert input images to torch tensors
   std::vector<torch::jit::IValue> torch_inputs;
   const auto &inputs_meta = inference_metadata_.getInputs();
