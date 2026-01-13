@@ -193,8 +193,6 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) 
 {
-    validate_input(input_tensors);
-    
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
 
