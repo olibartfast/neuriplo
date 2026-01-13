@@ -18,7 +18,7 @@ TRTInfer::TRTInfer(const std::string &model_path, bool use_gpu,
     : InferenceInterface{model_path, true, batch_size, input_sizes} {
   LOG(INFO) << "Initializing TensorRT for model " << model_path;
   batch_size_ = batch_size;
-  initializeBuffers(model_path);
+  initializeBuffers(model_path, input_sizes);
   populateInferenceMetadata(input_sizes);
   std::cout << "TRTInfer constructor finished!" << std::endl;
 }
@@ -57,7 +57,7 @@ TRTInfer::~TRTInfer() {
   std::cout << "TRTInfer destructor finished!" << std::endl;
 }
 
-void TRTInfer::initializeBuffers(const std::string &engine_path) {
+void TRTInfer::initializeBuffers(const std::string &engine_path, const std::vector<std::vector<int64_t>>& input_sizes) {
   // Create TensorRT runtime
   Logger logger;
   runtime_ = nvinfer1::createInferRuntime(logger);
@@ -76,7 +76,7 @@ void TRTInfer::initializeBuffers(const std::string &engine_path) {
 
   // Deserialize engine
   engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
-  createContextAndAllocateBuffers();
+  createContextAndAllocateBuffers(input_sizes);
 }
 
 // calculate size of tensor
@@ -91,7 +91,7 @@ size_t TRTInfer::getSizeByDim(const nvinfer1::Dims &dims) {
   return size;
 }
 
-void TRTInfer::createContextAndAllocateBuffers() {
+void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int64_t>>& input_sizes) {
   context_ = engine_->createExecutionContext();
   int num_tensors = engine_->getNbIOTensors();
   buffers_.resize(num_tensors);
@@ -100,10 +100,72 @@ void TRTInfer::createContextAndAllocateBuffers() {
   num_inputs_ = 0;
   num_outputs_ = 0;
 
+  // First pass: Identify inputs and set their shapes on the context
+  // This is crucial for dynamic shapes so that output shapes can be correctly deduced
   for (int i = 0; i < num_tensors; ++i) {
     std::string tensor_name = engine_->getIOTensorName(i);
-    nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+     if (engine_->getTensorIOMode(tensor_name.c_str()) == nvinfer1::TensorIOMode::kINPUT) {
+        input_tensor_names_.push_back(tensor_name);
+        
+        // If we have input sizes, set them now
+        if (num_inputs_ < input_sizes.size()) {
+             nvinfer1::Dims engine_dims = engine_->getTensorShape(tensor_name.c_str());
+             nvinfer1::Dims input_dims;
+             const auto& current_input_size = input_sizes[num_inputs_];
+             
+             if (current_input_size.size() == static_cast<size_t>(engine_dims.nbDims)) {
+                  // Exact match
+                  input_dims.nbDims = engine_dims.nbDims;
+                  for (int k = 0; k < engine_dims.nbDims; ++k) {
+                      input_dims.d[k] = static_cast<int>(current_input_size[k]);
+                  }
+             } else if (current_input_size.size() == static_cast<size_t>(engine_dims.nbDims - 1)) {
+                  // Prepend batch size
+                  input_dims.nbDims = engine_dims.nbDims;
+                  input_dims.d[0] = static_cast<int>(batch_size_);
+                  for (int k = 1; k < engine_dims.nbDims; ++k) {
+                       input_dims.d[k] = static_cast<int>(current_input_size[k-1]);
+                  }
+             } else {
+                  // Fallback
+                  input_dims.nbDims = std::min((int)current_input_size.size(), nvinfer1::Dims::MAX_DIMS);
+                  for (int k = 0; k < input_dims.nbDims; ++k) {
+                      input_dims.d[k] = static_cast<int>(current_input_size[k]);
+                  }
+             }
+             
+             if (!context_->setInputShape(tensor_name.c_str(), input_dims)) {
+                  LOG(WARNING) << "Failed to set input shape for " << tensor_name << " in allocation phase";
+             }
+        }
+        num_inputs_++;
+     } else {
+         output_tensor_names_.push_back(tensor_name);
+         num_outputs_++;
+     }
+  }
+
+  // Second pass: Allocate buffers using the context's specific shapes (which now should include dynamic resolutions)
+  for (int i = 0; i < num_tensors; ++i) {
+    std::string tensor_name = engine_->getIOTensorName(i);
+    // Prefer context shape over engine shape for dynamic dimensions
+    nvinfer1::Dims dims = context_->getTensorShape(tensor_name.c_str());
+    
+    // Fallback to engine shape if context shape is invalid (though it shouldn't be if inputs are set)
+    if (dims.nbDims == 0 || dims.d[0] == 0) { // Naive check for invalid dims
+         dims = engine_->getTensorShape(tensor_name.c_str());
+    }
+
     auto size = getSizeByDim(dims);
+    // Ensure we don't allocate 0 bytes, or if we do, handle it. 
+    // getSizeByDim ignores -1, so it might return 1 for a purely dynamic shape, which is bad.
+    // However, if we setInputShape correctly, dims should be fully concrete now.
+    
+    // Debug log
+    LOG(INFO) << "Allocating buffer for " << tensor_name << " with shape [";
+    for(int k=0; k<dims.nbDims; ++k) LOG(INFO) << dims.d[k] << (k<dims.nbDims-1 ? ", " : "");
+    LOG(INFO) << "] and size " << size;
+
     size_t binding_size = 0;
     switch (engine_->getTensorDataType(tensor_name.c_str())) {
     case nvinfer1::DataType::kFLOAT:
@@ -123,17 +185,6 @@ void TRTInfer::createContextAndAllocateBuffers() {
       std::exit(1);
     }
     CHECK_CUDA(cudaMalloc(&buffers_[i], binding_size));
-
-    if (engine_->getTensorIOMode(tensor_name.c_str()) ==
-        nvinfer1::TensorIOMode::kINPUT) {
-      LOG(INFO) << "Input tensor " << num_inputs_ << ": " << tensor_name;
-      input_tensor_names_.push_back(tensor_name);
-      num_inputs_++;
-    } else {
-      LOG(INFO) << "Output tensor " << num_outputs_ << ": " << tensor_name;
-      output_tensor_names_.push_back(tensor_name);
-      num_outputs_++;
-    }
   }
 }
 
@@ -146,7 +197,12 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tenso
 
   for (size_t i = 0; i < num_user_inputs; ++i) {
     std::string tensor_name = input_tensor_names_[i];
-    nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+    nvinfer1::Dims dims;
+    if (context_) {
+       dims = context_->getTensorShape(tensor_name.c_str());
+    } else {
+       dims = engine_->getTensorShape(tensor_name.c_str());
+    }
     size_t size = getSizeByDim(dims);
     size_t binding_size = 0;
     nvinfer1::DataType data_type =
@@ -220,7 +276,12 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tenso
 
   for (size_t i = 0; i < num_outputs_; ++i) {
     std::string tensor_name = output_tensor_names_[i];
-    nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+    nvinfer1::Dims dims;
+    if (context_) {
+       dims = context_->getTensorShape(tensor_name.c_str());
+    } else {
+       dims = engine_->getTensorShape(tensor_name.c_str());
+    }
     auto num_elements = getSizeByDim(dims);
 
     std::vector<TensorElement> tensor_data;

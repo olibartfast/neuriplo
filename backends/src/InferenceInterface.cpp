@@ -1,3 +1,4 @@
+#include <cstdint>
 #include "InferenceInterface.hpp"
 
 InferenceInterface::InferenceInterface(const std::string& weights,
@@ -61,6 +62,14 @@ void InferenceInterface::end_timer() {
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - inference_start_time_);
     last_inference_time_ms_ = duration.count() / 1000.0;
     total_inferences_++;
+}
+
+
+
+void InferenceInterface::validate_model_loaded() const {
+    if (model_path_.empty()) {
+        throw ModelLoadException("Model path is not specified");
+    }
 }
 
 
