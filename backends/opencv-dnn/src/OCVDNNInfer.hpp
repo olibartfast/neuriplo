@@ -15,7 +15,7 @@ public:
         size_t batch_size = 1, 
         const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
 
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<cv::Mat>& input_tensors) override;
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
     bool isCudaBuildEnabled() {
         std::string buildInfo = cv::getBuildInformation();

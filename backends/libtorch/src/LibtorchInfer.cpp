@@ -219,25 +219,48 @@ LibtorchInfer::LibtorchInfer(
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-LibtorchInfer::get_infer_results(const std::vector<cv::Mat> &input_images) {
-  validate_input(input_images);
+LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
+  validate_input(input_tensors);
   
   // Convert input images to torch tensors
   std::vector<torch::jit::IValue> torch_inputs;
+  const auto &inputs_meta = inference_metadata_.getInputs();
+
+  // Process user-provided input tensors
+  size_t num_user_inputs = std::min(input_tensors.size(), inputs_meta.size());
   
-  for (const auto& input_image : input_images) {
-    // Convert the input image to a blob swapping channels order from hwc to chw
-    cv::Mat blob;
-    if (input_image.dims > 2) {
-      blob = input_image;
-    } else {
-      cv::dnn::blobFromImage(input_image, blob, 1.0, cv::Size(),
-                             cv::Scalar(), false, false);
+  for (size_t i = 0; i < num_user_inputs; ++i) {
+    const auto &input_data = input_tensors[i];
+    const auto &shape = inputs_meta[i].shape;
+    
+    // We assume the input data type matches float32 if not specified otherwise in metadata check.
+    // LibTorch model inputs usually are float32 tensors.
+    // We assume the flat buffer is a float array.
+    
+    // Safety check: buffer size must be multiple of float size if we are casting to float
+    if (input_data.size() % sizeof(float) != 0) {
+        throw std::runtime_error("Input buffer size not multiple of float size");
     }
-    // Convert the input tensor to a Torch tensor
-    torch::Tensor input =
-        torch::from_blob(blob.data, {1, blob.size[1], blob.size[2], blob.size[3]},
-                         torch::kFloat32);
+    
+    std::vector<int64_t> tensor_dims = shape;
+    // Handle batch dimension if it was -1 or if we want to support dynamic batch?
+    // inference_metadata_ stores shape with batch dim.
+    
+    // Create tensor from blob
+    // torch::from_blob doesn't own the data, so we must make a copy or ensure lifetime.
+    // Since input_tensors lives for duration of function, and we pass to forward which uses it,
+    // this view is safe IF we don't return it before forward.
+    // However, we call input.to(device_) which copies it if device is GPU.
+    // If device is CPU, it might wrap.
+    // But torch::from_blob takes void*, sizes, options.
+    
+    auto options = torch::TensorOptions().dtype(torch::kFloat32);
+    torch::Tensor input = torch::from_blob(
+        const_cast<uint8_t*>(input_data.data()), // cast to void* internally, but we give it a pointer
+        tensor_dims,
+        options);
+        
+    // We must clone it if we want to own it, or just .to(device_) will copy it.
     input = input.to(device_);
     torch_inputs.push_back(input);
   }

@@ -63,7 +63,7 @@ void InferenceInterface::end_timer() {
     total_inferences_++;
 }
 
-void InferenceInterface::validate_input(const std::vector<cv::Mat>& input_tensors) const {
+void InferenceInterface::validate_input(const std::vector<std::vector<uint8_t>>& input_tensors) const {
     if (input_tensors.empty()) {
         throw std::invalid_argument("Input tensor vector cannot be empty");
     }

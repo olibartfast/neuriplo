@@ -36,7 +36,7 @@ class TRTInfer : public InferenceInterface
 
         void infer(); // You might want to remove or update this depending on your needs
 
-        std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<cv::Mat>& input_tensors) override;
+        std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
         void populateInferenceMetadata(const std::vector<std::vector<int64_t>>& input_sizes); 
         ~TRTInfer();

@@ -139,44 +139,11 @@ void TRTInfer::createContextAndAllocateBuffers() {
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-TRTInfer::get_infer_results(const std::vector<cv::Mat> &input_tensors) {
+TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
   validate_input(input_tensors);
 
-  // Process multiple input tensors
-  std::vector<cv::Mat> processed_blobs;
-  for (size_t i = 0; i < input_tensors.size(); ++i) {
-    const auto &input_tensor = input_tensors[i];
-    cv::Mat blob;
-
-    // Check if we can validate against engine dimensions to decide whether to
-    // preprocess
-    bool match_engine_size = false;
-    if (i < num_inputs_) {
-      std::string tensor_name = input_tensor_names_[i];
-      nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
-      size_t expected_size = getSizeByDim(dims);
-      size_t input_elements = input_tensor.total() * input_tensor.channels();
-      if (input_elements == expected_size) {
-        match_engine_size = true;
-      }
-    }
-
-    if (input_tensor.dims > 2 || match_engine_size) {
-      // Input is already a blob (N-D) or matches engine expectation (e.g. flat
-      // buffer), use it directly
-      blob = input_tensor;
-    } else {
-      // Assume input is an image that needs pre-processing (HWC -> CHW,
-      // resizing, etc) Note: this uses default params (scale=1.0, no mean
-      // subtraction), consistent with previous implementation
-      cv::dnn::blobFromImage(input_tensor, blob, 1.0, cv::Size(), cv::Scalar(),
-                             false, false);
-    }
-    processed_blobs.push_back(blob);
-  }
-
   // Process user-provided input tensors
-  size_t num_user_inputs = std::min(processed_blobs.size(), num_inputs_);
+  size_t num_user_inputs = std::min(input_tensors.size(), (size_t)num_inputs_);
 
   for (size_t i = 0; i < num_user_inputs; ++i) {
     std::string tensor_name = input_tensor_names_[i];
@@ -205,61 +172,17 @@ TRTInfer::get_infer_results(const std::vector<cv::Mat> &input_tensors) {
     }
 
     // Copy user-provided input data to device
-    CHECK_CUDA(cudaMemcpy(buffers_[i], processed_blobs[i].data, binding_size,
+    CHECK_CUDA(cudaMemcpy(buffers_[i], input_tensors[i].data(), binding_size,
                           cudaMemcpyHostToDevice));
   }
 
-  // Handle models that need additional computed inputs (e.g., RT-DETR
-  // orig_target_sizes)
+  // Handle models that need additional computed inputs
   if (num_inputs_ > num_user_inputs) {
     for (size_t i = num_user_inputs; i < num_inputs_; ++i) {
       std::string tensor_name = input_tensor_names_[i];
-      nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
-      size_t size = getSizeByDim(dims);
-      size_t binding_size = 0;
-      nvinfer1::DataType data_type =
-          engine_->getTensorDataType(tensor_name.c_str());
-
-      switch (data_type) {
-      case nvinfer1::DataType::kFLOAT:
-        binding_size = size * sizeof(float);
-        break;
-      case nvinfer1::DataType::kINT32:
-        binding_size = size * sizeof(int32_t);
-        break;
-      case nvinfer1::DataType::kINT64:
-        binding_size = size * sizeof(int64_t);
-        break;
-      case nvinfer1::DataType::kHALF:
-        binding_size = size * sizeof(__half);
-        break;
-      default:
-        LOG(ERROR) << "Unsupported input data type for tensor " << tensor_name;
-        std::exit(1);
-      }
-
-      if (tensor_name == "orig_target_sizes") {
-        if (data_type == nvinfer1::DataType::kINT32) {
-          std::vector<int32_t> orig_target_sizes = {
-              static_cast<int32_t>(processed_blobs[0].size[2]),
-              static_cast<int32_t>(processed_blobs[0].size[3])};
-          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(),
-                                binding_size, cudaMemcpyHostToDevice));
-        } else if (data_type == nvinfer1::DataType::kINT64) {
-          std::vector<int64_t> orig_target_sizes = {
-              static_cast<int64_t>(processed_blobs[0].size[2]),
-              static_cast<int64_t>(processed_blobs[0].size[3])};
-          CHECK_CUDA(cudaMemcpy(buffers_[i], orig_target_sizes.data(),
-                                binding_size, cudaMemcpyHostToDevice));
-        } else {
-          LOG(ERROR) << "Unsupported data type for input tensor "
-                     << tensor_name;
-          std::exit(1);
-        }
-      } else {
-        LOG(ERROR) << "Unknown computed input tensor: " << tensor_name;
-        std::exit(1);
-      }
+      // For now, fail if computed inputs are missing as we cannot deduce them without metadata
+      LOG(ERROR) << "Missing input tensor: " << tensor_name;
+      std::exit(1);
     }
   }
 
@@ -267,61 +190,7 @@ TRTInfer::get_infer_results(const std::vector<cv::Mat> &input_tensors) {
   cudaStream_t stream = 0;
   CHECK_CUDA(cudaStreamCreate(&stream));
 
-  // Set input shapes for dynamic tensors (required for TensorRT engines with
-  // dynamic shapes)
-  for (size_t i = 0; i < num_user_inputs; ++i) {
-    std::string tensor_name = input_tensor_names_[i];
-    nvinfer1::Dims engine_dims = engine_->getTensorShape(tensor_name.c_str());
-
-    // Check if this tensor has dynamic dimensions (-1 values)
-    bool has_dynamic_dims = false;
-    for (int j = 0; j < engine_dims.nbDims; ++j) {
-      if (engine_dims.d[j] == -1) {
-        has_dynamic_dims = true;
-        break;
-      }
-    }
-
-    if (has_dynamic_dims) {
-      // Build the actual shape from the input blob
-      nvinfer1::Dims actual_dims;
-      const cv::Mat &blob = processed_blobs[i];
-
-      if (blob.dims == 4) {
-        // Standard 4D tensor (NCHW)
-        actual_dims.nbDims = 4;
-        actual_dims.d[0] = blob.size[0]; // batch
-        actual_dims.d[1] = blob.size[1]; // channels
-        actual_dims.d[2] = blob.size[2]; // height
-        actual_dims.d[3] = blob.size[3]; // width
-      } else if (blob.dims == 3) {
-        // 3D tensor
-        actual_dims.nbDims = 3;
-        actual_dims.d[0] = blob.size[0];
-        actual_dims.d[1] = blob.size[1];
-        actual_dims.d[2] = blob.size[2];
-      } else if (blob.dims == 2) {
-        // 2D tensor
-        actual_dims.nbDims = 2;
-        actual_dims.d[0] = blob.size[0];
-        actual_dims.d[1] = blob.size[1];
-      } else {
-        LOG(ERROR) << "Unsupported number of dimensions for input tensor "
-                   << tensor_name << ": " << blob.dims;
-        std::exit(1);
-      }
-
-      if (!context_->setInputShape(tensor_name.c_str(), actual_dims)) {
-        LOG(ERROR) << "Failed to set input shape for dynamic tensor: "
-                   << tensor_name;
-        std::exit(1);
-      }
-
-      LOG(INFO) << "Set dynamic shape for " << tensor_name << ": "
-                << actual_dims.d[0] << "x" << actual_dims.d[1] << "x"
-                << actual_dims.d[2] << "x" << actual_dims.d[3];
-    }
-  }
+  // Note: Dynamic shape checking loop removed as per optimization
 
   for (size_t i = 0; i < num_inputs_; ++i) {
     if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(),
@@ -444,6 +313,7 @@ void TRTInfer::populateInferenceMetadata(
       throw std::runtime_error("Dynamic axis detected in input tensor " +
                                tensor_name + " but input_sizes is empty.");
     }
+    
     if (!input_sizes.empty()) {
       // Override dynamic dimensions with provided input sizes
       if (i < input_sizes.size()) {
@@ -456,6 +326,41 @@ void TRTInfer::populateInferenceMetadata(
             shape_idx++;
           }
         }
+
+        // Set input shape on context if we have valid input sizes
+        if (context_) {
+            nvinfer1::Dims engine_dims = engine_->getTensorShape(tensor_name.c_str());
+            nvinfer1::Dims input_dims;
+            
+            if (input_sizes[i].size() == static_cast<size_t>(engine_dims.nbDims)) {
+                // Exact match (includes batch)
+                input_dims.nbDims = engine_dims.nbDims;
+                for (int k = 0; k < engine_dims.nbDims; ++k) {
+                    input_dims.d[k] = static_cast<int>(input_sizes[i][k]);
+                }
+            } else if (input_sizes[i].size() == static_cast<size_t>(engine_dims.nbDims - 1)) {
+                // Input sizes exclude batch, prepend it
+                input_dims.nbDims = engine_dims.nbDims;
+                input_dims.d[0] = static_cast<int>(batch_size_);
+                for (int k = 1; k < engine_dims.nbDims; ++k) {
+                    input_dims.d[k] = static_cast<int>(input_sizes[i][k-1]);
+                }
+            } else {
+                LOG(WARNING) << "Input size mismatch for tensor " << tensor_name 
+                             << ". Expected " << engine_dims.nbDims 
+                             << " or " << (engine_dims.nbDims - 1) 
+                             << " dimensions, got " << input_sizes[i].size();
+                // Fallback: try to usage what we have, though it will likely fail setInputShape validation if wrong
+                input_dims.nbDims = std::min((int)input_sizes[i].size(), nvinfer1::Dims::MAX_DIMS);
+                for (int k = 0; k < input_dims.nbDims; ++k) {
+                    input_dims.d[k] = static_cast<int>(input_sizes[i][k]);
+                }
+            }
+
+            if (!context_->setInputShape(tensor_name.c_str(), input_dims)) {
+                LOG(WARNING) << "Failed to set input shape for " << tensor_name;
+            }
+        }
       }
     }
     inference_metadata_.addInput(tensor_name, shape, batch_size_);
@@ -464,7 +369,15 @@ void TRTInfer::populateInferenceMetadata(
   // Process output tensors
   for (int i = 0; i < num_outputs_; ++i) {
     std::string tensor_name = output_tensor_names_[i];
-    nvinfer1::Dims dims = engine_->getTensorShape(tensor_name.c_str());
+    
+    // Try to get shape from context first (if inputs were set, this gives concrete shapes)
+    nvinfer1::Dims dims;
+    if (context_ && !input_sizes.empty()) {
+        dims = context_->getTensorShape(tensor_name.c_str());
+    } else {
+        dims = engine_->getTensorShape(tensor_name.c_str());
+    }
+    
     std::vector<int64_t> shape;
     for (int j = 0; j < dims.nbDims; ++j) {
       if (j > 0) { // Skip the batch dimension (index 0)

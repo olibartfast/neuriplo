@@ -134,7 +134,7 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
-GGMLInfer::get_infer_results(const std::vector<cv::Mat>& input_tensors)
+GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors)
 {
     validate_input(input_tensors);
     

@@ -15,7 +15,7 @@ public:
     MockLibtorchInfer() = default;
     
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
-    get_infer_results(const cv::Mat& input) {
+    get_infer_results(const std::vector<std::vector<uint8_t>>& input) {
         // Mock output: 1x1000 classification results
         std::vector<TensorElement> output_vector(1000);
         for (int i = 0; i < 1000; ++i) {
@@ -71,15 +71,19 @@ TEST_F(LibtorchInferTest, BasicInference) {
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
     
+    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
+    memcpy(input_data.data(), blob.data, input_data.size());
+    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    
     std::vector<std::vector<TensorElement>> output_vectors;
     std::vector<std::vector<int64_t>> shape_vectors;
     
     if (has_real_model) {
-        auto result = real_infer->get_infer_results(blob);
+        auto result = real_infer->get_infer_results(input_tensors);
         output_vectors = std::get<0>(result);
         shape_vectors = std::get<1>(result);
     } else {
-        auto result = mock_infer->get_infer_results(blob);
+        auto result = mock_infer->get_infer_results(input_tensors);
         output_vectors = std::get<0>(result);
         shape_vectors = std::get<1>(result);
     }
@@ -120,7 +124,11 @@ TEST_F(LibtorchInferTest, IntegrationTest) {
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
     
-    auto [output_vectors, shape_vectors] = real_infer->get_infer_results(blob);
+    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
+    memcpy(input_data.data(), blob.data, input_data.size());
+    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    
+    auto [output_vectors, shape_vectors] = real_infer->get_infer_results(input_tensors);
     
     // Verify real model produces reasonable results
     ASSERT_FALSE(output_vectors.empty());
@@ -140,7 +148,10 @@ TEST_F(LibtorchInferTest, MockUnitTest) {
     }
     
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input);
+    std::vector<uint8_t> input_data(input.total() * input.elemSize());
+    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    
+    auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
     
     // Test mock-specific behavior
     ASSERT_EQ(output_vectors[0].size(), 1000);
@@ -169,7 +180,11 @@ TEST_F(LibtorchInferTest, GPUTest) {
         cv::Mat blob;
         cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
         
-        auto [output_vectors, shape_vectors] = gpu_infer->get_infer_results(blob);
+        std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
+        memcpy(input_data.data(), blob.data, input_data.size());
+        std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+        
+        auto [output_vectors, shape_vectors] = gpu_infer->get_infer_results(input_tensors);
         
         // Basic validation
         ASSERT_FALSE(output_vectors.empty());

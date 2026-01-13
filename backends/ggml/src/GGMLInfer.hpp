@@ -22,7 +22,7 @@ public:
 
     ~GGMLInfer();
 
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<cv::Mat>& input_tensors) override;
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
 private:
     void load_model(const std::string& model_path);
