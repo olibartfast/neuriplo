@@ -45,11 +45,10 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
   // Process inputs
   for (std::size_t i = 0; i < session_.GetInputCount(); i++) {
     const std::string name = session_.GetInputNameAllocated(i, allocator).get();
-    auto shapes =
-        session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
-    auto input_type = session_.GetInputTypeInfo(i)
-                          .GetTensorTypeAndShapeInfo()
-                          .GetElementType();
+    auto type_info = session_.GetInputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    auto shapes = tensor_info.GetShape();
+    auto input_type = tensor_info.GetElementType();
 
     // Check if this input has dynamic dimensions
     bool has_dynamic = false;
@@ -135,8 +134,9 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
   for (std::size_t i = 0; i < session_.GetOutputCount(); i++) {
     const std::string name =
         session_.GetOutputNameAllocated(i, allocator).get();
-    auto shapes =
-        session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+    auto type_info = session_.GetOutputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    auto shapes = tensor_info.GetShape();
     shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
     LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
     inference_metadata_.addOutput(name, shapes, batch_size);
@@ -200,8 +200,9 @@ ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tenso
   }
   
   for (size_t i = 0; i < num_inputs; ++i) {
-    auto type_info = session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo();
-    auto onnx_type = type_info.GetElementType();
+    auto type_info = session_.GetInputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    auto onnx_type = tensor_info.GetElementType();
     const auto& input_shape = inputs[i].shape; // Use our stored shape which handles dynamic/overrides
 
     // Calculate expected size for validation
