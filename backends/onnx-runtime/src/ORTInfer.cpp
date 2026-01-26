@@ -45,11 +45,10 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
   // Process inputs
   for (std::size_t i = 0; i < session_.GetInputCount(); i++) {
     const std::string name = session_.GetInputNameAllocated(i, allocator).get();
-    auto shapes =
-        session_.GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
-    auto input_type = session_.GetInputTypeInfo(i)
-                          .GetTensorTypeAndShapeInfo()
-                          .GetElementType();
+    auto type_info = session_.GetInputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    auto shapes = tensor_info.GetShape();
+    auto input_type = tensor_info.GetElementType();
 
     // Check if this input has dynamic dimensions
     bool has_dynamic = false;
@@ -63,8 +62,8 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
     // Handle batch dimension first
     shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
 
-    // Handle other dimensions if dynamic
-    if (has_dynamic) {
+    // Handle dimensions if dynamic or if input_sizes provided
+    if (has_dynamic || (!input_sizes.empty() && i < input_sizes.size())) {
       if (input_sizes.empty() || i >= input_sizes.size()) {
         throw std::runtime_error(
             "Dynamic shapes found but no input sizes provided for input '" +
@@ -73,29 +72,42 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
 
       const auto &provided_shape = input_sizes[i];
 
-      // Check if provided shape has enough dimensions for dynamic inputs
-      size_t dynamic_dim_count = 0;
-      for (size_t j = 1; j < shapes.size(); j++) {
-        if (shapes[j] == -1)
-          dynamic_dim_count++;
-      }
+      if (has_dynamic) {
+        // Check if provided shape has enough dimensions for dynamic inputs
+        size_t dynamic_dim_count = 0;
+        for (size_t j = 1; j < shapes.size(); j++) {
+          if (shapes[j] == -1)
+            dynamic_dim_count++;
+        }
 
-      if (provided_shape.size() < dynamic_dim_count) {
-        throw std::runtime_error(
-            "Not enough dimensions provided for dynamic shapes in input '" +
-            name + "'");
-      }
+        if (provided_shape.size() < dynamic_dim_count) {
+          throw std::runtime_error(
+              "Not enough dimensions provided for dynamic shapes in input '" +
+              name + "'");
+        }
 
-      // Apply provided dimensions to dynamic shapes
-      size_t provided_idx = 0;
-      for (size_t j = 1; j < shapes.size(); j++) {
-        if (shapes[j] == -1) {
-          if (provided_idx >= provided_shape.size()) {
-            throw std::runtime_error("Insufficient input sizes provided for "
-                                     "dynamic dimensions in input '" +
-                                     name + "'");
-          }
-          shapes[j] = provided_shape[provided_idx++];
+        // Apply provided dimensions - map all non-batch dimensions
+        if (provided_shape.size() != shapes.size() - 1) {
+          throw std::runtime_error(
+              "Provided shape size mismatch for input '" + name + 
+              "'. Expected " + std::to_string(shapes.size() - 1) + 
+              " dimensions, got " + std::to_string(provided_shape.size()));
+        }
+        
+        for (size_t j = 1; j < shapes.size(); j++) {
+          shapes[j] = provided_shape[j - 1];
+        }
+      } else {
+        // Override fixed dimensions with provided dimensions (skip batch dimension)
+        if (provided_shape.size() != shapes.size() - 1) {
+          throw std::runtime_error(
+              "Provided shape size mismatch for input '" + name + 
+              "'. Expected " + std::to_string(shapes.size() - 1) + 
+              " dimensions, got " + std::to_string(provided_shape.size()));
+        }
+        
+        for (size_t j = 1; j < shapes.size(); j++) {
+          shapes[j] = provided_shape[j - 1];
         }
       }
     }
@@ -122,8 +134,9 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
   for (std::size_t i = 0; i < session_.GetOutputCount(); i++) {
     const std::string name =
         session_.GetOutputNameAllocated(i, allocator).get();
-    auto shapes =
-        session_.GetOutputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape();
+    auto type_info = session_.GetOutputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    auto shapes = tensor_info.GetShape();
     shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
     LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
     inference_metadata_.addOutput(name, shapes, batch_size);
@@ -162,37 +175,114 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t> &dims) {
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-ORTInfer::get_infer_results(const cv::Mat &preprocessed_img) {
-  cv::Mat blob;
-  if (preprocessed_img.dims > 2) {
-    blob = preprocessed_img;
-  } else {
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(),
-                           cv::Scalar(), false, false);
-  }
+ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
+  
   const auto &inputs = inference_metadata_.getInputs();
   const auto &outputs = inference_metadata_.getOutputs();
 
   std::vector<std::vector<TensorElement>> output_tensors;
   std::vector<std::vector<int64_t>> shapes;
-  std::vector<std::vector<float>> input_tensors(session_.GetInputCount());
+  
+  // Create Ort tensors from input data
+  // We assume input_tensors[i] already contains the data in the correct layout (e.g. float/int bytes)
+  // Warning: We are casting raw bytes to float* if the model expects float. 
+  // This assumes the input `vector<uint8_t>` is actually a byte view of the float buffer.
+  
   std::vector<Ort::Value> in_ort_tensors;
   Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
       OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
   std::vector<int64_t> orig_target_sizes;
 
-  input_tensors[0] = blob2vec(blob);
-  in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
-      memory_info, input_tensors[0].data(), getSizeByDim(inputs[0].shape),
-      inputs[0].shape.data(), inputs[0].shape.size()));
+  // Process user-provided input tensors
+  size_t num_inputs = session_.GetInputCount();
+  if (input_tensors.size() != num_inputs) {
+       throw std::runtime_error("Input tensor count mismatch. Expected " + std::to_string(num_inputs) + ", got " + std::to_string(input_tensors.size()));
+  }
+  
+  for (size_t i = 0; i < num_inputs; ++i) {
+    auto type_info = session_.GetInputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    auto onnx_type = tensor_info.GetElementType();
+    const auto& input_shape = inputs[i].shape; // Use our stored shape which handles dynamic/overrides
 
-  // RTDETR case, two inputs
-  if (input_tensors.size() > 1) {
-    orig_target_sizes = {static_cast<int64_t>(blob.size[2]),
-                         static_cast<int64_t>(blob.size[3])};
-    in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64>(
-        memory_info, orig_target_sizes.data(), getSizeByDim(orig_target_sizes),
-        inputs[1].shape.data(), inputs[1].shape.size()));
+    // Calculate expected size for validation
+    size_t element_size = 1;
+    switch (onnx_type) {
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+        element_size = 4;
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+        element_size = 1;
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+        element_size = 8;
+        break;
+    default:
+        LOG(ERROR) << "Unsupported input data type: " << onnx_type;
+        throw std::runtime_error("Unsupported input data type");
+    }
+
+    size_t expected_elements = 1;
+    for (int64_t dim : input_shape) {
+        if (dim < 0) {
+             LOG(WARNING) << "Input shape contains dynamic dimension: " << dim << ". Validation might be inaccurate.";
+        }
+        expected_elements *= (dim < 0 ? 1 : dim);
+    }
+    
+    size_t expected_bytes = expected_elements * element_size;
+    if (input_tensors[i].size() != expected_bytes) {
+         throw std::runtime_error("Input data size mismatch for tensor " + std::to_string(i) + 
+                                  ". Expected " + std::to_string(expected_bytes) + " bytes, got " + 
+                                  std::to_string(input_tensors[i].size()));
+    }
+
+    // Create tensor from raw bytes using the correct type
+    // We cast away constness as Ort::Value::CreateTensor expects mutable pointer
+    switch (onnx_type) {
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<float>(
+            memory_info, reinterpret_cast<float*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<uint8_t>(
+            memory_info, const_cast<uint8_t*>(input_tensors[i].data()), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int8_t>(
+            memory_info, reinterpret_cast<int8_t*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+         in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int32_t>(
+            memory_info, reinterpret_cast<int32_t*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<int64_t>(
+            memory_info, reinterpret_cast<int64_t*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+        in_ort_tensors.emplace_back(Ort::Value::CreateTensor<bool>(
+            memory_info, reinterpret_cast<bool*>(const_cast<uint8_t*>(input_tensors[i].data())), 
+            expected_elements,
+            input_shape.data(), input_shape.size()));
+        break;
+    default:
+         LOG(ERROR) << "Unsupported input data type for ORT: " << onnx_type;
+         std::exit(1);
+    }
   }
 
   // Run inference

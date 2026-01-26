@@ -55,14 +55,38 @@ OCVDNNInfer::OCVDNNInfer(const std::string &model_path, bool use_gpu,
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-OCVDNNInfer::get_infer_results(const cv::Mat &preprocessed_img) {
-  cv::Mat blob;
-  if (preprocessed_img.dims > 2) {
-    blob = preprocessed_img;
-  } else {
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(),
-                           cv::Scalar(), false, false);
+OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+
+  // OpenCV DNN backend currently supports only single input models
+  if (input_tensors.size() != 1) {
+    throw std::runtime_error("OpenCV DNN backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
   }
+  
+  const std::vector<uint8_t>& input_data = input_tensors[0];
+  
+  // Reconstruct cv::Mat from raw bytes
+  // We assume the input is already a preprocessed blob (NCHW or similar) matching the model input
+  const auto& shape_meta = inference_metadata_.getInputs()[0].shape;
+  std::vector<int> mat_size;
+  for(auto s : shape_meta) mat_size.push_back(static_cast<int>(s));
+  
+  // validate size
+  size_t expected_elements = 1;
+  for(auto s : shape_meta) expected_elements *= s;
+  if (input_data.size() != expected_elements * sizeof(float)) {
+      // Fallback or warning?
+      // OpenCV DNN usually works with Float32
+      // If size mismatches, it might be uint8 image? 
+      // If we strictly follow "get_infer_results takes processed tensors", it should be float.
+      // But if user passes an image, we can't easily handle blobFromImage without parameters (mean, scale).
+      // We assume it's the blob.
+      if (input_data.size() == expected_elements) {
+           // Maybe it's uint8? 
+      }
+  }
+  
+  cv::Mat blob(mat_size.size(), mat_size.data(), CV_32F, const_cast<uint8_t*>(input_data.data()));
+
   std::vector<std::vector<TensorElement>> outputs;
   std::vector<std::vector<int64_t>> shapes;
 

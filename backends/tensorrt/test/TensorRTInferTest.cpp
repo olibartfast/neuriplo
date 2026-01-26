@@ -82,7 +82,12 @@ TEST_F(TensorRTInferTest, InferenceResults) {
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
     
-    auto [output_vectors, shape_vectors] = infer.get_infer_results(blob);
+    // Convert blob to vector<vector<uint8_t>>
+    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
+    memcpy(input_data.data(), blob.data, input_data.size());
+    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+
+    auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
 
     // Basic validation
     ASSERT_FALSE(output_vectors.empty());
@@ -146,8 +151,12 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
         cv::Mat blob;
         cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
         
+        std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
+        memcpy(input_data.data(), blob.data, input_data.size());
+        std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+
         for (int i = 0; i < 3; ++i) {
-            auto [output_vectors, shape_vectors] = infer.get_infer_results(blob);
+            auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
             ASSERT_FALSE(output_vectors.empty());
         }
     }

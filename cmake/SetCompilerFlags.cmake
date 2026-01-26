@@ -1,4 +1,4 @@
-if (CMAKE_CUDA_COMPILER)
+if(CMAKE_CUDA_COMPILER)
     # If CUDA is available but not using TensorRT or LibTorch, set the CUDA flags
     set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
@@ -11,7 +11,7 @@ else()
 endif()
 
 # Check if LibTorch is enabled
-if (USE_LIBTORCH)
+if(USE_LIBTORCH)
     # Add LibTorch-specific flags, including ${TORCH_CXX_FLAGS}
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 else()
@@ -24,6 +24,11 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 
 # Combine CUDA flags with common flags
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} ${CUDA_ARCH_FLAG}")
+
+# Suppress deprecation warnings from TensorRT headers (TensorRT 10.x has many deprecated APIs in its own headers)
+if(USE_TENSORRT)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+endif()
 
 message("CMake CXX Flags Debug: ${CMAKE_CXX_FLAGS_DEBUG}")
 message("CMake CXX Flags: ${CMAKE_CXX_FLAGS}")

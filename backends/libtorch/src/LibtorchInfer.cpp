@@ -50,14 +50,36 @@ LibtorchInfer::LibtorchInfer(
     }
 
     auto shapes = type->sizes().concrete_sizes();
-    if (!shapes) {
+    bool has_dynamic = !shapes.has_value();
+    
+    if (has_dynamic || (!input_sizes.empty() && (i - 1) < input_sizes.size())) {
       if (input_sizes.empty() || (i - 1) >= input_sizes.size()) {
         throw std::runtime_error(
             "LibtorchInfer Initialitazion Error: Dynamic shapes found but no "
             "input sizes provided for input '" +
             name + "'");
       }
-      shapes = input_sizes[i - 1];
+      
+      if (has_dynamic) {
+        // Use provided dimensions for dynamic shapes
+        shapes = input_sizes[i - 1];
+      } else {
+        // Override fixed dimensions with provided dimensions
+        auto fixed_shapes = *shapes;
+        const auto& provided_shape = input_sizes[i - 1];
+        
+        if (provided_shape.size() != fixed_shapes.size() - 1) {
+          throw std::runtime_error(
+              "Provided shape size mismatch for input '" + name + 
+              "'. Expected " + std::to_string(fixed_shapes.size() - 1) + 
+              " dimensions, got " + std::to_string(provided_shape.size()));
+        }
+        
+        for (size_t j = 1; j < fixed_shapes.size(); ++j) {
+          fixed_shapes[j] = provided_shape[j - 1];
+        }
+        shapes = fixed_shapes;
+      }
     }
 
     std::vector<int64_t> final_shape = *shapes;
@@ -65,9 +87,13 @@ LibtorchInfer::LibtorchInfer(
     LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
     inference_metadata_.addInput(name, final_shape, batch_size);
 
-    std::string input_type_str = type->scalarType().has_value()
-                                     ? toString(type->scalarType().value())
-                                     : "Unknown";
+    std::string input_type_str = "Unknown";
+    c10::ScalarType s_type = c10::ScalarType::Float; // default
+    if (type->scalarType().has_value()) {
+        s_type = type->scalarType().value();
+        input_type_str = toString(s_type);
+    }
+    input_types_.push_back(s_type);
     LOG(INFO) << "\tData Type: " << input_type_str;
   }
 
@@ -197,25 +223,47 @@ LibtorchInfer::LibtorchInfer(
 
 std::tuple<std::vector<std::vector<TensorElement>>,
            std::vector<std::vector<int64_t>>>
-LibtorchInfer::get_infer_results(const cv::Mat &preprocessed_img) {
-  // Convert the input image to a blob swapping channels order from hwc to chw
-  cv::Mat blob;
-  if (preprocessed_img.dims > 2) {
-    blob = preprocessed_img;
-  } else {
-    cv::dnn::blobFromImage(preprocessed_img, blob, 1.0, cv::Size(),
-                           cv::Scalar(), false, false);
+LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>> &input_tensors) {
+
+  // Convert input images to torch tensors
+  std::vector<torch::jit::IValue> torch_inputs;
+  const auto &inputs_meta = inference_metadata_.getInputs();
+
+  // Process user-provided input tensors
+  if (input_tensors.size() != inputs_meta.size()) {
+       throw std::runtime_error("Input tensor count mismatch. Expected " + std::to_string(inputs_meta.size()) + ", got " + std::to_string(input_tensors.size()));
   }
-  // Convert the input tensor to a Torch tensor
-  torch::Tensor input =
-      torch::from_blob(blob.data, {1, blob.size[1], blob.size[2], blob.size[3]},
-                       torch::kFloat32);
-  input = input.to(device_);
+  
+  for (size_t i = 0; i < inputs_meta.size(); ++i) {
+    const auto &input_data = input_tensors[i];
+    const auto &shape = inputs_meta[i].shape;
+    
+    // Determine type from stored metadata
+    c10::ScalarType dtype = c10::ScalarType::Float;
+    if (i < input_types_.size()) {
+        dtype = input_types_[i];
+    }
+    
+    // Validate size
+    size_t element_size = c10::elementSize(dtype);
+    if (input_data.size() % element_size != 0) {
+        throw std::runtime_error("Input buffer size not multiple of element size for input " + std::to_string(i));
+    }
+    
+    std::vector<int64_t> tensor_dims = shape;
+
+    auto options = torch::TensorOptions().dtype(dtype);
+    torch::Tensor input = torch::from_blob(
+        const_cast<uint8_t*>(input_data.data()), 
+        tensor_dims,
+        options);
+        
+    input = input.to(device_);
+    torch_inputs.push_back(input);
+  }
 
   // Run inference
-  std::vector<torch::jit::IValue> inputs;
-  inputs.push_back(input);
-  auto output = module_.forward(inputs);
+  auto output = module_.forward(torch_inputs);
 
   std::vector<std::vector<TensorElement>> output_vectors;
   std::vector<std::vector<int64_t>> shape_vectors;
