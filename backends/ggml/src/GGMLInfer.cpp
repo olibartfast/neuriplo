@@ -134,28 +134,36 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
-GGMLInfer::get_infer_results(const cv::Mat& input_blob)
+GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors)
 {
+
     if (!model_loaded_) {
         throw std::runtime_error("Model not loaded");
     }
     
+    // Process all input tensors
+    if (input_tensors.size() != 1) {
+        throw std::runtime_error("GGML backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+    }
+    
+    const std::vector<uint8_t>& input_raw = input_tensors[0];
+    
     start_timer();
     
     try {
-        // Convert OpenCV Mat to GGML tensor
-        std::vector<float> input_data = blob2vec(input_blob);
-        
-        // Copy data to input tensor
-        size_t tensor_size = input_tensor_->ne[0] * input_tensor_->ne[1] * input_tensor_->ne[2] * input_tensor_->ne[3];
-        LOG(INFO) << "Tensor dimensions: " << input_tensor_->ne[0] << "x" << input_tensor_->ne[1] << "x" << input_tensor_->ne[2] << "x" << input_tensor_->ne[3];
-        LOG(INFO) << "Tensor size: " << tensor_size << ", Input data size: " << input_data.size();
-        
-        if (tensor_size != input_data.size()) {
-            throw std::runtime_error("Input data size mismatch: tensor=" + std::to_string(tensor_size) + ", data=" + std::to_string(input_data.size()));
-        }
-        
-        memcpy(input_tensor_->data, input_data.data(), input_data.size() * sizeof(float));
+    // Validate input size against tensor expectation
+    size_t expected_bytes = ggml_nbytes(input_tensor_);
+    
+    if (input_raw.size() != expected_bytes) {
+         throw std::runtime_error("Input data size mismatch. Expected " + std::to_string(expected_bytes) + " bytes (based on tensor type/shape), got " + std::to_string(input_raw.size()));
+    }
+    
+    // Copy data directly to tensor
+    // We assume input_raw contains the correct byte representation for the tensor's type (F32, F16, etc.)
+    std::memcpy(input_tensor_->data, input_raw.data(), input_raw.size());
+    
+    // Log for debugging
+    LOG(INFO) << "Copied " << input_raw.size() << " bytes to input tensor (Type: " << ggml_type_name(input_tensor_->type) << ")";
         
         // Execute the graph (if backend is available)
         if (backend_) {

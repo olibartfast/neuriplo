@@ -102,7 +102,7 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-TVMInfer::get_infer_results(const cv::Mat& preprocessed_img)
+TVMInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors)
 {
     start_timer();
 
@@ -110,11 +110,18 @@ TVMInfer::get_infer_results(const cv::Mat& preprocessed_img)
         LOG(ERROR) << "TVM model not loaded";
         throw InferenceExecutionException("TVM model not loaded");
     }
+    
+    // TVM backend currently supports only single input models
+    if (input_tensors.size() != 1) {
+        throw std::runtime_error("TVM backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+    }
+    
+    const std::vector<uint8_t>& input_data = input_tensors[0];
 
     try
     {
         LOG(INFO) << "TVM inference requested - returning dummy results";
-        LOG(INFO) << "Input image size: " << preprocessed_img.rows << "x" << preprocessed_img.cols;
+        LOG(INFO) << "Input data size (bytes): " << input_data.size();
 
         // Return dummy results for now
         std::vector<std::vector<TensorElement>> output_vectors;

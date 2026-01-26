@@ -69,19 +69,36 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                 }
             }
 
-            if (has_dynamic) {
+            if (has_dynamic || (!input_sizes.empty() && i < input_sizes.size())) {
                 if (input_sizes.empty() || i >= input_sizes.size()) {
                     throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name + "'");
                 }
                 
                 const auto& provided_shape = input_sizes[i];
-                size_t provided_idx = 0;
-                for (size_t j = 0; j < partial_shape.size(); ++j) {
-                    if (partial_shape[j].is_dynamic()) {
-                        if (provided_idx >= provided_shape.size()) {
-                            throw std::runtime_error("Insufficient input sizes provided for dynamic dimensions in input '" + name + "'");
-                        }
-                        partial_shape[j] = provided_shape[provided_idx++];
+                
+                if (has_dynamic) {
+                    // Apply provided dimensions - map all non-batch dimensions
+                    if (provided_shape.size() != partial_shape.size() - 1) {
+                        throw std::runtime_error(
+                            "Provided shape size mismatch for input '" + name + 
+                            "'. Expected " + std::to_string(partial_shape.size() - 1) + 
+                            " dimensions, got " + std::to_string(provided_shape.size()));
+                    }
+                    
+                    for (size_t j = 1; j < partial_shape.size(); ++j) {
+                        partial_shape[j] = provided_shape[j - 1];
+                    }
+                } else {
+                    // Override fixed dimensions with provided dimensions (skip batch dimension)
+                    if (provided_shape.size() != partial_shape.size() - 1) {
+                        throw std::runtime_error(
+                            "Provided shape size mismatch for input '" + name + 
+                            "'. Expected " + std::to_string(partial_shape.size() - 1) + 
+                            " dimensions, got " + std::to_string(provided_shape.size()));
+                    }
+                    
+                    for (size_t j = 1; j < partial_shape.size(); ++j) {
+                        partial_shape[j] = provided_shape[j - 1];
                     }
                 }
             }
@@ -174,15 +191,22 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const cv::Mat& input_blob) 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) 
 {
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
 
-    // The input_blob is already in the correct format (NCHW)
-    // No need to convert again
-          
-    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), input_blob.data);
+    // OpenVINO backend currently supports only single input models
+    if (input_tensors.size() != 1) {
+        throw std::runtime_error("OpenVINO backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+    }
+    
+    const std::vector<uint8_t>& input_data = input_tensors[0];
+            
+    // Create ov::Tensor from raw data
+    // We cast away constness because ov::Tensor expects void*, but for inference input it should be read-only
+    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), const_cast<uint8_t*>(input_data.data()));
+    
     // Set input tensor for model with one input
     infer_request_.set_input_tensor(input_tensor);    
     infer_request_.infer();  // Perform inference

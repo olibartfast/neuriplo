@@ -73,36 +73,78 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path,
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const cv::Mat& input_blob) 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> TFDetectionAPI::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) 
 {
-    // The input_blob from cv::dnn::blobFromImage is in NCHW format (batch, channels, height, width)
+   
+    // TensorFlow backend currently supports only single input models
+    if (input_tensors.size() != 1) {
+        throw std::runtime_error("TensorFlow backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+    }
+    
+    const std::vector<uint8_t>& input_data = input_tensors[0];
+    
+    // The input_data is assumed to be in NCHW format (batch, channels, height, width)
     // TensorFlow expects NHWC format (batch, height, width, channels)
     // So we need to transpose from NCHW to NHWC
     
-    int batch_size = input_blob.size[0];
-    int channels = input_blob.size[1];
-    int height = input_blob.size[2];
-    int width = input_blob.size[3];
+    // We rely on metadata or input_blob.size from previous code.
+    // Previous code used input_blob.size[0]..size[3].
+    // We should use inference_metadata_.getInputs()[0].shape or similar.
+    // However, TFDetectionAPI constructor logic for `input_shape` [Channels, Height, Width] was derived from NHWC!
+    // Wait, lines 36-44 of TFDetectionAPI.cpp (viewed earlier) extracted C, H, W from NHWC model info!
+    // So the model IS NHWC.
+    // We need to know current batch size.
+    // NCHW layout implies: Batch * Channels * Height * Width.
+    
+    int batch_size = batch_size_; // From base class
+    // We need dimensions. 
+    // metadata stores [Channels, Height, Width] (mapped from constructor).
+    // Let's retrieve them.
+    auto shape = inference_metadata_.getInputs()[0].shape; // [C, H, W] (plus batch is separate in metadata usually?) 
+    // InferenceMetadata::addInput takes shape excluding batch? No, it takes full shape usually or whatever we passed.
+    // Constructor passed `input_shape` which was [C, H, W].
+    
+    int channels = shape[0];
+    int height = shape[1];
+    int width = shape[2];
     
     // Create tensor with proper shape for NHWC format
     tensorflow::Tensor input_tensor(input_info_.dtype(), 
         tensorflow::TensorShape({batch_size, height, width, channels}));
   
-    // Copy data with NCHW to NHWC transpose
-    auto tensor_data = input_tensor.flat<float>().data();
-    const float* blob_data = input_blob.ptr<float>();
-    
-    // Transpose from NCHW to NHWC
-    for (int b = 0; b < batch_size; ++b) {
-        for (int h = 0; h < height; ++h) {
-            for (int w = 0; w < width; ++w) {
-                for (int c = 0; c < channels; ++c) {
-                    int nchw_idx = b * channels * height * width + c * height * width + h * width + w;
-                    int nhwc_idx = b * height * width * channels + h * width * channels + w * channels + c;
-                    tensor_data[nhwc_idx] = blob_data[nchw_idx];
+    // Transpose helper
+    auto transpose_nchw_to_nhwc = [&](auto* dest_ptr, const auto* src_ptr) {
+        for (int b = 0; b < batch_size; ++b) {
+            for (int h = 0; h < height; ++h) {
+                for (int w = 0; w < width; ++w) {
+                    for (int c = 0; c < channels; ++c) {
+                        int nchw_idx = b * channels * height * width + c * height * width + h * width + w;
+                        int nhwc_idx = b * height * width * channels + h * width * channels + w * channels + c;
+                        dest_ptr[nhwc_idx] = src_ptr[nchw_idx];
+                    }
                 }
             }
         }
+    };
+
+    switch(input_info_.dtype()) {
+        case tensorflow::DataType::DT_FLOAT: {
+            transpose_nchw_to_nhwc(input_tensor.flat<float>().data(), 
+                                   reinterpret_cast<const float*>(input_data.data()));
+            break;
+        }
+        case tensorflow::DataType::DT_UINT8: {
+            transpose_nchw_to_nhwc(input_tensor.flat<uint8_t>().data(), 
+                                   reinterpret_cast<const uint8_t*>(input_data.data()));
+            break;
+        }
+        case tensorflow::DataType::DT_INT32: {
+             transpose_nchw_to_nhwc(input_tensor.flat<int32_t>().data(), 
+                                   reinterpret_cast<const int32_t*>(input_data.data()));
+            break;
+        }
+        default:
+            throw std::runtime_error("Unsupported input data type in TFDetectionAPI");
     }
 
     // Prepare inputs for running the session

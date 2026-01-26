@@ -2,7 +2,7 @@
 
 # Stage 1: Cuda dependencies
 ARG UBUNTU_VERSION=24.04
-ARG NGC_CUDA_VERSION=12.6.3
+ARG NGC_CUDA_VERSION=13.0
 FROM nvcr.io/nvidia/cuda:${NGC_CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} as cuda_dependencies
 
 # Set environment variables
@@ -25,11 +25,11 @@ FROM cuda_dependencies AS backend_dependencies
 
 # TensorRT version configuration
 ARG TRT_MAJOR=10
-ARG TRT_MINOR=.7
-ARG TRT_PATCH=.0
-ARG TRT_BUILD=.23
+ARG TRT_MINOR=.13
+ARG TRT_PATCH=.3
+ARG TRT_BUILD=.9
 ARG TRT_VERSION=${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}${TRT_BUILD}
-ARG TRT_CUDA_VERSION=12.6
+ARG TRT_CUDA_VERSION=13.0
 ARG TENSORRT_DIR=/opt/tensorrt
 
 # Download and install TensorRT
