@@ -8,7 +8,7 @@
 * Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks. 
 * It supports multiple frameworks and libraries such as OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM and GGML.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
-* The library is currently mainly used as component of the [Object Detection Inference Project](https://github.com/olibartfast/object-detection-inference)
+* The library is currently mainly used as component of the [Vision Inference Project](https://github.com/olibartfast/vision-inference)
 
 ## Dependencies 
 - C++17
