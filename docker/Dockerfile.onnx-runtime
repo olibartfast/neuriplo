@@ -1,0 +1,72 @@
+# docker build --rm -t neuriplo:onnxruntime -f docker/Dockerfile.onnx-runtime .
+# docker run --rm neuriplo:onnxruntime
+
+ARG UBUNTU_VERSION=24.04
+ARG ORT_VERSION=1.19.2
+
+# Stage 1: Base dependencies (matches docker/Dockerfile.base for GHA layer-cache sharing)
+FROM ubuntu:${UBUNTU_VERSION} AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential \
+    pkg-config \
+    wget \
+    git \
+    libopencv-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build GTest static libs (Ubuntu ships only headers, not compiled static libs)
+RUN cd /usr/src/gtest && \
+    cmake . && \
+    make && \
+    cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
+
+# Stage 2: Download and install ONNX Runtime (CPU)
+FROM base AS ort_install
+
+ARG ORT_VERSION
+ENV ONNX_RUNTIME_DIR=/opt/onnxruntime
+
+RUN wget --tries=3 --retry-connrefused \
+    https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz \
+    -O /tmp/onnxruntime.tgz && \
+    mkdir -p ${ONNX_RUNTIME_DIR} && \
+    tar -xzf /tmp/onnxruntime.tgz -C ${ONNX_RUNTIME_DIR} --strip-components=1 && \
+    rm /tmp/onnxruntime.tgz
+
+# Stage 3: Build application
+FROM ort_install AS builder
+
+WORKDIR /app
+COPY . .
+
+RUN cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=ONNX_RUNTIME \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DONNX_RUNTIME_DIR=${ONNX_RUNTIME_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 4: Final runtime image
+FROM ort_install AS final
+
+RUN useradd -m appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
+COPY --from=builder --chown=appuser:appuser /app/build /app/build
+
+WORKDIR /app
+USER appuser
+
+ENV LD_LIBRARY_PATH=/opt/onnxruntime/lib
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD find /app/build -name "ONNXRuntimeInferTest" -type f || exit 1
+
+CMD ["/app/build/backends/onnx-runtime/test/ONNXRuntimeInferTest"]

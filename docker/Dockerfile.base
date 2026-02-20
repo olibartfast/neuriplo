@@ -1,0 +1,28 @@
+# Shared base image for neuriplo CPU backend containers.
+# This image is built first in CI to warm the Docker layer cache for all CPU backend builds.
+#
+# Build locally:
+#   docker build -f docker/Dockerfile.base -t neuriplo-base .
+
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential \
+    pkg-config \
+    wget \
+    git \
+    libopencv-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build GTest static libs (Ubuntu ships only headers, not compiled static libs)
+RUN cd /usr/src/gtest && \
+    cmake . && \
+    make && \
+    cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
