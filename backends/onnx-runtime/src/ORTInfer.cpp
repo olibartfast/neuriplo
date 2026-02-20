@@ -12,9 +12,13 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
   if (use_gpu) {
     std::vector<std::string> providers = Ort::GetAvailableProviders();
     LOG(INFO) << "Available providers:";
-    bool is_found = false;
     for (const auto &p : providers) {
       LOG(INFO) << p;
+    }
+
+    bool is_found = false;
+
+    for (const auto &p : providers) {
       if (p.find("CUDA") != std::string::npos) {
         LOG(INFO) << "Using CUDA GPU";
         OrtCUDAProviderOptions cuda_options;
@@ -23,8 +27,21 @@ ORTInfer::ORTInfer(const std::string &model_path, bool use_gpu,
         break;
       }
     }
+
     if (!is_found) {
-      LOG(INFO) << "CUDA GPU not available, falling back to CPU";
+      for (const auto &p : providers) {
+        if (p.find("ROCM") != std::string::npos) {
+          LOG(INFO) << "Using ROCm GPU";
+          OrtROCMProviderOptions rocm_options;
+          session_options.AppendExecutionProvider_ROCM(rocm_options);
+          is_found = true;
+          break;
+        }
+      }
+    }
+
+    if (!is_found) {
+      LOG(INFO) << "No GPU provider available (CUDA/ROCm), falling back to CPU";
       session_options = Ort::SessionOptions();
     }
   } else {

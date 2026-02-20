@@ -11,7 +11,18 @@ if (CUDA_FOUND)
     message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
     set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda)
 else ()
-    message(WARNING "CUDA not found. GPU support will be disabled for ONNX Runtime.")
+    message(STATUS "CUDA not found.")
+endif()
+
+# Check for ROCm support
+if (EXISTS "/opt/rocm")
+    message(STATUS "✓ ROCm found at /opt/rocm")
+else ()
+    message(STATUS "ROCm not found.")
+endif()
+
+if (NOT CUDA_FOUND AND NOT EXISTS "/opt/rocm")
+    message(WARNING "Neither CUDA nor ROCm found. GPU support will be disabled for ONNX Runtime.")
 endif()
 
 # Define ONNX Runtime-specific source files
