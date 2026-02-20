@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+
+  # =============================================================
+  # CPU Backend Tests
+  # Runs on GitHub-hosted runners using Docker.
+  # Backends: OPENCV_DNN, GGML, OPENVINO, ONNX_RUNTIME
+  # =============================================================
+  build-and-test-cpu:
+    name: "${{ matrix.backend }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: OPENCV_DNN
+            dockerfile: docker/Dockerfile.opencvdnn
+            image: neuriplo-opencvdnn
+            test_exe: OCVDNNInferTest
+
+          - backend: GGML
+            dockerfile: docker/Dockerfile.ggml
+            image: neuriplo-ggml
+            test_exe: GGMLInferTest
+
+          - backend: OPENVINO
+            dockerfile: docker/Dockerfile.openvino
+            image: neuriplo-openvino
+            test_exe: OpenVINOInferTest
+
+          - backend: ONNX_RUNTIME
+            dockerfile: docker/Dockerfile.onnx-runtime
+            image: neuriplo-onnxruntime
+            test_exe: ONNXRuntimeInferTest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          tags: ${{ matrix.image }}:ci
+          load: true
+          cache-from: type=gha,scope=${{ matrix.backend }}
+          cache-to: type=gha,scope=${{ matrix.backend }},mode=max
+
+      - name: Run tests
+        run: |
+          mkdir -p test-results
+          docker run --rm \
+            -v "${{ github.workspace }}/test-results:/app/test_results" \
+            ${{ matrix.image }}:ci \
+            bash -c "
+              EXE=\$(find /app -name '${{ matrix.test_exe }}' -type f -executable | head -1)
+              if [ -z \"\$EXE\" ]; then
+                echo 'ERROR: Test executable ${{ matrix.test_exe }} not found'
+                find /app -type f -executable | head -20
+                exit 1
+              fi
+              echo \"Running: \$EXE\"
+              \"\$EXE\" --gtest_output=xml:/app/test_results/${{ matrix.backend }}_results.xml
+            "
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.backend }}
+          path: test-results/
+
+  # =============================================================
+  # GPU Backend Tests
+  # Requires a self-hosted GitHub Actions runner with an NVIDIA GPU.
+  #
+  # TODO: Set up a self-hosted GPU runner to enable these jobs.
+  #       Once the runner is registered, remove the `if: false` line below.
+  #
+  # SETUP GUIDE — Self-hosted runner with GPU support:
+  #
+  # Step 1 — Provision a Linux machine with an NVIDIA GPU.
+  #           Any Ubuntu 22.04+ machine with a CUDA-capable GPU will work.
+  #
+  # Step 2 — Install NVIDIA drivers:
+  #           sudo apt-get install -y nvidia-driver-<version>
+  #           Verify: nvidia-smi
+  #
+  # Step 3 — Install Docker:
+  #           curl -fsSL https://get.docker.com | sh
+  #           sudo usermod -aG docker $USER && newgrp docker
+  #
+  # Step 4 — Install NVIDIA Container Toolkit (enables --gpus flag in Docker):
+  #           curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+  #             | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-ct-keyring.gpg
+  #           curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+  #             | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-ct-keyring.gpg] https://#g' \
+  #             | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  #           sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+  #           sudo nvidia-ctk runtime configure --runtime=docker
+  #           sudo systemctl restart docker
+  #           Verify: docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+  #
+  # Step 5 — Register the runner in this GitHub repo:
+  #           Go to: Settings > Actions > Runners > New self-hosted runner
+  #           Follow the instructions to download and configure the runner.
+  #           When asked for labels, add: self-hosted,gpu,linux
+  #
+  # Step 6 — (Optional) Run the runner as a systemd service so it starts on boot:
+  #           sudo ./svc.sh install
+  #           sudo ./svc.sh start
+  # =============================================================
+  build-and-test-gpu:
+    name: "GPU / ${{ matrix.backend }}"
+    runs-on: [self-hosted, gpu, linux]
+    if: false  # TODO: remove this line once a self-hosted GPU runner is registered
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: TENSORRT
+            dockerfile: docker/Dockerfile.tensorrt
+            image: neuriplo-tensorrt
+            test_exe: TensorRTInferTest
+
+          - backend: LIBTORCH
+            dockerfile: docker/Dockerfile.libtorch
+            image: neuriplo-libtorch
+            test_exe: LibtorchInferTest
+
+          - backend: LIBTENSORFLOW
+            dockerfile: docker/Dockerfile.libtensorflow
+            image: neuriplo-libtensorflow
+            test_exe: TensorFlowInferTest
+
+          - backend: TVM
+            dockerfile: docker/Dockerfile.tvm
+            image: neuriplo-tvm
+            test_exe: TVMInferTest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ matrix.image }}:ci \
+            -f ${{ matrix.dockerfile }} .
+
+      - name: Run tests
+        run: |
+          mkdir -p test-results
+          docker run --rm --gpus all \
+            -v "${{ github.workspace }}/test-results:/app/test_results" \
+            ${{ matrix.image }}:ci \
+            bash -c "
+              EXE=\$(find /app -name '${{ matrix.test_exe }}' -type f -executable | head -1)
+              if [ -z \"\$EXE\" ]; then
+                echo 'ERROR: Test executable ${{ matrix.test_exe }} not found'
+                find /app -type f -executable | head -20
+                exit 1
+              fi
+              echo \"Running: \$EXE\"
+              \"\$EXE\" --gtest_output=xml:/app/test_results/${{ matrix.backend }}_results.xml
+            "
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.backend }}
+          path: test-results/
+
+  # =============================================================
+  # Summary — aggregates results from all CPU backend jobs
+  # =============================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-test-cpu]
+    if: always()
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          path: test-results
+
+      - name: Report results
+        run: |
+          echo "## Backend Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          FAILED=0
+          for xml in test-results/**/*.xml; do
+            [ -f "$xml" ] || continue
+            backend=$(basename "$xml" _results.xml)
+            failures=$(grep -o 'failures="[0-9]*"' "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
+            errors=$(grep -o 'errors="[0-9]*"' "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
+            if [ "${failures:-0}" = "0" ] && [ "${errors:-0}" = "0" ]; then
+              echo "- PASS: $backend" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- FAIL: $backend (failures=$failures, errors=$errors)" >> $GITHUB_STEP_SUMMARY
+              FAILED=1
+            fi
+          done
+          exit $FAILED
