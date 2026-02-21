@@ -2,7 +2,6 @@
 # docker run --rm neuriplo:onnxruntime
 
 ARG UBUNTU_VERSION=24.04
-ARG ORT_VERSION=1.19.2
 
 # Stage 1: Base dependencies (matches docker/Dockerfile.base for GHA layer-cache sharing)
 FROM ubuntu:${UBUNTU_VERSION} AS base
@@ -21,6 +20,8 @@ RUN apt-get update && apt-get upgrade -y && \
     libgtest-dev \
     && rm -rf /var/lib/apt/lists/*
 
+COPY versions.env /tmp/versions.env
+
 # Build GTest static libs (Ubuntu ships only headers, not compiled static libs)
 RUN cd /usr/src/gtest && \
     cmake . && \
@@ -30,11 +31,11 @@ RUN cd /usr/src/gtest && \
 # Stage 2: Download and install ONNX Runtime (CPU)
 FROM base AS ort_install
 
-ARG ORT_VERSION
 ENV ONNX_RUNTIME_DIR=/opt/onnxruntime
 
-RUN wget --tries=3 --retry-connrefused \
-    https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz \
+RUN . /tmp/versions.env && \
+    wget --tries=3 --retry-connrefused \
+    https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_RUNTIME_VERSION}/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}.tgz \
     -O /tmp/onnxruntime.tgz && \
     mkdir -p ${ONNX_RUNTIME_DIR} && \
     tar -xzf /tmp/onnxruntime.tgz -C ${ONNX_RUNTIME_DIR} --strip-components=1 && \

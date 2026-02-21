@@ -25,22 +25,25 @@ RUN apt-get update && apt-get upgrade -y && \
     libgtest-dev \
     && rm -rf /var/lib/apt/lists/*
 
+COPY versions.env /tmp/versions.env
+
 # Build GTest static libs
 RUN cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
 
 # Stage 2: Install OpenVINO
 FROM base AS openvino_install
 
-# Full build identifier for the OpenVINO 2025.2.0 release package
-ARG OPENVINO_FULL_ID=2025.2.0.19140.c01cd93e24d
-ENV OPENVINO_FILENAME=openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64.tgz
-ENV OPENVINO_DIR=/opt/openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64
+ENV OPENVINO_DIR=/opt/openvino
 
 # Download and install OpenVINO
-RUN wget --tries=3 --retry-connrefused \
-    "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/${OPENVINO_FILENAME}" \
+RUN . /tmp/versions.env && \
+    OPENVINO_FILENAME=openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64.tgz && \
+    OPENVINO_SHORT=$(echo ${OPENVINO_VERSION} | cut -d. -f1-2) && \
+    wget --tries=3 --retry-connrefused \
+    "https://storage.openvinotoolkit.org/repositories/openvino/packages/${OPENVINO_SHORT}/linux/${OPENVINO_FILENAME}" \
     && tar -xzf "${OPENVINO_FILENAME}" -C /opt \
-    && rm "${OPENVINO_FILENAME}"
+    && rm "${OPENVINO_FILENAME}" \
+    && ln -s /opt/openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64 /opt/openvino
 
 # Set OpenVINO environment variables
 ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
@@ -97,12 +100,6 @@ RUN rm -rf build && \
 # Stage 5: Generate test models
 FROM builder AS model_generator
 
-# Set OpenVINO environment variables for model generation
-ENV OPENVINO_DIR=/opt/openvino_toolkit_ubuntu24_2025.2.0.19140.c01cd93e24d_x86_64
-ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
-ENV LD_LIBRARY_PATH=${OPENVINO_DIR}/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
-ENV PYTHONPATH=${OPENVINO_DIR}/python:${PYTHONPATH:-}
-
 # Copy model generation scripts to build directory
 RUN cp backends/openvino/test/export_torchvision_classifier.py build/backends/openvino/test/ && \
     cp backends/openvino/test/generate_openvino_ir.sh build/backends/openvino/test/ && \
@@ -136,7 +133,7 @@ WORKDIR /app
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/app/build/lib:${LD_LIBRARY_PATH:-}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
