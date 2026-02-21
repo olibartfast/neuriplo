@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "TFDetectionAPI.hpp"
 #include <glog/logging.h>
-#include <opencv2/opencv.hpp>
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -81,12 +80,8 @@ protected:
 
 // Test basic functionality - works with both real model and mock
 TEST_F(TensorFlowInferTest, BasicInference) {
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3); // ResNet expects 224x224 input
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
+    // NCHW: 1 batch × 3 channels × 224 height × 224 width, all zeros
+    std::vector<uint8_t> input_data(1 * 3 * 224 * 224 * sizeof(float), 0);
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
 
     std::vector<std::vector<TensorElement>> output_vectors;
@@ -139,13 +134,8 @@ TEST_F(TensorFlowInferTest, IntegrationTest) {
         GTEST_SKIP() << "Skipping integration test - no real model available";
     }
     
-    // Test with real model
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
+    // Test with real model - NCHW: 1 batch × 3 channels × 224 height × 224 width
+    std::vector<uint8_t> input_data(1 * 3 * 224 * 224 * sizeof(float), 0);
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
 
     auto [output_vectors, shape_vectors] = real_infer->get_infer_results(input_tensors);
@@ -167,9 +157,7 @@ TEST_F(TensorFlowInferTest, MockUnitTest) {
         GTEST_SKIP() << "Skipping mock unit test - real model is available";
     }
     
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    std::vector<uint8_t> input_data(input.total() * input.elemSize());
-    memcpy(input_data.data(), input.data, input_data.size());
+    std::vector<uint8_t> input_data(224 * 224 * 3 * sizeof(float), 0);
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
     
     auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
@@ -196,12 +184,8 @@ TEST_F(TensorFlowInferTest, GPUTest) {
         auto gpu_infer = std::make_unique<TFDetectionAPI>(model_path, true);
         
         // If we got here, GPU is available, test inference
-        cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::Mat blob;
-        cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-        
-        std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-        memcpy(input_data.data(), blob.data, input_data.size());
+        // NCHW: 1 batch × 3 channels × 224 height × 224 width
+        std::vector<uint8_t> input_data(1 * 3 * 224 * 224 * sizeof(float), 0);
         std::vector<std::vector<uint8_t>> input_tensors = {input_data};
         
         auto [output_vectors, shape_vectors] = gpu_infer->get_infer_results(input_tensors);

@@ -21,7 +21,14 @@
             "program": "${workspaceFolder}/build/backends/opencv-dnn/test/OCVDNNInferTest",
             "environment": [{ "name": "config", "value": "Debug" }],
             "cwd": "${workspaceFolder}/build/backends/opencv-dnn/test",
-        }        
-          
+        },
+        {
+            "name": "TensorFlow Infer Test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/backends/libtensorflow/test/TensorFlowInferTest",
+            "environment": [{ "name": "config", "value": "Debug" }],
+            "cwd": "${workspaceFolder}/build/backends/libtensorflow/test",
+        }
     ]
 }
