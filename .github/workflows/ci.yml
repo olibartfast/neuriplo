@@ -101,9 +101,7 @@ jobs:
 
       - name: Run tests
         run: |
-          mkdir -p test-results
           docker run --rm \
-            -v "${{ github.workspace }}/test-results:/app/test_results" \
             ${{ matrix.image }}:ci \
             bash -c "
               EXE=\$(find /app -name '${{ matrix.test_exe }}' -type f -executable | head -1)
@@ -113,15 +111,8 @@ jobs:
                 exit 1
               fi
               echo \"Running: \$EXE\"
-              \"\$EXE\" --gtest_output=xml:/app/test_results/${{ matrix.backend }}_results.xml
+              \"\$EXE\"
             "
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.backend }}
-          path: test-results/
 
   # =============================================================
   # GPU Backend Tests
@@ -193,9 +184,7 @@ jobs:
 
       - name: Run tests
         run: |
-          mkdir -p test-results
           docker run --rm --gpus all \
-            -v "${{ github.workspace }}/test-results:/app/test_results" \
             ${{ matrix.image }}:ci \
             bash -c "
               EXE=\$(find /app -name '${{ matrix.test_exe }}' -type f -executable | head -1)
@@ -205,45 +194,6 @@ jobs:
                 exit 1
               fi
               echo \"Running: \$EXE\"
-              \"\$EXE\" --gtest_output=xml:/app/test_results/${{ matrix.backend }}_results.xml
+              \"\$EXE\"
             "
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.backend }}
-          path: test-results/
-
-  # =============================================================
-  # Summary — aggregates results from all CPU backend jobs
-  # =============================================================
-  summary:
-    name: CI Summary
-    runs-on: ubuntu-latest
-    needs: [build-and-test-cpu]
-    if: always()
-    steps:
-      - name: Download all test results
-        uses: actions/download-artifact@v4
-        with:
-          path: test-results
-
-      - name: Report results
-        run: |
-          echo "## Backend Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          FAILED=0
-          for xml in test-results/**/*.xml; do
-            [ -f "$xml" ] || continue
-            backend=$(basename "$xml" _results.xml)
-            failures=$(grep -o 'failures="[0-9]*"' "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
-            errors=$(grep -o 'errors="[0-9]*"' "$xml" | head -1 | grep -o '[0-9]*' || echo 0)
-            if [ "${failures:-0}" = "0" ] && [ "${errors:-0}" = "0" ]; then
-              echo "- PASS: $backend" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "- FAIL: $backend (failures=$failures, errors=$errors)" >> $GITHUB_STEP_SUMMARY
-              FAILED=1
-            fi
-          done
-          exit $FAILED
