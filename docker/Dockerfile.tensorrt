@@ -2,7 +2,7 @@
 
 # Stage 1: Cuda dependencies
 ARG UBUNTU_VERSION=24.04
-ARG NGC_CUDA_VERSION=13.0
+ARG NGC_CUDA_VERSION=13.0.0
 FROM nvcr.io/nvidia/cuda:${NGC_CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} as cuda_dependencies
 
 # Set environment variables
