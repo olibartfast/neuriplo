@@ -40,11 +40,13 @@ RUN apt-get update && apt-get upgrade -y && \
 FROM base AS libtorch_install
 
 # Download and install LibTorch
-ARG COMPUTE_PLATFORM=cpu 
-RUN wget https://download.pytorch.org/libtorch/$COMPUTE_PLATFORM/libtorch-cxx11-abi-shared-with-deps-$LIBTORCH_VERSION%2B$COMPUTE_PLATFORM.zip && \
-    unzip libtorch-cxx11-abi-shared-with-deps-$LIBTORCH_VERSION+$COMPUTE_PLATFORM.zip -d /tmp && \
+ARG COMPUTE_PLATFORM=cpu
+RUN . /tmp/versions.env && \
+    LIBTORCH_VERSION=${PYTORCH_VERSION} && \
+    wget https://download.pytorch.org/libtorch/$COMPUTE_PLATFORM/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2B${COMPUTE_PLATFORM}.zip && \
+    unzip libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip -d /tmp && \
     mv /tmp/libtorch ${LIBTORCH_DIR} && \
-    rm libtorch-cxx11-abi-shared-with-deps-$LIBTORCH_VERSION+$COMPUTE_PLATFORM.zip    
+    rm libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip    
 
 # Create virtual environment for PyTorch
 RUN python3 -m venv /opt/pytorch_env
@@ -128,7 +130,7 @@ WORKDIR /app/build/backends/libtorch/test
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${LIBTORCH_DIR}/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/app/build/lib:${LIBTORCH_DIR}/lib:${LD_LIBRARY_PATH:-}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
