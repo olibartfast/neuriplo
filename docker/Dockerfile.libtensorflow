@@ -150,7 +150,7 @@ WORKDIR /app/build/backends/libtensorflow/test
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:${LD_LIBRARY_PATH:-}
+ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow:${LD_LIBRARY_PATH:-}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
