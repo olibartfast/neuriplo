@@ -20,41 +20,29 @@ TRTInfer::TRTInfer(const std::string &model_path, bool use_gpu,
   batch_size_ = batch_size;
   initializeBuffers(model_path, input_sizes);
   populateInferenceMetadata(input_sizes);
-  std::cout << "TRTInfer constructor finished!" << std::endl;
 }
 
 TRTInfer::~TRTInfer() {
-  std::cout << "TRTInfer destructor called!" << std::endl;
   for (size_t i = 0; i < buffers_.size(); ++i) {
     void *buffer = buffers_[i];
-    std::cout << "  Freeing buffer[" << i << "]: " << buffer << std::endl;
     if (buffer) {
       cudaError_t err = cudaFree(buffer);
       if (err != cudaSuccess) {
-        std::cerr << "    cudaFree failed for buffer[" << i
-                  << "]: " << cudaGetErrorString(err) << std::endl;
-      } else {
-        std::cout << "    cudaFree succeeded for buffer[" << i << "]"
-                  << std::endl;
+        LOG(ERROR) << "cudaFree failed for buffer[" << i
+                   << "]: " << cudaGetErrorString(err);
       }
       buffers_[i] = nullptr;
-    } else {
-      std::cout << "    buffer[" << i << "] is nullptr, skipping." << std::endl;
     }
   }
-  std::cout << "  Deleting context_: " << context_ << std::endl;
   if (context_) {
     delete context_;
     context_ = nullptr;
   }
-  std::cout << "  Resetting engine_ (shared_ptr)..." << std::endl;
   engine_.reset();
-  std::cout << "  Deleting runtime_: " << runtime_ << std::endl;
   if (runtime_) {
     delete runtime_;
     runtime_ = nullptr;
   }
-  std::cout << "TRTInfer destructor finished!" << std::endl;
 }
 
 void TRTInfer::initializeBuffers(const std::string &engine_path, const std::vector<std::vector<int64_t>>& input_sizes) {

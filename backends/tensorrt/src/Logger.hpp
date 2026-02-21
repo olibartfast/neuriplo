@@ -5,10 +5,14 @@ class Logger : public nvinfer1::ILogger
 public:
     void log(Severity severity, const char* msg) noexcept override
     {
-        // Implement logging behavior here, e.g., print the log message
-        if (severity != Severity::kINFO)
+        if (severity == Severity::kERROR || severity == Severity::kINTERNAL_ERROR)
         {
-            std::cout << "TensorRT Logger: " << msg << std::endl;
+            std::cerr << "TensorRT [ERROR]: " << msg << std::endl;
         }
+        else if (severity == Severity::kWARNING)
+        {
+            std::cerr << "TensorRT [WARNING]: " << msg << std::endl;
+        }
+        // kINFO and kVERBOSE are suppressed
     }
 };
