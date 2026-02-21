@@ -94,10 +94,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           tags: ${{ matrix.image }}:ci
           load: true
-          cache-from: |
-            type=gha,scope=neuriplo-base
-            type=gha,scope=${{ matrix.backend }}
-          cache-to: type=gha,scope=${{ matrix.backend }},mode=max
+          cache-from: type=gha,scope=neuriplo-base
 
       - name: Run tests
         run: |
