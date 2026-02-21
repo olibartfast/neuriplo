@@ -22,8 +22,8 @@ target_include_directories(TensorFlowInferTest PRIVATE
 
 target_link_libraries(TensorFlowInferTest PRIVATE
     neuriplo
-    ${TensorFlow_CC_LIBRARY}
     ${TensorFlow_FRAMEWORK_LIBRARY}
+    ${TensorFlow_CC_LIBRARY}
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     glog::glog

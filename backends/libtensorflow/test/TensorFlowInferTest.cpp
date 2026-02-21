@@ -47,7 +47,7 @@ protected:
     void SetUp() override {
         has_real_model = false;
         model_path = "";
-        
+
         // Check if model_path.txt exists (set by test script)
         std::ifstream modelPathFile("model_path.txt");
         if (modelPathFile) {
@@ -66,11 +66,16 @@ protected:
                 }
             }
         }
-        
+
         if (!has_real_model) {
             mock_infer = std::make_unique<MockTFDetectionAPI>();
             std::cout << "Using mock inference for testing" << std::endl;
         }
+    }
+
+    void TearDown() override {
+        real_infer.reset();
+        mock_infer.reset();
     }
 };
 
@@ -100,9 +105,15 @@ TEST_F(TensorFlowInferTest, BasicInference) {
     ASSERT_FALSE(output_vectors.empty());
     ASSERT_FALSE(shape_vectors.empty());
 
-    ASSERT_EQ(shape_vectors[0].size(), 2);
-    ASSERT_EQ(shape_vectors[0][0], 1);
-    ASSERT_EQ(shape_vectors[0][1], 1000);
+    if (has_real_model) {
+        // Real model output includes batch dim, e.g. [1, 1000]
+        ASSERT_GE(shape_vectors[0].size(), 1u);
+        ASSERT_EQ(shape_vectors[0].back(), 1000);
+    } else {
+        ASSERT_EQ(shape_vectors[0].size(), 2u);
+        ASSERT_EQ(shape_vectors[0][0], 1);
+        ASSERT_EQ(shape_vectors[0][1], 1000);
+    }
 
     // Type checking
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
