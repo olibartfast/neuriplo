@@ -42,7 +42,8 @@ RUN python3 -m venv /opt/tensorflow_env
 ENV PATH=/opt/tensorflow_env/bin:$PATH
 
 # Install TensorFlow and dependencies
-RUN pip install --upgrade pip && \
+RUN . /tmp/versions.env && \
+    pip install --upgrade pip && \
     pip install "tensorflow==${TENSORFLOW_VERSION}" && \
     pip install tensorflow-hub
 
@@ -61,7 +62,8 @@ RUN TF_SITE_PACKAGES=/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow
     [ -d "${TF_SITE_PACKAGES}/cc" ] && cp -r ${TF_SITE_PACKAGES}/cc ${TENSORFLOW_DIR}/include/tensorflow/ || true
 
 # Create pkg-config file
-RUN mkdir -p ${TENSORFLOW_DIR}/lib/pkgconfig && \
+RUN . /tmp/versions.env && \
+    mkdir -p ${TENSORFLOW_DIR}/lib/pkgconfig && \
     cat > ${TENSORFLOW_DIR}/lib/pkgconfig/tensorflow.pc << EOF
 prefix=${TENSORFLOW_DIR}
 libdir=\${prefix}/lib
@@ -146,7 +148,7 @@ WORKDIR /app/build/backends/libtensorflow/test
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:${LD_LIBRARY_PATH:-}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
