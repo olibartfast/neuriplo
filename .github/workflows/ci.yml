@@ -65,6 +65,21 @@ jobs:
             image: neuriplo-onnxruntime
             test_exe: ONNXRuntimeInferTest
 
+          - backend: LIBTENSORFLOW
+            dockerfile: docker/Dockerfile.libtensorflow
+            image: neuriplo-libtensorflow
+            test_exe: TensorFlowInferTest
+
+          - backend: TVM
+            dockerfile: docker/Dockerfile.tvm
+            image: neuriplo-tvm
+            test_exe: TVMInferTest
+
+          - backend: LIBTORCH
+            dockerfile: docker/Dockerfile.libtorch
+            image: neuriplo-libtorch-cpu
+            test_exe: LibtorchInferTest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -165,16 +180,6 @@ jobs:
             dockerfile: docker/Dockerfile.libtorch
             image: neuriplo-libtorch
             test_exe: LibtorchInferTest
-
-          - backend: LIBTENSORFLOW
-            dockerfile: docker/Dockerfile.libtensorflow
-            image: neuriplo-libtensorflow
-            test_exe: TensorFlowInferTest
-
-          - backend: TVM
-            dockerfile: docker/Dockerfile.tvm
-            image: neuriplo-tvm
-            test_exe: TVMInferTest
 
     steps:
       - name: Checkout
