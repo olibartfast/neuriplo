@@ -32,6 +32,8 @@ RUN apt-get update && apt-get upgrade -y && \
     libopencv-contrib-dev \
     && rm -rf /var/lib/apt/lists/*
 
+COPY versions.env /tmp/versions.env
+
 # Build and install GTest
 RUN cd /usr/src/gtest && \
     cmake . && \
@@ -42,9 +44,11 @@ RUN cd /usr/src/gtest && \
 FROM base_dependencies AS ggml_install
 
 # Clone and build GGML
-RUN mkdir -p ${GGML_DIR} && \
+RUN . /tmp/versions.env && \
+    mkdir -p ${GGML_DIR} && \
     cd ${GGML_DIR} && \
     git clone https://github.com/ggerganov/ggml.git . && \
+    git checkout ${GGML_VERSION} && \
     mkdir -p build && \
     cd build && \
     cmake .. \

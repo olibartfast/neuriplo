@@ -20,33 +20,24 @@ RUN apt-get update && apt-get upgrade -y && \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+COPY versions.env /tmp/versions.env
+
 # Stage 2: Install TensorRT dependencies
 FROM cuda_dependencies AS backend_dependencies
 
-# TensorRT version configuration
-ARG TRT_MAJOR=10
-ARG TRT_MINOR=.13
-ARG TRT_PATCH=.3
-ARG TRT_BUILD=.9
-ARG TRT_VERSION=${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}${TRT_BUILD}
-ARG TRT_CUDA_VERSION=13.0
-ARG TENSORRT_DIR=/opt/tensorrt
-
 # Download and install TensorRT
-RUN wget --tries=3 --retry-connrefused \
-    https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TRT_MAJOR}${TRT_MINOR}${TRT_PATCH}/tars/TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz \
-    && tar -xzvf TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz -C /opt \
-    && rm TensorRT-${TRT_VERSION}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz
+RUN . /tmp/versions.env && \
+    TRT_SHORT=$(echo ${TENSORRT_VERSION} | cut -d. -f1-3) && \
+    wget --tries=3 --retry-connrefused \
+    https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TRT_SHORT}/tars/TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz \
+    && tar -xzvf TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz -C /opt \
+    && rm TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz \
+    && ln -s /opt/TensorRT-${TENSORRT_VERSION} /opt/tensorrt
 
-# Set TensorRT environment variables
-ENV LD_LIBRARY_PATH=/opt/TensorRT-${TRT_VERSION}/lib:${LD_LIBRARY_PATH}
-ENV LIBRARY_PATH=/opt/TensorRT-${TRT_VERSION}/lib:${LIBRARY_PATH}
-ENV CPATH=/opt/TensorRT-${TRT_VERSION}/include
-
-# Set TensorRT environment variables
-ENV TENSORRT_DIR=/opt/TensorRT-${TRT_VERSION}
-ENV LD_LIBRARY_PATH=${TENSORRT_DIR}/lib:${LD_LIBRARY_PATH}
-ENV LIBRARY_PATH=${TENSORRT_DIR}/lib:${LIBRARY_PATH}
+ENV TENSORRT_DIR=/opt/tensorrt
+ENV LD_LIBRARY_PATH=${TENSORRT_DIR}/lib:${LD_LIBRARY_PATH:-}
+ENV LIBRARY_PATH=${TENSORRT_DIR}/lib:${LIBRARY_PATH:-}
+ENV CPATH=${TENSORRT_DIR}/include
 ENV PATH=${TENSORRT_DIR}/bin:${PATH}
 
 # Stage 3: Build application
@@ -60,10 +51,11 @@ COPY . .
 ARG BACKEND=TENSORRT
 
 # Build the project
-RUN rm -rf build && \
+RUN . /tmp/versions.env && \
+    rm -rf build && \
     cmake -Bbuild -H. \
     -DDEFAULT_BACKEND=${BACKEND} \
-    -DTRT_VERSION=${TRT_VERSION} \
+    -DTRT_VERSION=${TENSORRT_VERSION} \
     -DTENSORRT_DIR=${TENSORRT_DIR} \
     -DBUILD_INFERENCE_ENGINE_TESTS=ON \
     && cmake --build build --config Release \

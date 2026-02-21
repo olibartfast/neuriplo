@@ -37,6 +37,8 @@ RUN apt-get update && apt-get upgrade -y && \
     libxml2-dev \
     && rm -rf /var/lib/apt/lists/*
 
+COPY versions.env /tmp/versions.env
+
 # Build and install GTest
 # Build and install GTest manually
 RUN git clone https://github.com/google/googletest.git -b v1.14.0 /usr/src/gtest-build && \
@@ -49,11 +51,9 @@ RUN git clone https://github.com/google/googletest.git -b v1.14.0 /usr/src/gtest
 # Stage 2: Install TVM
 FROM base_dependencies AS tvm_install
 
-# Set TVM version (should match versions.env)
-ENV TVM_VERSION=0.22.0
-
 # Clone and build TVM
-RUN mkdir -p ${TVM_DIR} && \
+RUN . /tmp/versions.env && \
+    mkdir -p ${TVM_DIR} && \
     cd ${DEPENDENCIES_DIR} && \
     git clone --recursive https://github.com/apache/tvm tvm && \
     cd tvm && \
