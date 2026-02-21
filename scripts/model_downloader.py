@@ -302,8 +302,7 @@ class ModelDownloader:
         
         try:
             import tensorflow as tf
-            import tensorflow_hub as hub
-            
+
             logger.info("Attempting to load pretrained ResNet model for TensorFlow SavedModel...")
             
             # Load the pretrained ResNet model using Keras Applications

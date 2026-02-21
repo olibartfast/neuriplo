@@ -8,6 +8,8 @@ FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TENSORFLOW_DIR=/opt/tensorflow
 ENV DEPENDENCIES_DIR=/opt/dependencies
+ENV LD_LIBRARY_PATH=""
+ENV PKG_CONFIG_PATH=""
 
 # Load versions from versions.env
 COPY versions.env /tmp/versions.env
