@@ -68,6 +68,7 @@ OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
   // We assume the input is already a preprocessed blob (NCHW or similar) matching the model input
   const auto& shape_meta = inference_metadata_.getInputs()[0].shape;
   std::vector<int> mat_size;
+  mat_size.push_back(static_cast<int>(get_batch_size())); // batch dimension (N in NCHW)
   for(auto s : shape_meta) mat_size.push_back(static_cast<int>(s));
   
   // validate size
