@@ -24,6 +24,7 @@
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 * GGML - Efficient tensor library for machine learning
 * TVM - Open deep learning compiler stack
+* MIGraphX - AMD ROCm graph inference engine
 
 ### Optional
 * CUDA (if you want to use GPU)

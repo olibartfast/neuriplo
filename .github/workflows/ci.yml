@@ -164,6 +164,11 @@ jobs:
             image: neuriplo-tensorrt
             test_exe: TensorRTInferTest
 
+          - backend: MIGRAPHX
+            dockerfile: docker/Dockerfile.migraphx
+            image: neuriplo-migraphx
+            test_exe: MIGraphXInferTest
+
           - backend: LIBTORCH
             dockerfile: docker/Dockerfile.libtorch
             image: neuriplo-libtorch
