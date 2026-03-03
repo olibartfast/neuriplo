@@ -15,6 +15,8 @@
 #include "OVInfer.hpp"
 #elif USE_GGML
 #include "GGMLInfer.hpp"
+#elif USE_MIGRAPHX
+#include "MIGraphXInfer.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& model_path, bool use_gpu = false, 
