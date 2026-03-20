@@ -2,8 +2,12 @@
 # This module finds TensorFlow C++ library
 
 # Set TensorFlow directory
-if(NOT DEFINED TENSORFLOW_DIR)
-    set(TENSORFLOW_DIR "$ENV{HOME}/dependencies/tensorflow" CACHE PATH "Path to TensorFlow installation")
+if(NOT DEFINED TENSORFLOW_DIR OR TENSORFLOW_DIR STREQUAL "")
+    if(DEFINED DEFAULT_DEPENDENCY_ROOT AND NOT DEFAULT_DEPENDENCY_ROOT STREQUAL "")
+        set(TENSORFLOW_DIR "${DEFAULT_DEPENDENCY_ROOT}/tensorflow" CACHE PATH "Path to TensorFlow installation")
+    else()
+        set(TENSORFLOW_DIR "$ENV{HOME}/dependencies/tensorflow" CACHE PATH "Path to TensorFlow installation")
+    endif()
 endif()
 
 # Check if TensorFlow directory exists
@@ -25,14 +29,14 @@ endif()
 
 # Find TensorFlow libraries
 find_library(TensorFlow_CC_LIBRARY
-    NAMES libtensorflow_cc.so libtensorflow_cc.so.2
-    PATHS "${TensorFlow_LIBRARY_DIR}"
+    NAMES tensorflow_cc libtensorflow_cc
+    PATHS "${TensorFlow_LIBRARY_DIR}" "${TensorFlow_LIBRARY_DIR}/Release" "${TensorFlow_LIBRARY_DIR}/Debug"
     NO_DEFAULT_PATH
 )
 
 find_library(TensorFlow_FRAMEWORK_LIBRARY
-    NAMES libtensorflow_framework.so libtensorflow_framework.so.2
-    PATHS "${TensorFlow_LIBRARY_DIR}"
+    NAMES tensorflow_framework libtensorflow_framework
+    PATHS "${TensorFlow_LIBRARY_DIR}" "${TensorFlow_LIBRARY_DIR}/Release" "${TensorFlow_LIBRARY_DIR}/Debug"
     NO_DEFAULT_PATH
 )
 
@@ -48,9 +52,6 @@ endif()
 set(TensorFlow_FOUND TRUE)
 set(TensorFlow_INCLUDE_DIRS "${TensorFlow_INCLUDE_DIR}")
 set(TensorFlow_LIBRARIES "${TensorFlow_CC_LIBRARY}" "${TensorFlow_FRAMEWORK_LIBRARY}")
-
-# Add library directory to link directories
-link_directories("${TensorFlow_LIBRARY_DIR}")
 
 message(STATUS "TensorFlow found:")
 message(STATUS "  Include dirs: ${TensorFlow_INCLUDE_DIRS}")

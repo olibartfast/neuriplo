@@ -27,6 +27,9 @@ protected:
         logger = std::make_shared<MockLogger>();
         if (model_path.empty()) {
             model_path = GenerateModelPath();
+            if (model_path.empty()) {
+                GTEST_SKIP() << "OpenVINO IR files not found and scripted generation is unavailable on this platform";
+            }
         }
     }
 
@@ -53,6 +56,7 @@ protected:
         }
         
         // Try to generate IR from ONNX model
+#ifndef _WIN32
         fs::path script_path = current_path / "generate_openvino_ir.sh";
         if (fs::exists(script_path)) {
             std::string script = script_path.string();
@@ -60,9 +64,9 @@ protected:
                 return "resnet18.xml";
             }
         }
+#endif
         
-        // As a fallback for testing
-        throw std::runtime_error("OpenVINO IR files not found. Please create test model files first.");
+        return {};
     }
 };
 

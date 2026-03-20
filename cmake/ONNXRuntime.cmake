@@ -6,12 +6,11 @@ message(STATUS "ONNX Runtime version: ${ONNX_RUNTIME_VERSION}")
 message(STATUS "ONNX Runtime directory: ${ONNX_RUNTIME_DIR}")
 
 # Check for CUDA support
-find_package(CUDA QUIET)
-if (CUDA_FOUND)
-    message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
-    set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda)
+find_package(CUDAToolkit QUIET)
+if (CUDAToolkit_FOUND)
+    message(STATUS "✓ CUDA toolkit found")
 else ()
-    message(STATUS "CUDA not found.")
+    message(STATUS "CUDA toolkit not found.")
 endif()
 
 # Check for ROCm support

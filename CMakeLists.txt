@@ -51,6 +51,9 @@ include(SelectBackend)
 
 # Create the inference engines library
 add_library(neuriplo SHARED ${SOURCES})
+if(WIN32)
+    set_target_properties(neuriplo PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 target_include_directories(neuriplo PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
@@ -61,7 +64,7 @@ target_include_directories(neuriplo PRIVATE
 
 target_link_libraries(neuriplo PRIVATE
     ${OpenCV_LIBS}
-    ${GLOG_LIBRARIES}
+    glog::glog
 )
 
 include(LinkBackend)

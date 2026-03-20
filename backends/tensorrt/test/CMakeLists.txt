@@ -4,30 +4,45 @@ set(TEST_SOURCES
 
 find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
-find_package(CUDA REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 add_executable(TensorRTInferTest ${TEST_SOURCES})
+
+find_library(TENSORRT_NVINFER_LIBRARY
+    NAMES nvinfer libnvinfer
+    PATHS
+        ${TENSORRT_DIR}/lib
+        ${TENSORRT_DIR}/lib/Release
+        ${TENSORRT_DIR}/lib/Debug
+    NO_DEFAULT_PATH
+)
+find_library(TENSORRT_NVONNXPARSER_LIBRARY
+    NAMES nvonnxparser libnvonnxparser
+    PATHS
+        ${TENSORRT_DIR}/lib
+        ${TENSORRT_DIR}/lib/Release
+        ${TENSORRT_DIR}/lib/Debug
+    NO_DEFAULT_PATH
+)
+if(NOT TENSORRT_NVINFER_LIBRARY OR NOT TENSORRT_NVONNXPARSER_LIBRARY)
+    message(FATAL_ERROR "Unable to locate the TensorRT test libraries under ${TENSORRT_DIR}")
+endif()
 
 target_include_directories(TensorRTInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/tensorrt/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
     ${TENSORRT_DIR}/include
-    ${CUDA_INCLUDE_DIRS}
+    ${CUDAToolkit_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
-target_link_directories(TensorRTInferTest PRIVATE
-    ${TENSORRT_DIR}/lib
-    ${CUDA_TOOLKIT_ROOT_DIR}/lib64
-)
-
 target_link_libraries(TensorRTInferTest PRIVATE
     neuriplo
-    nvinfer
-    nvonnxparser
-    cudart
+    ${TENSORRT_NVINFER_LIBRARY}
+    ${TENSORRT_NVONNXPARSER_LIBRARY}
+    CUDA::cudart
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     glog::glog
