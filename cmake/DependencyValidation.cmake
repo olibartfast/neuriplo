@@ -4,6 +4,22 @@
 include(CheckCXXSourceCompiles)
 include(CheckCXXCompilerFlag)
 
+function(require_any_existing_path dependency_name)
+    foreach(candidate IN LISTS ARGN)
+        if(EXISTS "${candidate}")
+            message(STATUS "✓ ${dependency_name} found at ${candidate}")
+            return()
+        endif()
+    endforeach()
+
+    if(PROJECT_IS_TOP_LEVEL)
+        string(REPLACE ";" "\n  " formatted_candidates "${ARGN}")
+        message(FATAL_ERROR "${dependency_name} installation incomplete. Checked:\n  ${formatted_candidates}")
+    else()
+        message(WARNING "neuriplo: ${dependency_name} was not found in the expected locations")
+    endif()
+endfunction()
+
 # Function to validate a dependency exists
 function(validate_dependency dependency_name dependency_path)
     if(NOT EXISTS "${dependency_path}")
@@ -27,14 +43,24 @@ function(validate_onnx_runtime)
         # Check for required files
         set(required_files
             "${ONNX_RUNTIME_DIR}/include/onnxruntime_cxx_api.h"
-            "${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so"
         )
-        
+
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
                 message(FATAL_ERROR "ONNX Runtime installation incomplete. Missing: ${file}")
             endif()
         endforeach()
+
+        require_any_existing_path(
+            "ONNX Runtime library"
+            "${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so"
+            "${ONNX_RUNTIME_DIR}/lib/libonnxruntime.dylib"
+            "${ONNX_RUNTIME_DIR}/lib/onnxruntime.lib"
+            "${ONNX_RUNTIME_DIR}/lib/onnxruntime.dll"
+            "${ONNX_RUNTIME_DIR}/lib/Release/onnxruntime.lib"
+            "${ONNX_RUNTIME_DIR}/lib/Release/onnxruntime.dll"
+            "${ONNX_RUNTIME_DIR}/bin/Release/onnxruntime.dll"
+        )
         
         message(STATUS "✓ ONNX Runtime validation passed")
     endif()
@@ -48,14 +74,23 @@ function(validate_tensorrt)
         # Check for required files
         set(required_files
             "${TENSORRT_DIR}/include/NvInfer.h"
-            "${TENSORRT_DIR}/lib/libnvinfer.so"
         )
-        
+
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
                 message(FATAL_ERROR "TensorRT installation incomplete. Missing: ${file}")
             endif()
         endforeach()
+
+        require_any_existing_path(
+            "TensorRT library"
+            "${TENSORRT_DIR}/lib/libnvinfer.so"
+            "${TENSORRT_DIR}/lib/libnvinfer.dylib"
+            "${TENSORRT_DIR}/lib/nvinfer.lib"
+            "${TENSORRT_DIR}/lib/nvinfer.dll"
+            "${TENSORRT_DIR}/lib/Release/nvinfer.lib"
+            "${TENSORRT_DIR}/lib/Release/nvinfer.dll"
+        )
         
         message(STATUS "✓ TensorRT validation passed")
     endif()
@@ -83,14 +118,23 @@ function(validate_openvino)
         # Check for required files
         set(required_files
             "${OPENVINO_DIR}/runtime/include/openvino/openvino.hpp"
-            "${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so"
         )
-        
+
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
                 message(FATAL_ERROR "OpenVINO installation incomplete. Missing: ${file}")
             endif()
         endforeach()
+
+        require_any_existing_path(
+            "OpenVINO runtime library"
+            "${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so"
+            "${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.dylib"
+            "${OPENVINO_DIR}/runtime/lib/intel64/openvino.lib"
+            "${OPENVINO_DIR}/runtime/bin/intel64/Release/openvino.dll"
+            "${OPENVINO_DIR}/runtime/lib/intel64/Release/openvino.lib"
+            "${OPENVINO_DIR}/runtime/bin/Release/openvino.dll"
+        )
         
         message(STATUS "✓ OpenVINO validation passed")
     endif()
@@ -99,9 +143,9 @@ endfunction()
 # Function to validate CUDA/ROCm (if GPU support is requested)
 function(validate_cuda)
     if(DEFAULT_BACKEND STREQUAL "TENSORRT" OR DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME" OR DEFAULT_BACKEND STREQUAL "GGML")
-        find_package(CUDA QUIET)
-        if(CUDA_FOUND)
-            message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
+        find_package(CUDAToolkit QUIET)
+        if(CUDAToolkit_FOUND)
+            message(STATUS "✓ CUDA toolkit found")
         else()
             if(EXISTS "/opt/rocm")
                 message(STATUS "✓ ROCm found at /opt/rocm (AMD GPU support)")
@@ -275,14 +319,41 @@ function(validate_ggml)
         set(required_files
             "${GGML_DIR}/include/ggml.h"
             "${GGML_DIR}/include/ggml-backend.h"
-            "${GGML_DIR}/lib/libggml.so"
         )
-        
+
         foreach(file ${required_files})
             if(NOT EXISTS "${file}")
                 message(FATAL_ERROR "GGML installation incomplete. Missing: ${file}")
             endif()
         endforeach()
+
+        require_any_existing_path(
+            "GGML base library"
+            "${GGML_DIR}/lib/libggml-base.so"
+            "${GGML_DIR}/lib/libggml-base.dylib"
+            "${GGML_DIR}/lib/libggml-base.lib"
+            "${GGML_DIR}/lib/ggml-base.lib"
+            "${GGML_DIR}/lib/Release/libggml-base.lib"
+            "${GGML_DIR}/lib/Release/ggml-base.lib"
+        )
+        require_any_existing_path(
+            "GGML CPU library"
+            "${GGML_DIR}/lib/libggml-cpu.so"
+            "${GGML_DIR}/lib/libggml-cpu.dylib"
+            "${GGML_DIR}/lib/libggml-cpu.lib"
+            "${GGML_DIR}/lib/ggml-cpu.lib"
+            "${GGML_DIR}/lib/Release/libggml-cpu.lib"
+            "${GGML_DIR}/lib/Release/ggml-cpu.lib"
+        )
+        require_any_existing_path(
+            "GGML BLAS library"
+            "${GGML_DIR}/lib/libggml-blas.so"
+            "${GGML_DIR}/lib/libggml-blas.dylib"
+            "${GGML_DIR}/lib/libggml-blas.lib"
+            "${GGML_DIR}/lib/ggml-blas.lib"
+            "${GGML_DIR}/lib/Release/libggml-blas.lib"
+            "${GGML_DIR}/lib/Release/ggml-blas.lib"
+        )
         
         message(STATUS "✓ GGML validation passed")
     endif()
@@ -315,6 +386,11 @@ function(validate_tvm)
         set(required_files
             "${TVM_DIR}/build/libtvm_runtime.so"
             "${TVM_DIR}/build/libtvm.so"
+            "${TVM_DIR}/build/tvm_runtime.dll"
+            "${TVM_DIR}/build/tvm_runtime.lib"
+            "${TVM_DIR}/build/tvm.lib"
+            "${TVM_DIR}/build/Release/tvm_runtime.lib"
+            "${TVM_DIR}/build/Release/tvm.lib"
         )
         
         foreach(file ${required_files})

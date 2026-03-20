@@ -7,6 +7,18 @@ find_package(Glog REQUIRED)
 
 add_executable(ONNXRuntimeInferTest ${TEST_SOURCES})
 
+find_library(ONNX_RUNTIME_LIBRARY
+    NAMES onnxruntime libonnxruntime
+    PATHS
+        ${ONNX_RUNTIME_DIR}/lib
+        ${ONNX_RUNTIME_DIR}/lib/Release
+        ${ONNX_RUNTIME_DIR}/lib/Debug
+    NO_DEFAULT_PATH
+)
+if(NOT ONNX_RUNTIME_LIBRARY)
+    message(FATAL_ERROR "Unable to locate the ONNX Runtime test library under ${ONNX_RUNTIME_DIR}")
+endif()
+
 target_include_directories(ONNXRuntimeInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/onnx-runtime/src
     ${CMAKE_SOURCE_DIR}/backends/src
@@ -18,7 +30,7 @@ target_include_directories(ONNXRuntimeInferTest PRIVATE
 
 target_link_libraries(ONNXRuntimeInferTest PRIVATE
     neuriplo
-    ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so
+    ${ONNX_RUNTIME_LIBRARY}
     ${OpenCV_LIBS}
     gtest
     gtest_main

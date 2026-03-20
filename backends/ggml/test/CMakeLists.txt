@@ -7,6 +7,34 @@ find_package(Glog REQUIRED)
 
 add_executable(GGMLInferTest ${TEST_SOURCES})
 
+find_library(GGML_BASE_LIBRARY
+    NAMES ggml-base libggml-base
+    PATHS
+        ${GGML_DIR}/lib
+        ${GGML_DIR}/lib/Release
+        ${GGML_DIR}/lib/Debug
+    NO_DEFAULT_PATH
+)
+find_library(GGML_CPU_LIBRARY
+    NAMES ggml-cpu libggml-cpu
+    PATHS
+        ${GGML_DIR}/lib
+        ${GGML_DIR}/lib/Release
+        ${GGML_DIR}/lib/Debug
+    NO_DEFAULT_PATH
+)
+find_library(GGML_BLAS_LIBRARY
+    NAMES ggml-blas libggml-blas
+    PATHS
+        ${GGML_DIR}/lib
+        ${GGML_DIR}/lib/Release
+        ${GGML_DIR}/lib/Debug
+    NO_DEFAULT_PATH
+)
+if(NOT GGML_BASE_LIBRARY OR NOT GGML_CPU_LIBRARY OR NOT GGML_BLAS_LIBRARY)
+    message(FATAL_ERROR "Unable to locate the GGML test library under ${GGML_DIR}")
+endif()
+
 target_include_directories(GGMLInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/ggml/src
     ${CMAKE_SOURCE_DIR}/backends/src
@@ -20,7 +48,9 @@ target_link_libraries(GGMLInferTest PRIVATE
     neuriplo
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
-    ${GGML_DIR}/lib/libggml.so
+    ${GGML_BASE_LIBRARY}
+    ${GGML_CPU_LIBRARY}
+    ${GGML_BLAS_LIBRARY}
     gtest
     gtest_main
     glog::glog

@@ -1,6 +1,27 @@
 #include "TVMInfer.hpp"
 #include <sstream>
 #include <fstream>
+#include <filesystem>
+
+namespace {
+std::vector<std::filesystem::path> build_tvm_library_candidates(const std::filesystem::path& model_path) {
+    std::vector<std::filesystem::path> candidates;
+    candidates.push_back(model_path);
+
+    if (!model_path.has_extension()) {
+#if defined(_WIN32)
+        candidates.push_back(model_path.string() + ".dll");
+        candidates.push_back(model_path.string() + ".lib");
+#elif defined(__APPLE__)
+        candidates.push_back(model_path.string() + ".dylib");
+#else
+        candidates.push_back(model_path.string() + ".so");
+#endif
+    }
+
+    return candidates;
+}
+} // namespace
 
 std::string TVMInfer::print_shape(const std::vector<int64_t>& shape)
 {
@@ -40,19 +61,27 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     try
     {
         // For this simplified implementation, just validate that the model file exists
-        std::string lib_path = model_path;
-        if (lib_path.find(".so") == std::string::npos) {
-            lib_path += ".so";
+        std::filesystem::path lib_path;
+        for (const auto& candidate : build_tvm_library_candidates(std::filesystem::path(model_path))) {
+            if (std::filesystem::exists(candidate)) {
+                lib_path = candidate;
+                break;
+            }
         }
 
+        if (lib_path.empty())
+        {
+            throw std::runtime_error("TVM model file not found: " + model_path);
+        }
+        
         std::ifstream file_check(lib_path);
         if (!file_check.is_open())
         {
-            throw std::runtime_error("TVM model file not found: " + lib_path);
+            throw std::runtime_error("TVM model file not found: " + lib_path.string());
         }
         file_check.close();
 
-        LOG(INFO) << "TVM model file found: " << lib_path;
+        LOG(INFO) << "TVM model file found: " << lib_path.string();
         model_loaded_ = true;
 
         // Set default shapes if not provided

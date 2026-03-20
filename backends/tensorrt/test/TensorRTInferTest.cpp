@@ -27,6 +27,9 @@ protected:
         logger = std::make_shared<MockLogger>();
         if (model_path.empty()) {
             model_path = GenerateModelPath();
+            if (model_path.empty()) {
+                GTEST_SKIP() << "TensorRT engine file not found and scripted generation is unavailable on this platform";
+            }
         }
     }
 
@@ -37,8 +40,11 @@ protected:
         // Look for existing TensorRT engine file
         std::vector<std::string> possible_paths = {
             "resnet18.engine",
+            "resnet18.plan",
             "../resnet18.engine",
-            "test_model.engine"
+            "../resnet18.plan",
+            "test_model.engine",
+            "test_model.plan"
         };
         
         for (const auto& path : possible_paths) {
@@ -48,6 +54,7 @@ protected:
         }
         
         // Try to generate engine from ONNX model
+#ifndef _WIN32
         fs::path script_path = current_path / "generate_trt_engine.sh";
         if (fs::exists(script_path)) {
             std::string script = script_path.string();
@@ -55,9 +62,9 @@ protected:
                 return "resnet18.engine";
             }
         }
+#endif
         
-        // As a fallback for testing without actual engine
-        throw std::runtime_error("TensorRT engine file not found. Please create a test engine first.");
+        return {};
     }
 };
 

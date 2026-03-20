@@ -6,7 +6,11 @@ message(STATUS "TVM version: ${TVM_VERSION}")
 
 # Set TVM directory
 if(NOT DEFINED TVM_DIR)
-    set(TVM_DIR "$ENV{HOME}/dependencies/tvm" CACHE PATH "Path to TVM installation")
+    if(DEFINED DEFAULT_DEPENDENCY_ROOT AND NOT DEFAULT_DEPENDENCY_ROOT STREQUAL "")
+        set(TVM_DIR "${DEFAULT_DEPENDENCY_ROOT}/tvm" CACHE PATH "Path to TVM installation")
+    else()
+        set(TVM_DIR "$ENV{HOME}/dependencies/tvm" CACHE PATH "Path to TVM installation")
+    endif()
 endif()
 
 message(STATUS "TVM directory: ${TVM_DIR}")
@@ -18,12 +22,11 @@ if(NOT EXISTS ${TVM_DIR})
 endif()
 
 # Check for CUDA support
-find_package(CUDA QUIET)
-if (CUDA_FOUND)
-    message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
-    set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda)
+find_package(CUDAToolkit QUIET)
+if (CUDAToolkit_FOUND)
+    message(STATUS "✓ CUDA toolkit found")
 else ()
-    message(WARNING "CUDA not found. GPU support will be disabled for TVM.")
+    message(WARNING "CUDA toolkit not found. GPU support will be disabled for TVM.")
 endif()
 
 # Define TVM-specific source files

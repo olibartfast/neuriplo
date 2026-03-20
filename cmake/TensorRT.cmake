@@ -6,9 +6,9 @@ message(STATUS "TensorRT version: ${TENSORRT_VERSION}")
 message(STATUS "TensorRT directory: ${TENSORRT_DIR}")
 
 # Find CUDA (required for TensorRT)
-find_package(CUDA REQUIRED)
-if(NOT CUDA_FOUND)
-    message(FATAL_ERROR "CUDA is required for TensorRT backend but not found.")
+find_package(CUDAToolkit REQUIRED)
+if(NOT CUDAToolkit_FOUND)
+    message(FATAL_ERROR "CUDA toolkit is required for TensorRT backend but not found.")
 endif()
 
 # Query GPU compute capabilities
