@@ -1,3 +1,18 @@
+# Treat warnings as errors in CI (opt-in via -DWERROR=ON)
+option(WERROR "Treat compiler warnings as errors" OFF)
+if(WERROR)
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    message(STATUS "Strict warnings: -Wall -Wextra -Wpedantic -Werror enabled")
+endif()
+
+# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
+option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(SANITIZERS)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+endif()
+
 if(CMAKE_CUDA_COMPILER)
     # If CUDA is available but not using TensorRT or LibTorch, set the CUDA flags
     set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

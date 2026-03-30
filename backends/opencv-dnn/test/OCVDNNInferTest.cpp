@@ -98,7 +98,7 @@ TEST_F(OCVDNNInferTest, BasicInference) {
     
     // Value access checking
     ASSERT_NO_THROW({
-        float value = std::get<float>(output_vectors[0][0]);
+        static_cast<void>(std::get<float>(output_vectors[0][0]));
     });
     
     // Size checking
