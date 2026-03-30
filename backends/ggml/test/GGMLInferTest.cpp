@@ -17,6 +17,7 @@ class MockGGMLInfer {
 
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input) {
+        (void)input;
         // Mock output: 1x1000 classification results
         std::vector<TensorElement> output_vector(1000);
         for (int i = 0; i < 1000; ++i) {
