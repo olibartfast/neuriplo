@@ -3,7 +3,7 @@
 # Stage 1: Cuda dependencies
 ARG UBUNTU_VERSION=24.04
 ARG NGC_CUDA_VERSION=13.0.0
-FROM nvcr.io/nvidia/cuda:${NGC_CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} as cuda_dependencies
+FROM nvcr.io/nvidia/cuda:${NGC_CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS cuda_dependencies
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,11 +58,12 @@ RUN . /tmp/versions.env && \
     -DTRT_VERSION=${TENSORRT_VERSION} \
     -DTENSORRT_DIR=${TENSORRT_DIR} \
     -DBUILD_INFERENCE_ENGINE_TESTS=ON \
-    && cmake --build build --config Release \
-    && ls -la /app/build # Check the output to find the library
-    # you can add also:
-    # && ls -la /app/build/lib
-    # && ls -la /app/build/src
+    && cmake --build build --config Release
+
+# Create placeholder test-model files so the COPY in the final stage never
+# fails.  Real models are generated at runtime on a GPU host.
+RUN touch /app/backends/tensorrt/test/resnet18.engine \
+          /app/backends/tensorrt/test/resnet18.onnx 2>/dev/null || true
 
 # Stage 4: Final runtime image
 FROM backend_dependencies AS final
@@ -75,11 +76,11 @@ RUN useradd -m appuser && \
     mkdir -p /app/test && \
     chown -R appuser:appuser /app
 
-# Copy built library from builder stage (Adjust the paths if needed)
+# Copy built library from builder stage
 COPY --from=builder --chown=appuser:appuser /app/build/libneuriplo.so /app/lib/
 # Copy test executables
 COPY --from=builder --chown=appuser:appuser /app/build/backends/tensorrt/test/TensorRTInferTest /app/test/
-# Copy test data files
+# Copy test data files (may be placeholders when built without GPU)
 COPY --from=builder --chown=appuser:appuser /app/backends/tensorrt/test/resnet18.engine /app/test/
 COPY --from=builder --chown=appuser:appuser /app/backends/tensorrt/test/resnet18.onnx /app/test/
 COPY --from=builder --chown=appuser:appuser /app/backends/tensorrt/test/generate_trt_engine.sh /app/test/
