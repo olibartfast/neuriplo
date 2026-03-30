@@ -1,25 +1,24 @@
-#include <gtest/gtest.h>
 #include "TRTInfer.hpp"
-#include <glog/logging.h>
-#include <opencv2/opencv.hpp>
+
 #include <cstdlib>
-#include <fstream>
-#include <iostream>
 #include <filesystem>
+#include <fstream>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+#include <iostream>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
 // Mock logger for atomic testing
 class MockLogger {
-public:
-    void info(const std::string& message) {
-        std::cout << "INFO: " << message << std::endl;
-    }
+  public:
+    void info(const std::string& message) { std::cout << "INFO: " << message << std::endl; }
 };
 
 // Test fixture for TensorRT backend
 class TensorRTInferTest : public ::testing::Test {
-protected:
+  protected:
     std::shared_ptr<MockLogger> logger;
     static std::string model_path;
 
@@ -33,20 +32,16 @@ protected:
     static std::string GenerateModelPath() {
         // Get the current working directory
         fs::path current_path = fs::current_path();
-        
+
         // Look for existing TensorRT engine file
-        std::vector<std::string> possible_paths = {
-            "resnet18.engine",
-            "../resnet18.engine",
-            "test_model.engine"
-        };
-        
+        std::vector<std::string> possible_paths = {"resnet18.engine", "../resnet18.engine", "test_model.engine"};
+
         for (const auto& path : possible_paths) {
             if (fs::exists(path)) {
                 return path;
             }
         }
-        
+
         // Try to generate engine from ONNX model
         fs::path script_path = current_path / "generate_trt_engine.sh";
         if (fs::exists(script_path)) {
@@ -55,7 +50,7 @@ protected:
                 return "resnet18.engine";
             }
         }
-        
+
         // As a fallback for testing without actual engine
         throw std::runtime_error("TensorRT engine file not found. Please create a test engine first.");
     }
@@ -81,7 +76,7 @@ TEST_F(TensorRTInferTest, InferenceResults) {
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     // Convert blob to vector<vector<uint8_t>>
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
@@ -100,30 +95,26 @@ TEST_F(TensorRTInferTest, InferenceResults) {
 
     // Type checking - ensure we have float outputs
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
-    
+
     // Value access checking
-    ASSERT_NO_THROW({
-        float value = std::get<float>(output_vectors[0][0]);
-    });
-    
+    ASSERT_NO_THROW({ float value = std::get<float>(output_vectors[0][0]); });
+
     // Size consistency check
     ASSERT_EQ(output_vectors[0].size(), static_cast<size_t>(shape_vectors[0][1]));
-    
+
     // Check all elements are floats
-    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(), 
-        [](const TensorElement& element) {
-            return std::holds_alternative<float>(element);
-        }));
+    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
+                            [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
 // Test metadata retrieval - DISABLED due to crash
 TEST_F(TensorRTInferTest, InferenceMetadataRetrieval) {
     TRTInfer infer(model_path, true);
     // DISABLED: auto inference_metadata = infer.get_inference_metadata();
-    
+
     // Just verify the object was created successfully
     std::cout << "TRTInfer object created for metadata test" << std::endl;
-    
+
     // Skip the actual metadata retrieval for now
     // TODO: Fix the crash in get_inference_metadata()
 }
@@ -132,7 +123,7 @@ TEST_F(TensorRTInferTest, InferenceMetadataRetrieval) {
 TEST_F(TensorRTInferTest, BatchSizeHandling) {
     size_t batch_size = 2;
     std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
-    
+
     ASSERT_NO_THROW({
         TRTInfer infer(model_path, true, batch_size, input_sizes);
         // Don't call get_inference_metadata() to avoid crash
@@ -145,12 +136,12 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
     // This test ensures proper CUDA memory handling
     {
         TRTInfer infer(model_path, true);
-        
+
         // Multiple inference calls to test memory management
         cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
         cv::Mat blob;
         cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-        
+
         std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
         memcpy(input_data.data(), blob.data, input_data.size());
         std::vector<std::vector<uint8_t>> input_tensors = {input_data};
@@ -163,7 +154,7 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
     // Destructor should properly clean up CUDA resources
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

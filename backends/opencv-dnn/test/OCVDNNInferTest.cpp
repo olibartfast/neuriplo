@@ -1,36 +1,37 @@
-#include <gtest/gtest.h>
 #include "OCVDNNInfer.hpp"
-#include <glog/logging.h>
-#include <opencv2/opencv.hpp>
-#include <fstream>
-#include <iostream>
+
 #include <filesystem>
+#include <fstream>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+#include <iostream>
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
 // Mock inference implementation for unit testing
 class MockOCVDNNInfer {
-public:
+  public:
     MockOCVDNNInfer() = default;
-    
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
+
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input) {
         // Mock output: 1x1000 classification results
         std::vector<TensorElement> output_vector(1000);
         for (int i = 0; i < 1000; ++i) {
             output_vector[i] = static_cast<float>(i * 0.001f); // Mock probabilities
         }
-        
+
         std::vector<std::vector<TensorElement>> output_vectors = {output_vector};
         std::vector<std::vector<int64_t>> shape_vectors = {{1, 1000}};
-        
+
         return std::make_tuple(output_vectors, shape_vectors);
     }
 };
 
 class OCVDNNInferTest : public ::testing::Test {
-protected:
+  protected:
     std::string model_path;
     bool has_real_model;
     std::unique_ptr<OCVDNNInfer> real_infer;
@@ -39,7 +40,7 @@ protected:
     void SetUp() override {
         has_real_model = false;
         model_path = "";
-        
+
         // Check if model_path.txt exists (set by test script)
         std::ifstream modelPathFile("model_path.txt");
         if (modelPathFile) {
@@ -55,7 +56,7 @@ protected:
                 }
             }
         }
-        
+
         if (!has_real_model) {
             mock_infer = std::make_unique<MockOCVDNNInfer>();
             std::cout << "Using mock inference for testing" << std::endl;
@@ -68,14 +69,14 @@ TEST_F(OCVDNNInferTest, BasicInference) {
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3); // ResNet-18 expects 224x224 input
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
 
     std::vector<std::vector<TensorElement>> output_vectors;
     std::vector<std::vector<int64_t>> shape_vectors;
-    
+
     if (has_real_model) {
         auto result = real_infer->get_infer_results(input_tensors);
         output_vectors = std::get<0>(result);
@@ -95,20 +96,16 @@ TEST_F(OCVDNNInferTest, BasicInference) {
 
     // Type checking
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
-    
+
     // Value access checking
-    ASSERT_NO_THROW({
-        static_cast<void>(std::get<float>(output_vectors[0][0]));
-    });
-    
+    ASSERT_NO_THROW({ static_cast<void>(std::get<float>(output_vectors[0][0])); });
+
     // Size checking
     ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
-    
+
     // Check all elements are of the expected type
-    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(), 
-        [](const TensorElement& element) {
-            return std::holds_alternative<float>(element);
-        }));
+    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
+                            [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
 // Integration test - only runs with real model
@@ -116,22 +113,22 @@ TEST_F(OCVDNNInferTest, IntegrationTest) {
     if (!has_real_model) {
         GTEST_SKIP() << "Skipping integration test - no real model available";
     }
-    
+
     // Test with real model
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
 
     auto [output_vectors, shape_vectors] = real_infer->get_infer_results(input_tensors);
-    
+
     // Verify real model produces reasonable results
     ASSERT_FALSE(output_vectors.empty());
     ASSERT_EQ(output_vectors[0].size(), 1000); // ImageNet classes
-    
+
     // Check that output values are in reasonable range for probabilities/logits
     for (const auto& element : output_vectors[0]) {
         float value = std::get<float>(element);
@@ -144,17 +141,17 @@ TEST_F(OCVDNNInferTest, MockUnitTest) {
     if (has_real_model) {
         GTEST_SKIP() << "Skipping mock unit test - real model is available";
     }
-    
+
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
     std::vector<uint8_t> input_data(input.total() * input.elemSize());
     memcpy(input_data.data(), input.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
-    
+
     auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
-    
+
     // Test mock-specific behavior
     ASSERT_EQ(output_vectors[0].size(), 1000);
-    
+
     // Verify mock data pattern
     for (int i = 0; i < 10; ++i) {
         float expected = i * 0.001f;
@@ -163,7 +160,7 @@ TEST_F(OCVDNNInferTest, MockUnitTest) {
     }
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

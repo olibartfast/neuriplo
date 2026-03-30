@@ -1,21 +1,19 @@
 #pragma once
 #include "InferenceInterface.hpp"
-#include <torch/torch.h>
+
 #include <torch/script.h>
+#include <torch/torch.h>
 
-class LibtorchInfer : public InferenceInterface
-{
-public:
-    LibtorchInfer(const std::string& model_path, 
-        bool use_gpu = false, 
-        size_t batch_size = 1, 
-        const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
+class LibtorchInfer : public InferenceInterface {
+  public:
+    LibtorchInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
+                  const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+    get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
-private:
+  private:
     std::string print_shape(const std::vector<int64_t>& shape);
     torch::DeviceType device_;
     torch::jit::script::Module module_;
-    std::vector<c10::ScalarType> input_types_;    
-  
+    std::vector<c10::ScalarType> input_types_;
 };
