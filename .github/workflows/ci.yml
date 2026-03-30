@@ -112,6 +112,31 @@ jobs:
             "
 
   # =============================================================
+  # GPU Backend Builds (build-only, no GPU required)
+  # Verifies that GPU backends compile successfully using Docker.
+  # Tests are skipped — they require a real GPU (see build-and-test-gpu).
+  # =============================================================
+  build-tensorrt:
+    name: Build (TENSORRT)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.tensorrt
+          push: false
+          tags: neuriplo-tensorrt:ci
+          cache-from: type=gha,scope=neuriplo-tensorrt
+          cache-to: type=gha,scope=neuriplo-tensorrt,mode=max
+
+  # =============================================================
   # GPU Backend Tests
   # Requires a self-hosted GitHub Actions runner with an NVIDIA GPU.
   #
