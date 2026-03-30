@@ -1,33 +1,34 @@
-#include <gtest/gtest.h>
 #include "ORTInfer.hpp"
-#include <glog/logging.h>
-#include <opencv2/opencv.hpp>
-#include <fstream>
-#include <iostream>
+
 #include <filesystem>
+#include <fstream>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+#include <iostream>
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
 // Mock inference implementation for unit testing
 class MockORTInfer {
-public:
+  public:
     MockORTInfer() = default;
-    
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> 
+
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input) {
         // Mock output: 1x1000 classification results
         std::vector<TensorElement> output_vector(1000);
         for (int i = 0; i < 1000; ++i) {
             output_vector[i] = static_cast<float>(i * 0.001f); // Mock probabilities
         }
-        
+
         std::vector<std::vector<TensorElement>> output_vectors = {output_vector};
         std::vector<std::vector<int64_t>> shape_vectors = {{1, 1000}};
-        
+
         return std::make_tuple(output_vectors, shape_vectors);
     }
-    
+
     InferenceMetadata get_inference_metadata() {
         InferenceMetadata info;
         info.addInput("input", {1, 3, 224, 224}, 1);
@@ -38,7 +39,7 @@ public:
 
 // Test fixture for ONNX Runtime backend
 class ONNXRuntimeInferTest : public ::testing::Test {
-protected:
+  protected:
     std::string model_path;
     bool has_real_model;
     std::unique_ptr<ORTInfer> real_infer;
@@ -47,7 +48,7 @@ protected:
     void SetUp() override {
         has_real_model = false;
         model_path = "";
-        
+
         // Check if model_path.txt exists (set by test script)
         std::ifstream modelPathFile("model_path.txt");
         if (modelPathFile) {
@@ -63,7 +64,7 @@ protected:
                 }
             }
         }
-        
+
         if (!has_real_model) {
             mock_infer = std::make_unique<MockORTInfer>();
             std::cout << "Using mock inference for testing" << std::endl;
@@ -76,14 +77,14 @@ TEST_F(ONNXRuntimeInferTest, BasicInference) {
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3); // ResNet-18 expects 224x224 input
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
-    
+
     std::vector<std::vector<TensorElement>> output_vectors;
     std::vector<std::vector<int64_t>> shape_vectors;
-    
+
     if (has_real_model) {
         auto result = real_infer->get_infer_results(input_tensors);
         output_vectors = std::get<0>(result);
@@ -103,20 +104,16 @@ TEST_F(ONNXRuntimeInferTest, BasicInference) {
 
     // Type checking
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
-    
+
     // Value access checking
-    ASSERT_NO_THROW({
-        float value = std::get<float>(output_vectors[0][0]);
-    });
-    
+    ASSERT_NO_THROW({ float value = std::get<float>(output_vectors[0][0]); });
+
     // Size checking
     ASSERT_EQ(output_vectors[0].size(), static_cast<size_t>(shape_vectors[0][1]));
-    
+
     // Check all elements are of the expected type
-    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(), 
-        [](const TensorElement& element) {
-            return std::holds_alternative<float>(element);
-        }));
+    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
+                            [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
 // Integration test - only runs with real model
@@ -124,28 +121,28 @@ TEST_F(ONNXRuntimeInferTest, IntegrationTest) {
     if (!has_real_model) {
         GTEST_SKIP() << "Skipping integration test - no real model available";
     }
-    
+
     // Test with real model
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
-    
+
     auto [output_vectors, shape_vectors] = real_infer->get_infer_results(input_tensors);
-    
+
     // Verify real model produces reasonable results
     ASSERT_FALSE(output_vectors.empty());
     ASSERT_EQ(output_vectors[0].size(), 1000); // ImageNet classes
-    
+
     // Check that output values are in reasonable range for probabilities/logits
     for (const auto& element : output_vectors[0]) {
         float value = std::get<float>(element);
         ASSERT_TRUE(std::isfinite(value)) << "Output contains non-finite value";
     }
-    
+
     // Test metadata retrieval
     auto inference_metadata = real_infer->get_inference_metadata();
     ASSERT_FALSE(inference_metadata.getInputs().empty());
@@ -157,25 +154,25 @@ TEST_F(ONNXRuntimeInferTest, MockUnitTest) {
     if (has_real_model) {
         GTEST_SKIP() << "Skipping mock unit test - real model is available";
     }
-    
+
     cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
     std::vector<uint8_t> input_data(input.total() * input.elemSize());
-    // Note: input is zeroed so copy is trivial, but strictly we should use blobFromImage loop from above if we cared about content.
-    // Here we just test plumbing.
+    // Note: input is zeroed so copy is trivial, but strictly we should use blobFromImage loop from above if we cared
+    // about content. Here we just test plumbing.
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
-    
+
     auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
-    
+
     // Test mock-specific behavior
     ASSERT_EQ(output_vectors[0].size(), 1000);
-    
+
     // Verify mock data pattern
     for (int i = 0; i < 10; ++i) {
         float expected = i * 0.001f;
         float actual = std::get<float>(output_vectors[0][i]);
         ASSERT_FLOAT_EQ(expected, actual);
     }
-    
+
     // Test metadata from mock
     auto inference_metadata = mock_infer->get_inference_metadata();
     ASSERT_FALSE(inference_metadata.getInputs().empty());
@@ -187,22 +184,22 @@ TEST_F(ONNXRuntimeInferTest, GPUTest) {
     if (!has_real_model) {
         GTEST_SKIP() << "Skipping GPU test - no real model available";
     }
-    
+
     try {
         // Try to create a GPU inference engine
         auto gpu_infer = std::make_unique<ORTInfer>(model_path, true);
-        
+
         // If we got here, GPU is available, test inference
         cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
         cv::Mat blob;
         cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-        
+
         std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
         memcpy(input_data.data(), blob.data, input_data.size());
         std::vector<std::vector<uint8_t>> input_tensors = {input_data};
-        
+
         auto [output_vectors, shape_vectors] = gpu_infer->get_infer_results(input_tensors);
-        
+
         // Basic validation
         ASSERT_FALSE(output_vectors.empty());
         ASSERT_EQ(output_vectors[0].size(), 1000);
@@ -217,16 +214,16 @@ TEST_F(ONNXRuntimeInferTest, BatchSizeHandling) {
     if (!has_real_model) {
         GTEST_SKIP() << "Skipping batch size test - no real model available";
     }
-    
+
     try {
         size_t batch_size = 2;
         std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
-        
+
         auto batch_infer = std::make_unique<ORTInfer>(model_path, false, batch_size, input_sizes);
         auto inference_metadata = batch_infer->get_inference_metadata();
-        
+
         ASSERT_FALSE(inference_metadata.getInputs().empty());
-        
+
         // Check that batch size is properly set in input tensor
         auto inputs = inference_metadata.getInputs();
         ASSERT_EQ(inputs[0].batch_size, batch_size);
@@ -235,7 +232,7 @@ TEST_F(ONNXRuntimeInferTest, BatchSizeHandling) {
     }
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

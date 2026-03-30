@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libopencv-dev
+          sudo apt-get install -y libopencv-dev libgoogle-glog-dev
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1

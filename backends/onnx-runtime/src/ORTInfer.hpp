@@ -1,29 +1,28 @@
 #pragma once
 #include "InferenceInterface.hpp"
-#include <onnxruntime_cxx_api.h>  // for ONNX Runtime C++ API
-#include <onnxruntime_c_api.h>    // for CUDA execution provider (if using CUDA)
+
 #include <glog/logging.h>
+#include <onnxruntime_c_api.h>   // for CUDA execution provider (if using CUDA)
+#include <onnxruntime_cxx_api.h> // for ONNX Runtime C++ API
 
-class ORTInfer : public InferenceInterface
-{
-public:
+class ORTInfer : public InferenceInterface {
+  public:
     std::string print_shape(const std::vector<std::int64_t>& v);
-    ORTInfer(const std::string& model_path, 
-        bool use_gpu = false, 
-        size_t batch_size = 1, 
-        const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
+    ORTInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
+             const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
     size_t getSizeByDim(const std::vector<int64_t>& dims);
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+    get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
-private:
+  private:
     Ort::Env env_;
-    Ort::Session session_{ nullptr };
+    Ort::Session session_{nullptr};
     static std::string getDataTypeString(ONNXTensorElementDataType type);
 
-    template<typename T>
+    template <typename T>
     void processTensorData(std::vector<TensorElement>& tensor_data, const T* data, size_t num_elements) {
         for (size_t i = 0; i < num_elements; ++i) {
             tensor_data.emplace_back(data[i]);
         }
-    }    
+    }
 };
