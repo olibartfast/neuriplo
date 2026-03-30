@@ -61,9 +61,7 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path, bool use_gpu, size
         if (output.second.has_tensor_shape()) {
             const auto& tensor_shape = output.second.tensor_shape();
             for (int i = 1; i < tensor_shape.dim_size(); ++i) { // Start from index 1 to skip batch size
-                if (i < tensor_shape.dim_size()) {
-                    output_shape.push_back(tensor_shape.dim(i).size());
-                }
+                output_shape.push_back(tensor_shape.dim(i).size());
             }
         }
         inference_metadata_.addOutput(output_name, output_shape, batch_size);
