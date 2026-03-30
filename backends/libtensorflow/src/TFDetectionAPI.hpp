@@ -18,7 +18,6 @@ class TFDetectionAPI : public InferenceInterface {
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
   private:
-    std::string model_path_;
     tensorflow::SavedModelBundle bundle_;
     tensorflow::TensorInfo input_info_;
     std::string input_name_;
