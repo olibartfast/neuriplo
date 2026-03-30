@@ -9,7 +9,7 @@ if(DEFINED ENV{OPENVINO_DIR})
     set(InferenceEngine_DIR "$ENV{OPENVINO_DIR}/runtime/cmake")
     
     # Add include directories
-    include_directories("$ENV{OPENVINO_DIR}/runtime/include")
+    include_directories(SYSTEM "$ENV{OPENVINO_DIR}/runtime/include")
     
     # Add library directories
     link_directories("$ENV{OPENVINO_DIR}/runtime/lib/intel64")
@@ -27,7 +27,7 @@ else()
     set(InferenceEngine_DIR "${OPENVINO_INSTALL_DIR}/runtime/cmake")
     
     # Add include directories
-    include_directories("${OPENVINO_INSTALL_DIR}/runtime/include")
+    include_directories(SYSTEM "${OPENVINO_INSTALL_DIR}/runtime/include")
     
     # Add library directories
     link_directories("${OPENVINO_INSTALL_DIR}/runtime/lib/intel64")
