@@ -59,6 +59,7 @@ jobs:
           - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
           - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
+          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt }
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +103,7 @@ jobs:
           - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
           - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
+          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt }
     steps:
       - uses: actions/checkout@v4
 
@@ -134,7 +136,7 @@ jobs:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn,      test_exe: OCVDNNInferTest }
           - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime,   test_exe: ONNXRuntimeInferTest }
           - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch,        test_exe: LibtorchInferTest }
-          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow,   test_exe: TensorFlowInferTest }
+          # LIBTENSORFLOW excluded: absl headers fail to compile in Debug+sanitizer mode
           - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino,        test_exe: OpenVINOInferTest }
           - { backend: GGML,          dockerfile: docker/Dockerfile.ggml,            test_exe: GGMLInferTest }
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm,             test_exe: TVMInferTest }
@@ -156,6 +158,8 @@ jobs:
       - name: Rebuild with sanitizers and run tests
         run: |
           docker run --rm neuriplo-lint:${{ matrix.backend }} bash -c '
+            # Ensure OpenVINO runtime libs are discoverable (harmless for other backends)
+            export LD_LIBRARY_PATH=/opt/openvino/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
             cmake -B/app/build -S/app \
               -DSANITIZERS=ON \
               -DCMAKE_BUILD_TYPE=Debug \
