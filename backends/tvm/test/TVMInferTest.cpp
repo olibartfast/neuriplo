@@ -105,7 +105,7 @@ TEST_F(TVMInferTest, BasicInference) {
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
 
     // Value access checking
-    ASSERT_NO_THROW({ float value = std::get<float>(output_vectors[0][0]); });
+    ASSERT_NO_THROW({ (void)std::get<float>(output_vectors[0][0]); });
 
     // Size checking
     ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
