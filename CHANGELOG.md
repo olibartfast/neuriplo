@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-31
+
+### Changed
+- Expanded CI coverage across CPU backends and TensorRT-related lint/build checks
+- Added canonical `VERSION` and `CHANGELOG.md` release metadata on `develop`
+
+### Fixed
+- Sanitizer and `-Werror` build issues across backend test and mock code
+- OpenVINO AddressSanitizer failures caused by `libtbbbind` deep-bind conflicts
+- TensorRT Docker build handling for non-GPU environments
+
 ## [0.1.0] - 2026-03-02
 
 ### Added
@@ -20,5 +31,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/olibartfast/neuriplo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/olibartfast/neuriplo/releases/tag/v0.1.0
