@@ -168,7 +168,8 @@ jobs:
             export LD_LIBRARY_PATH=/opt/openvino/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
             # Remove libtbbbind (optional NUMA binding) — it uses RTLD_DEEPBIND
             # which is incompatible with ASan runtime
-            find / -name "libtbbbind*" -delete 2>/dev/null || true
+            find /lib /usr/lib /opt -name "libtbbbind*" -print -delete 2>/dev/null || true
+            ldconfig 2>/dev/null || true
             cmake -B/app/build -S/app \
               -DDEFAULT_BACKEND=${{ matrix.backend }} \
               ${{ matrix.cmake_args || '' }} \
