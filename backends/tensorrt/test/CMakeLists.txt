@@ -8,14 +8,17 @@ find_package(CUDA REQUIRED)
 
 add_executable(TensorRTInferTest ${TEST_SOURCES})
 
-target_include_directories(TensorRTInferTest PRIVATE
-    ${CMAKE_SOURCE_DIR}/backends/tensorrt/src
-    ${CMAKE_SOURCE_DIR}/backends/src
-    ${CMAKE_SOURCE_DIR}/include
+target_include_directories(TensorRTInferTest SYSTEM PRIVATE
     ${TENSORRT_DIR}/include
     ${CUDA_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
+)
+
+target_include_directories(TensorRTInferTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/backends/tensorrt/src
+    ${CMAKE_SOURCE_DIR}/backends/src
+    ${CMAKE_SOURCE_DIR}/include
 )
 
 target_link_directories(TensorRTInferTest PRIVATE

@@ -40,9 +40,16 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
 # Combine CUDA flags with common flags
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} ${CUDA_ARCH_FLAG}")
 
-# Suppress deprecation warnings from TensorRT headers (TensorRT 10.x has many deprecated APIs in its own headers)
-if(USE_TENSORRT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+# Suppress warnings from TensorRT headers (TensorRT 10.x has many deprecated
+# APIs and unused parameters in its own headers).  We use -Wno-error= rather
+# than -Wno- so the warnings are still visible but won't break -Werror builds.
+# add_compile_options is used (instead of CMAKE_CXX_FLAGS) so these flags
+# appear after any earlier -Werror on the command line.
+if(DEFAULT_BACKEND STREQUAL "TENSORRT")
+    add_compile_options(
+        -Wno-error=deprecated-declarations
+        -Wno-error=unused-parameter
+    )
 endif()
 
 message("CMake CXX Flags Debug: ${CMAKE_CXX_FLAGS_DEBUG}")
