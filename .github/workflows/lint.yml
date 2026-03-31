@@ -166,8 +166,9 @@ jobs:
           docker run --rm neuriplo-lint:${{ matrix.backend }} bash -c '
             # Ensure OpenVINO runtime libs are discoverable (harmless for other backends)
             export LD_LIBRARY_PATH=/opt/openvino/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
-            # Tell TBB not to use RTLD_DEEPBIND, which is incompatible with ASan
-            export TBB_ENABLE_SANITIZERS=true
+            # Remove libtbbbind (optional NUMA binding) — it uses RTLD_DEEPBIND
+            # which is incompatible with ASan runtime
+            rm -f /lib/x86_64-linux-gnu/libtbbbind*.so*
             cmake -B/app/build -S/app \
               -DDEFAULT_BACKEND=${{ matrix.backend }} \
               ${{ matrix.cmake_args || '' }} \
