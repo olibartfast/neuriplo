@@ -1,0 +1,43 @@
+name: neuriplo
+role: backend-orchestrator
+
+default_branches:
+  integration: develop
+  release: master
+
+entrypoints:
+  configure:
+    - cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON
+  build:
+    - cmake --build build
+  test:
+    - ctest --test-dir build --output-on-failure
+  backend_matrix:
+    - ./scripts/test_backends.sh
+
+owned_paths:
+  - backends/
+  - cmake/
+  - scripts/
+  - docs/
+  - include/
+  - src/
+  - versions.env
+  - AGENTS.md
+
+allowed_change_classes:
+  - ci-triage
+  - dependency-sync
+  - backend-config-fix
+  - docs-sync
+
+forbidden_change_classes:
+  - inference-logic-change
+  - perf-critical-kernel-change
+  - new-dependency
+
+constraints:
+  preserve_backend_selection_behavior: true
+  preserve_device_placement_expectations: true
+  review_runtime_version_changes: mandatory
+  protect_fallback_behavior: true
