@@ -143,7 +143,7 @@ jobs:
           - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime,   test_exe: ONNXRuntimeInferTest }
           - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch,        test_exe: LibtorchInferTest }
           # LIBTENSORFLOW excluded: absl headers fail to compile in Debug+sanitizer mode
-          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino,        test_exe: OpenVINOInferTest }
+          # OPENVINO excluded: TBB loads libtbbbind with RTLD_DEEPBIND, incompatible with ASan
           - { backend: GGML,          dockerfile: docker/Dockerfile.ggml,            test_exe: GGMLInferTest }
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm,             test_exe: TVMInferTest }
     steps:
@@ -166,10 +166,6 @@ jobs:
           docker run --rm neuriplo-lint:${{ matrix.backend }} bash -c '
             # Ensure OpenVINO runtime libs are discoverable (harmless for other backends)
             export LD_LIBRARY_PATH=/opt/openvino/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
-            # Remove libtbbbind (optional NUMA binding) — it uses RTLD_DEEPBIND
-            # which is incompatible with ASan runtime
-            find /lib /usr/lib /opt -name "libtbbbind*" -print -delete 2>/dev/null || true
-            ldconfig 2>/dev/null || true
             cmake -B/app/build -S/app \
               -DDEFAULT_BACKEND=${{ matrix.backend }} \
               ${{ matrix.cmake_args || '' }} \
