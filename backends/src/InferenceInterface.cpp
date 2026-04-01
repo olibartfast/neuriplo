@@ -49,10 +49,9 @@ void InferenceInterface::validate_input(const std::vector<std::vector<uint8_t>>&
     }
 
     if (input_tensors.size() != inference_metadata_.getInputs().size()) {
-        throw InferenceExecutionException(
-            "Input tensor count mismatch: expected " +
-            std::to_string(inference_metadata_.getInputs().size()) + ", got " +
-            std::to_string(input_tensors.size()));
+        throw InferenceExecutionException("Input tensor count mismatch: expected " +
+                                          std::to_string(inference_metadata_.getInputs().size()) + ", got " +
+                                          std::to_string(input_tensors.size()));
     }
 
     for (size_t i = 0; i < input_tensors.size(); ++i) {
