@@ -24,7 +24,7 @@
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 * GGML - Efficient tensor library for machine learning
 * TVM - Open deep learning compiler stack
-* MIGraphX - AMD ROCm graph inference engine
+* MIGraphX - AMD ROCm graph inference engine (ONNX models only in neuriplo; no native PyTorch/TorchScript model loading)
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -62,6 +62,8 @@ Supported `<BACKEND_NAME>` values:
 ```
 
 ### MIGraphX Docker Workflow
+
+Neuriplo's MIGraphX backend currently loads **ONNX** models only. If your model starts in PyTorch, export it to ONNX first; native PyTorch/TorchScript model loading is not supported by this backend integration.
 
 Build the MIGraphX test image:
 
