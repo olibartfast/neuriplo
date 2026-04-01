@@ -57,7 +57,15 @@ All backends can be set up using the unified script:
 
 Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`
 
-**MIGraphX note:** In neuriplo, the MIGraphX backend accepts **ONNX** model files only. PyTorch models must be exported to ONNX before use; native PyTorch/TorchScript model loading is not supported by this integration.
+### MIGraphX model support
+
+In neuriplo, the MIGraphX backend accepts **ONNX** model files only.
+
+- Models are loaded through MIGraphX's ONNX parser in `backends/migraphx/src/MIGraphXInfer.cpp`
+- PyTorch models must be exported to ONNX before use
+- Native PyTorch/TorchScript model loading is not supported by this integration
+
+This is a neuriplo backend constraint, not a general statement about every ROCm or MIGraphX integration.
 
 ## Usage
 
