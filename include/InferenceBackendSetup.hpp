@@ -1,13 +1,13 @@
 #pragma once
-#include "common.hpp"
 #include "InferenceInterface.hpp"
+#include "common.hpp"
 #ifdef USE_ONNX_RUNTIME
 #include "ORTInfer.hpp"
-#elif USE_LIBTORCH 
+#elif USE_LIBTORCH
 #include "LibtorchInfer.hpp"
-#elif USE_LIBTENSORFLOW 
+#elif USE_LIBTENSORFLOW
 #include "TFDetectionAPI.hpp"
-#elif USE_OPENCV_DNN 
+#elif USE_OPENCV_DNN
 #include "OCVDNNInfer.hpp"
 #elif USE_TENSORRT
 #include "TRTInfer.hpp"
@@ -19,6 +19,6 @@
 #include "MIGraphXInfer.hpp"
 #endif
 
-std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& model_path, bool use_gpu = false, 
-            size_t batch_size = 1, 
-            const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
+std::unique_ptr<InferenceInterface>
+setup_inference_engine(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
+                       const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());

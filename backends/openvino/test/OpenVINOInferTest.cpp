@@ -1,25 +1,24 @@
-#include <gtest/gtest.h>
 #include "OVInfer.hpp"
-#include <glog/logging.h>
-#include <opencv2/opencv.hpp>
+
 #include <cstdlib>
-#include <fstream>
-#include <iostream>
 #include <filesystem>
+#include <fstream>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+#include <iostream>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
 // Mock logger for atomic testing
 class MockLogger {
-public:
-    void info(const std::string& message) {
-        std::cout << "INFO: " << message << std::endl;
-    }
+  public:
+    void info(const std::string& message) { std::cout << "INFO: " << message << std::endl; }
 };
 
 // Test fixture for OpenVINO backend
 class OpenVINOInferTest : public ::testing::Test {
-protected:
+  protected:
     std::shared_ptr<MockLogger> logger;
     static std::string model_path;
 
@@ -33,14 +32,10 @@ protected:
     static std::string GenerateModelPath() {
         // Get the current working directory
         fs::path current_path = fs::current_path();
-        
+
         // Look for existing OpenVINO IR files (.xml/.bin)
-        std::vector<std::string> possible_paths = {
-            "resnet18.xml",
-            "../resnet18.xml",
-            "test_model.xml"
-        };
-        
+        std::vector<std::string> possible_paths = {"resnet18.xml", "../resnet18.xml", "test_model.xml"};
+
         for (const auto& path : possible_paths) {
             if (fs::exists(path)) {
                 // Check if corresponding .bin file exists
@@ -51,7 +46,7 @@ protected:
                 }
             }
         }
-        
+
         // Try to generate IR from ONNX model
         fs::path script_path = current_path / "generate_openvino_ir.sh";
         if (fs::exists(script_path)) {
@@ -60,7 +55,7 @@ protected:
                 return "resnet18.xml";
             }
         }
-        
+
         // As a fallback for testing
         throw std::runtime_error("OpenVINO IR files not found. Please create test model files first.");
     }
@@ -90,8 +85,7 @@ TEST_F(OpenVINOInferTest, InitializationGPU) {
     } catch (const std::exception& e) {
         // If GPU is not available, that's acceptable
         std::string error_msg = e.what();
-        if (error_msg.find("GPU") != std::string::npos || 
-            error_msg.find("device") != std::string::npos) {
+        if (error_msg.find("GPU") != std::string::npos || error_msg.find("device") != std::string::npos) {
             GTEST_SKIP() << "GPU not available: " << error_msg;
         } else {
             throw; // Re-throw if it's not a GPU-related error
@@ -108,7 +102,7 @@ TEST_F(OpenVINOInferTest, InferenceResults) {
     cv::Mat input = cv::Mat::zeros(224, 224, CV_8UC3); // Use 8-bit unsigned int
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
@@ -126,31 +120,27 @@ TEST_F(OpenVINOInferTest, InferenceResults) {
 
     // Type checking - ensure we have float outputs
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
-    
+
     // Value access checking
-    ASSERT_NO_THROW({
-        float value = std::get<float>(output_vectors[0][0]);
-    });
-    
+    ASSERT_NO_THROW({ (void)std::get<float>(output_vectors[0][0]); });
+
     // Size consistency check
     ASSERT_EQ(output_vectors[0].size(), static_cast<size_t>(shape_vectors[0][1]));
-    
+
     // Check all elements are floats
-    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(), 
-        [](const TensorElement& element) {
-            return std::holds_alternative<float>(element);
-        }));
+    ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
+                            [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
 // Test metadata retrieval
 TEST_F(OpenVINOInferTest, InferenceMetadataRetrieval) {
     OVInfer infer(model_path, false);
     auto inference_metadata = infer.get_inference_metadata();
-    
+
     // Check inputs
     auto inputs = inference_metadata.getInputs();
     ASSERT_FALSE(inputs.empty());
-    
+
     // Check outputs
     auto outputs = inference_metadata.getOutputs();
     ASSERT_FALSE(outputs.empty());
@@ -160,7 +150,7 @@ TEST_F(OpenVINOInferTest, InferenceMetadataRetrieval) {
 TEST_F(OpenVINOInferTest, BatchSizeHandling) {
     size_t batch_size = 2;
     std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
-    
+
     ASSERT_NO_THROW({
         OVInfer infer(model_path, false, batch_size, input_sizes);
         auto inference_metadata = infer.get_inference_metadata();
@@ -172,14 +162,14 @@ TEST_F(OpenVINOInferTest, BatchSizeHandling) {
 TEST_F(OpenVINOInferTest, DynamicShapes) {
     // Test with different input sizes to check dynamic shape support
     std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
-    
+
     OVInfer infer(model_path, false, 1, input_sizes);
-    
+
     // Test inference with standard input
     cv::Mat input = cv::Mat::zeros(224, 224, CV_8UC3); // Use 8-bit unsigned int
     cv::Mat blob;
     cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-    
+
     std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
     memcpy(input_data.data(), blob.data, input_data.size());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
@@ -188,7 +178,7 @@ TEST_F(OpenVINOInferTest, DynamicShapes) {
     ASSERT_FALSE(output_vectors.empty());
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
