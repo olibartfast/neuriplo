@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -35,6 +35,7 @@ declare -A BACKEND_DIRS=(
     ["OPENVINO"]="openvino"
     ["GGML"]="ggml"
     ["TVM"]="tvm"
+    ["MIGRAPHX"]="migraphx"
 )
 
 # Test executable mapping
@@ -47,6 +48,7 @@ declare -A BACKEND_TEST_EXES=(
     ["OPENVINO"]="OpenVINOInferTest"
     ["GGML"]="GGMLInferTest"
     ["TVM"]="TVMInferTest"
+    ["MIGRAPHX"]="MIGraphXInferTest"
 )
 
 # Helper functions
@@ -442,6 +444,8 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DGGML_DIR="$HOME/dependencies/ggml" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "TVM" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTVM_DIR="$HOME/dependencies/tvm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "MIGRAPHX" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_PREFIX_PATH="/opt/rocm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi

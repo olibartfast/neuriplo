@@ -176,3 +176,54 @@ jobs:
   #           Follow the instructions to download and configure the runner.
   #           When asked for labels, add: self-hosted,gpu,linux
   #
+  # Step 6 — (Optional) Run the runner as a systemd service so it starts on boot:
+  #           sudo ./svc.sh install
+  #           sudo ./svc.sh start
+  # =============================================================
+  build-and-test-gpu:
+    name: "GPU / ${{ matrix.backend }}"
+    runs-on: [self-hosted, gpu, linux]
+    if: false  # TODO: remove this line once a self-hosted GPU runner is registered
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: TENSORRT
+            dockerfile: docker/Dockerfile.tensorrt
+            image: neuriplo-tensorrt
+            test_exe: TensorRTInferTest
+
+          - backend: MIGRAPHX
+            dockerfile: docker/Dockerfile.migraphx
+            image: neuriplo-migraphx
+            test_exe: MIGraphXInferTest
+
+          - backend: LIBTORCH
+            dockerfile: docker/Dockerfile.libtorch
+            image: neuriplo-libtorch
+            test_exe: LibtorchInferTest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ matrix.image }}:ci \
+            -f ${{ matrix.dockerfile }} .
+
+      - name: Run tests
+        run: |
+          docker run --rm --gpus all \
+            ${{ matrix.image }}:ci \
+            bash -c "
+              EXE=\$(find /app -name '${{ matrix.test_exe }}' -type f -executable | head -1)
+              if [ -z \"\$EXE\" ]; then
+                echo 'ERROR: Test executable ${{ matrix.test_exe }} not found'
+                find /app -type f -executable | head -20
+                exit 1
+              fi
+              echo \"Running: \$EXE\"
+              \"\$EXE\"
+            "

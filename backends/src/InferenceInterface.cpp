@@ -40,3 +40,24 @@ void InferenceInterface::validate_model_loaded() const {
         throw ModelLoadException("Model path is not specified");
     }
 }
+
+void InferenceInterface::validate_input(const std::vector<std::vector<uint8_t>>& input_tensors) const {
+    validate_model_loaded();
+
+    if (input_tensors.empty()) {
+        throw InferenceExecutionException("No input tensors provided");
+    }
+
+    if (input_tensors.size() != inference_metadata_.getInputs().size()) {
+        throw InferenceExecutionException(
+            "Input tensor count mismatch: expected " +
+            std::to_string(inference_metadata_.getInputs().size()) + ", got " +
+            std::to_string(input_tensors.size()));
+    }
+
+    for (size_t i = 0; i < input_tensors.size(); ++i) {
+        if (input_tensors[i].empty()) {
+            throw InferenceExecutionException("Input tensor at index " + std::to_string(i) + " is empty");
+        }
+    }
+}
