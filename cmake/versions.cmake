@@ -66,6 +66,7 @@ set(OPENVINO_VERSION "${OPENVINO_VERSION}" CACHE STRING "OpenVINO version")
 set(TENSORFLOW_VERSION "${TENSORFLOW_VERSION}" CACHE STRING "TensorFlow version")
 set(GGML_VERSION "${GGML_VERSION}" CACHE STRING "GGML version")
 set(TVM_VERSION "${TVM_VERSION}" CACHE STRING "TVM version")
+set(MIGRAPHX_VERSION "${MIGRAPHX_VERSION}" CACHE STRING "MIGraphX version")
 
 # CUDA Version (for GPU support)
 set(CUDA_VERSION "${CUDA_VERSION}" CACHE STRING "CUDA version for GPU support")
@@ -136,6 +137,7 @@ function(validate_backend_versions)
         "OPENVINO:OPENVINO_VERSION"
         "GGML:GGML_VERSION"
         "TVM:TVM_VERSION"
+        "MIGRAPHX:MIGRAPHX_VERSION"
     )
 
     set(VALIDATION_FAILED FALSE)
@@ -164,6 +166,8 @@ function(validate_backend_versions)
             set(VERSION_VAR "${GGML_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "TVM_VERSION")
             set(VERSION_VAR "${TVM_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "MIGRAPHX_VERSION")
+            set(VERSION_VAR "${MIGRAPHX_VERSION}")
         else()
             set(VERSION_VAR "")
         endif()
@@ -203,6 +207,7 @@ message(STATUS "OpenVINO: ${OPENVINO_VERSION}")
 message(STATUS "TensorFlow: ${TENSORFLOW_VERSION}")
 message(STATUS "GGML: ${GGML_VERSION}")
 message(STATUS "TVM: ${TVM_VERSION}")
+message(STATUS "MIGraphX: ${MIGRAPHX_VERSION}")
 message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "OpenCV: ${OPENCV_MIN_VERSION}")
 message(STATUS "Dependency Root: ${DEFAULT_DEPENDENCY_ROOT}") 
