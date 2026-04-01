@@ -59,6 +59,7 @@ jobs:
           - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
           - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
+          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
           - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
     steps:
       - uses: actions/checkout@v4
@@ -106,6 +107,7 @@ jobs:
           - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
           - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
+          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
           - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
     steps:
       - uses: actions/checkout@v4
