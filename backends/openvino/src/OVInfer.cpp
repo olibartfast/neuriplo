@@ -1,11 +1,11 @@
-#include "OVInfer.hpp" 
+#include "OVInfer.hpp"
+
 #include <filesystem>
-#include <sstream>
 #include <numeric>
+#include <sstream>
 
 // Helper function to print ov::Shape and ov::PartialShape
-template <typename ShapeType>
-std::string OVInfer::print_shape(const ShapeType& shape) {
+template <typename ShapeType> std::string OVInfer::print_shape(const ShapeType& shape) {
     std::stringstream ss;
     ss << "[";
     for (size_t i = 0; i < shape.size(); ++i) {
@@ -16,7 +16,7 @@ std::string OVInfer::print_shape(const ShapeType& shape) {
                 ss << shape[i].get_length();
             }
         } else { // It's ov::Shape
-            ss << shape[i]; 
+            ss << shape[i];
         }
 
         if (i < shape.size() - 1) {
@@ -27,12 +27,12 @@ std::string OVInfer::print_shape(const ShapeType& shape) {
     return ss.str();
 }
 
-OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size, const std::vector<std::vector<int64_t>>& input_sizes) : 
-    InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
-{
+OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
+                 const std::vector<std::vector<int64_t>>& input_sizes)
+    : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
     std::filesystem::path fs_path(model_path);
     std::string basename = fs_path.stem().string();
-    
+
     // Handle both .xml and .bin paths
     std::string model_config;
     if (model_path.find(".xml") != std::string::npos) {
@@ -43,10 +43,10 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
         // Assume it's a base name, add .xml extension
         model_config = model_path + ".xml";
     }
-    
+
     if (!std::filesystem::exists(model_config)) {
         throw std::runtime_error("XML file not found: " + model_config);
-    }    
+    }
 
     try {
         model_ = core_.read_model(model_config);
@@ -71,61 +71,57 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
 
             if (has_dynamic || (!input_sizes.empty() && i < input_sizes.size())) {
                 if (input_sizes.empty() || i >= input_sizes.size()) {
-                    throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name + "'");
+                    throw std::runtime_error("Dynamic shapes found but no input sizes provided for input '" + name +
+                                             "'");
                 }
-                
+
                 const auto& provided_shape = input_sizes[i];
-                
+
                 if (has_dynamic) {
                     // Apply provided dimensions - map all non-batch dimensions
                     if (provided_shape.size() != partial_shape.size() - 1) {
-                        throw std::runtime_error(
-                            "Provided shape size mismatch for input '" + name + 
-                            "'. Expected " + std::to_string(partial_shape.size() - 1) + 
-                            " dimensions, got " + std::to_string(provided_shape.size()));
+                        throw std::runtime_error("Provided shape size mismatch for input '" + name + "'. Expected " +
+                                                 std::to_string(partial_shape.size() - 1) + " dimensions, got " +
+                                                 std::to_string(provided_shape.size()));
                     }
-                    
+
                     for (size_t j = 1; j < partial_shape.size(); ++j) {
                         partial_shape[j] = provided_shape[j - 1];
                     }
                 } else {
                     // Override fixed dimensions with provided dimensions (skip batch dimension)
                     if (provided_shape.size() != partial_shape.size() - 1) {
-                        throw std::runtime_error(
-                            "Provided shape size mismatch for input '" + name + 
-                            "'. Expected " + std::to_string(partial_shape.size() - 1) + 
-                            " dimensions, got " + std::to_string(provided_shape.size()));
+                        throw std::runtime_error("Provided shape size mismatch for input '" + name + "'. Expected " +
+                                                 std::to_string(partial_shape.size() - 1) + " dimensions, got " +
+                                                 std::to_string(provided_shape.size()));
                     }
-                    
+
                     for (size_t j = 1; j < partial_shape.size(); ++j) {
                         partial_shape[j] = provided_shape[j - 1];
                     }
                 }
             }
-            
+
             // Set batch size as dynamic if it was dynamic, otherwise static
-            if (partial_shape[0].is_dynamic()){
+            if (partial_shape[0].is_dynamic()) {
                 partial_shape[0] = ov::Dimension(1, -1); // Allow batch sizes from 1 upwards
-            }
-            else{
+            } else {
                 partial_shape[0] = batch_size;
             }
-            
 
             // Store the potentially updated shape
             all_shapes[input] = partial_shape;
         }
 
-        if (!all_shapes.empty()){
-          // Reshape the model with the gathered partial shapes
-          model_->reshape(all_shapes);
+        if (!all_shapes.empty()) {
+            // Reshape the model with the gathered partial shapes
+            model_->reshape(all_shapes);
         }
-        
 
         // Set up device
         std::string device = use_gpu ? "GPU" : "CPU";
         LOG(INFO) << "Using device: " << device;
-        
+
         try {
             compiled_model_ = core_.compile_model(model_, device);
         } catch (const ov::Exception& e) {
@@ -184,51 +180,51 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
             inference_metadata_.addOutput(name, shape_vec, batch_size); // Pass the converted shape_vec
         }
-    }
-    catch (const ov::Exception& e) {
+    } catch (const ov::Exception& e) {
         LOG(ERROR) << "Failed to load or process the OpenVINO model: " << e.what();
         std::exit(1);
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>> OVInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) 
-{
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+OVInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
     std::vector<std::vector<TensorElement>> outputs;
     std::vector<std::vector<int64_t>> shapes;
 
     // OpenVINO backend currently supports only single input models
     if (input_tensors.size() != 1) {
-        throw std::runtime_error("OpenVINO backend currently supports only single input models, got " + std::to_string(input_tensors.size()) + " inputs");
+        throw std::runtime_error("OpenVINO backend currently supports only single input models, got " +
+                                 std::to_string(input_tensors.size()) + " inputs");
     }
-    
+
     const std::vector<uint8_t>& input_data = input_tensors[0];
-            
+
     // Create ov::Tensor from raw data
     // We cast away constness because ov::Tensor expects void*, but for inference input it should be read-only
-    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(), const_cast<uint8_t*>(input_data.data()));
-    
+    ov::Tensor input_tensor(compiled_model_.input().get_element_type(), compiled_model_.input().get_shape(),
+                            const_cast<uint8_t*>(input_data.data()));
+
     // Set input tensor for model with one input
-    infer_request_.set_input_tensor(input_tensor);    
-    infer_request_.infer();  // Perform inference
+    infer_request_.set_input_tensor(input_tensor);
+    infer_request_.infer(); // Perform inference
 
     // Get output tensor
     auto output_tensor = infer_request_.get_output_tensor();
-    const float *output_buffer = output_tensor.data<const float>();  // Get pointer to output buffer
-    std::size_t output_size = output_tensor.get_size();  // Get the total size of the output tensor
+    const float* output_buffer = output_tensor.data<const float>(); // Get pointer to output buffer
+    std::size_t output_size = output_tensor.get_size();             // Get the total size of the output tensor
 
     // Extract the shape of the output tensor
-    std::vector<int64_t> output_shape(output_tensor.get_shape().begin(), 
-                                      output_tensor.get_shape().end());
+    std::vector<int64_t> output_shape(output_tensor.get_shape().begin(), output_tensor.get_shape().end());
 
     // Extract the data and store it as TensorElement (std::variant)
     std::vector<TensorElement> output;
     for (std::size_t i = 0; i < output_size; ++i) {
-        output.push_back(static_cast<float>(output_buffer[i]));  // Wrap each float in TensorElement
+        output.push_back(static_cast<float>(output_buffer[i])); // Wrap each float in TensorElement
     }
 
     // Store the output and shape
     outputs.emplace_back(output);
     shapes.emplace_back(output_shape);
 
-    return std::make_tuple(outputs, shapes);  // Return tuple of outputs and shapes
+    return std::make_tuple(outputs, shapes); // Return tuple of outputs and shapes
 }

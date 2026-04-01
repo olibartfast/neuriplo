@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
-project(neuriplo)
+
+# Read version from VERSION file
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROJECT_VERSION_RAW)
+string(STRIP "${PROJECT_VERSION_RAW}" PROJECT_VERSION_RAW)
+# Extract semver (strip -dev or other suffixes)
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" PROJECT_SEMVER "${PROJECT_VERSION_RAW}")
+
+project(neuriplo VERSION ${PROJECT_SEMVER})
 
 set(CMAKE_CXX_STANDARD 17)
 
