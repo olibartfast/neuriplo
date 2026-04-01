@@ -40,13 +40,13 @@ RUN . /tmp/versions.env && \
     migraphx-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Verify MIGraphX installation
-RUN test -f /opt/rocm/include/migraphx/migraphx.hpp && \
-    test -f /opt/rocm/lib/libmigraphx.so && \
+# Verify MIGraphX installation without assuming a single prefix layout
+RUN dpkg -L migraphx-dev | grep -q '/migraphx/migraphx.hpp$' && \
+    dpkg -L migraphx | grep -Eq '/libmigraphx\.so(\.[0-9]+)*$' && \
     echo "MIGraphX installation verified"
 
 ENV MIGRAPHX_ROOT=/opt/rocm
-ENV LD_LIBRARY_PATH=/opt/rocm/lib:${LD_LIBRARY_PATH:-}
+ENV LD_LIBRARY_PATH=/opt/rocm/lib
 
 # Stage 3: Download test model
 FROM migraphx_install AS model_provider
@@ -56,7 +56,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    /opt/venv/bin/pip install --no-cache-dir torch torchvision \
+        --index-url https://download.pytorch.org/whl/cpu && \
+    /opt/venv/bin/pip install --no-cache-dir onnx onnxscript
 
 RUN mkdir -p /opt/models
 WORKDIR /opt/models
@@ -91,7 +93,7 @@ WORKDIR /app/build/backends/migraphx/test
 
 USER testuser
 
-ENV LD_LIBRARY_PATH=/app/build/lib:/opt/rocm/lib:${LD_LIBRARY_PATH:-}
+ENV LD_LIBRARY_PATH=/app/build/lib:/opt/rocm/lib
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD test -f /app/build/lib/libneuriplo.so || exit 1
