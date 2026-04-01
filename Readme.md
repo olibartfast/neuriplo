@@ -48,6 +48,7 @@ Supported `<BACKEND_NAME>` values:
 * `OPENVINO`
 * `GGML`
 * `TVM`
+* `MIGRAPHX`
 
 #### Test All Backends
 ```bash
@@ -58,6 +59,20 @@ Supported `<BACKEND_NAME>` values:
 
 ```bash
 ./scripts/test_backends.sh --backend <BACKEND_NAME>
+```
+
+### MIGraphX Docker Workflow
+
+Build the MIGraphX test image:
+
+```bash
+docker build --rm -t neuriplo:migraphx -f docker/Dockerfile.migraphx .
+```
+
+Run the MIGraphX backend test container on a ROCm-capable host:
+
+```bash
+docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video neuriplo:migraphx
 ```
 
 

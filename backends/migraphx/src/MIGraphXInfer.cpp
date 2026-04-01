@@ -47,7 +47,7 @@ MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu,
             auto it = std::find_if(meta.begin(), meta.end(),
                                    [&](const LayerInfo& l){ return l.name == name; });
             std::vector<std::size_t> lens(it->shape.begin(), it->shape.end());
-            migraphx::shape s{migraphx::shape::float_type, lens};
+            migraphx::shape s{migraphx_shape_float_type, lens};
             std::size_t n = s.elements();
             dummy_buf_.emplace_back(n * sizeof(float), 0);
             dummy_params.add(name.c_str(),
@@ -84,7 +84,7 @@ MIGraphXInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
     for (size_t i = 0; i < inputs.size(); ++i) {
         const auto& meta = inputs[i];
         std::vector<std::size_t> lens(meta.shape.begin(), meta.shape.end());
-        migraphx::shape s{migraphx::shape::float_type, lens};
+        migraphx::shape s{migraphx_shape_float_type, lens};
         // argument wraps existing buffer — no copy
         params.add(input_names_[i].c_str(),
                    migraphx::argument(s,
@@ -99,7 +99,7 @@ MIGraphXInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
     std::vector<std::vector<TensorElement>> output_tensors;
     std::vector<std::vector<int64_t>> shapes;
 
-    for (auto& res : results) {
+    for (const auto& res : results) {
         auto lens = res.get_shape().lengths();
         std::vector<int64_t> shape(lens.begin(), lens.end());
 
@@ -117,4 +117,3 @@ MIGraphXInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
 
     return {std::move(output_tensors), std::move(shapes)};
 }
-
