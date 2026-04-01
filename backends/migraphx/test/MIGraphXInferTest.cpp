@@ -1,10 +1,11 @@
-#include <gtest/gtest.h>
 #include "MIGraphXInfer.hpp"
-#include <glog/logging.h>
-#include <opencv2/opencv.hpp>
-#include <fstream>
+
 #include <filesystem>
+#include <fstream>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
@@ -12,11 +13,12 @@ namespace fs = std::filesystem;
 // Lightweight mock (no MIGraphX required) for unit tests
 // ---------------------------------------------------------------------------
 class MockMIGraphXInfer {
-public:
+  public:
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>&) {
         std::vector<TensorElement> out(1000);
-        for (int i = 0; i < 1000; ++i) out[i] = static_cast<float>(i * 0.001f);
+        for (int i = 0; i < 1000; ++i)
+            out[i] = static_cast<float>(i * 0.001f);
         return {{out}, {{1, 1000}}};
     }
 
@@ -32,7 +34,7 @@ public:
 // Test fixture
 // ---------------------------------------------------------------------------
 class MIGraphXInferTest : public ::testing::Test {
-protected:
+  protected:
     std::string model_path;
     bool has_real_model = false;
     std::unique_ptr<MIGraphXInfer> real_infer;
@@ -59,8 +61,7 @@ protected:
     std::vector<std::vector<uint8_t>> make_input_tensors() {
         cv::Mat img = cv::Mat::zeros(224, 224, CV_32FC3);
         cv::Mat blob;
-        cv::dnn::blobFromImage(img, blob, 1.f / 255.f,
-                               cv::Size(224, 224), cv::Scalar(), true, false);
+        cv::dnn::blobFromImage(img, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
         std::vector<uint8_t> data(blob.total() * blob.elemSize());
         std::memcpy(data.data(), blob.data, data.size());
         return {data};
@@ -78,10 +79,12 @@ TEST_F(MIGraphXInferTest, BasicInference) {
 
     if (has_real_model) {
         auto [o, s] = real_infer->get_infer_results(input);
-        outputs = o; shapes = s;
+        outputs = o;
+        shapes = s;
     } else {
         auto [o, s] = mock_infer->get_infer_results(input);
-        outputs = o; shapes = s;
+        outputs = o;
+        shapes = s;
     }
 
     ASSERT_FALSE(outputs.empty());

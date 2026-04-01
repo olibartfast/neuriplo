@@ -1,13 +1,11 @@
 #include "MIGraphXInfer.hpp"
+
 #include <numeric>
 #include <stdexcept>
 
-MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu,
-                             size_t batch_size,
+MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                              const std::vector<std::vector<int64_t>>& input_sizes)
-    : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}
-    , use_gpu_{use_gpu}
-{
+    : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}, use_gpu_{use_gpu} {
     // Parse ONNX — fix the batch dimension before compiling
     migraphx::onnx_options onnx_opts;
     onnx_opts.set_default_dim_value(static_cast<unsigned>(batch_size));
@@ -32,7 +30,7 @@ MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu,
     auto param_shapes = program_.get_parameter_shapes();
     for (const auto& name : param_shapes.names()) {
         const auto& shape = param_shapes[name];
-        auto lens = shape.lengths();                        // std::vector<size_t>
+        auto lens = shape.lengths(); // std::vector<size_t>
         std::vector<int64_t> dims(lens.begin(), lens.end());
         inference_metadata_.addInput(name, dims, batch_size);
         input_names_.push_back(name);
@@ -44,14 +42,12 @@ MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu,
         migraphx::program_parameters dummy_params;
         for (const auto& name : input_names_) {
             const auto& meta = inference_metadata_.getInputs();
-            auto it = std::find_if(meta.begin(), meta.end(),
-                                   [&](const LayerInfo& l){ return l.name == name; });
+            auto it = std::find_if(meta.begin(), meta.end(), [&](const LayerInfo& l) { return l.name == name; });
             std::vector<std::size_t> lens(it->shape.begin(), it->shape.end());
             migraphx::shape s{migraphx_shape_float_type, lens};
             std::size_t n = s.elements();
             dummy_buf_.emplace_back(n * sizeof(float), 0);
-            dummy_params.add(name.c_str(),
-                             migraphx::argument(s, dummy_buf_.back().data()));
+            dummy_params.add(name.c_str(), migraphx::argument(s, dummy_buf_.back().data()));
         }
         auto results = program_.eval(dummy_params);
         for (size_t i = 0; i < results.size(); ++i) {
@@ -67,15 +63,13 @@ MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu,
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-MIGraphXInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors)
-{
+MIGraphXInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
     validate_input(input_tensors);
 
     const auto& inputs = inference_metadata_.getInputs();
     if (input_tensors.size() != inputs.size()) {
-        throw std::runtime_error(
-            "Input count mismatch: expected " + std::to_string(inputs.size()) +
-            ", got " + std::to_string(input_tensors.size()));
+        throw std::runtime_error("Input count mismatch: expected " + std::to_string(inputs.size()) + ", got " +
+                                 std::to_string(input_tensors.size()));
     }
 
     start_timer();
@@ -87,8 +81,7 @@ MIGraphXInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
         migraphx::shape s{migraphx_shape_float_type, lens};
         // argument wraps existing buffer — no copy
         params.add(input_names_[i].c_str(),
-                   migraphx::argument(s,
-                       const_cast<void*>(static_cast<const void*>(input_tensors[i].data()))));
+                   migraphx::argument(s, const_cast<void*>(static_cast<const void*>(input_tensors[i].data()))));
     }
 
     auto results = program_.eval(params);
