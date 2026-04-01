@@ -57,6 +57,8 @@ All backends can be set up using the unified script:
 
 Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`
 
+**MIGraphX note:** In neuriplo, the MIGraphX backend accepts **ONNX** model files only. PyTorch models must be exported to ONNX before use; native PyTorch/TorchScript model loading is not supported by this integration.
+
 ## Usage
 
 ### Building with CMake
