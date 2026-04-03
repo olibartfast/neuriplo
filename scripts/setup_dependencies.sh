@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
         -f|--force) FORCE=true; shift ;;
         -h|--help)
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM, MIGRAPHX"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -32,7 +32,7 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM|MIGRAPHX) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
@@ -96,6 +96,14 @@ setup_ggml() {
     DEPENDENCY_ROOT="${DEPENDENCY_ROOT}" FORCE="${FORCE}" ./scripts/setup_ggml.sh
 }
 
+# Setup MIGraphX (ships with ROCm — just install the apt package)
+setup_migraphx() {
+    echo "Setting up MIGraphX..."
+    echo "MIGraphX is distributed as part of ROCm. Install with:"
+    echo "  sudo apt update && sudo apt install -y migraphx migraphx-dev"
+    echo "Ensure ROCm is already installed at /opt/rocm."
+}
+
 # Setup TVM
 setup_tvm() {
     echo "Setting up TVM library..."
@@ -145,7 +153,8 @@ export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
 export GGML_DIR="\$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="\$DEPENDENCY_ROOT/tvm"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$LD_LIBRARY_PATH"
+export MIGRAPHX_ROOT="/opt/rocm"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$MIGRAPHX_ROOT/lib:\$LD_LIBRARY_PATH"
 export PATH="\$OPENVINO_DIR/bin:\$TVM_DIR/bin:\$PATH"
 export PYTHONPATH="\$TVM_DIR/python:\$PYTHONPATH"
 EOF
@@ -162,6 +171,7 @@ case $BACKEND in
     LIBTENSORFLOW) setup_libtensorflow ;;
     GGML) setup_ggml ;;
     TVM) setup_tvm ;;
+    MIGRAPHX) setup_migraphx ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup

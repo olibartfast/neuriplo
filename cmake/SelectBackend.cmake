@@ -22,5 +22,8 @@ elseif (DEFAULT_BACKEND STREQUAL "GGML")
 elseif (DEFAULT_BACKEND STREQUAL "TVM")
     # Set TVM
     include(TVM)
+elseif (DEFAULT_BACKEND STREQUAL "MIGRAPHX")
+    # Set MIGraphX
+    include(MIGraphX)
 endif()
 

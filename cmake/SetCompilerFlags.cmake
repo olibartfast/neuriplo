@@ -1,3 +1,18 @@
+# Treat warnings as errors in CI (opt-in via -DWERROR=ON)
+option(WERROR "Treat compiler warnings as errors" OFF)
+if(WERROR)
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    message(STATUS "Strict warnings: -Wall -Wextra -Wpedantic -Werror enabled")
+endif()
+
+# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
+option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(SANITIZERS)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+endif()
+
 if(CMAKE_CUDA_COMPILER)
     # If CUDA is available but not using TensorRT or LibTorch, set the CUDA flags
     set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
@@ -35,11 +50,16 @@ endif()
 # Combine CUDA flags with common flags
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} ${CUDA_ARCH_FLAG}")
 
-# Suppress deprecation warnings from TensorRT headers (TensorRT 10.x has many deprecated APIs in its own headers)
-if(USE_TENSORRT)
-    if(NOT MSVC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
-    endif()
+# Suppress warnings from TensorRT headers (TensorRT 10.x has many deprecated
+# APIs and unused parameters in its own headers).  We use -Wno-error= rather
+# than -Wno- so the warnings are still visible but won't break -Werror builds.
+# add_compile_options is used (instead of CMAKE_CXX_FLAGS) so these flags
+# appear after any earlier -Werror on the command line.
+if((USE_TENSORRT OR DEFAULT_BACKEND STREQUAL "TENSORRT") AND NOT MSVC)
+    add_compile_options(
+        -Wno-error=deprecated-declarations
+        -Wno-error=unused-parameter
+    )
 endif()
 
 message("CMake CXX Flags Debug: ${CMAKE_CXX_FLAGS_DEBUG}")

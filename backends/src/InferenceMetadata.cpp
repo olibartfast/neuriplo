@@ -1,4 +1,4 @@
-#include  "InferenceMetadata.hpp"
+#include "InferenceMetadata.hpp"
 
 void InferenceMetadata::addInput(const std::string& name, const std::vector<int64_t>& shape, size_t batch_size) {
     inputs.push_back({name, shape, batch_size});
@@ -6,12 +6,8 @@ void InferenceMetadata::addInput(const std::string& name, const std::vector<int6
 
 void InferenceMetadata::addOutput(const std::string& name, const std::vector<int64_t>& shape, size_t batch_size) {
     outputs.push_back({name, shape, batch_size});
-}   
-
-const std::vector<LayerInfo>& InferenceMetadata::getInputs() const {
-    return inputs;
 }
 
-const std::vector<LayerInfo>& InferenceMetadata::getOutputs() const {
-    return outputs;
-}
+const std::vector<LayerInfo>& InferenceMetadata::getInputs() const { return inputs; }
+
+const std::vector<LayerInfo>& InferenceMetadata::getOutputs() const { return outputs; }

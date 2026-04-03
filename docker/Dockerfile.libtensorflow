@@ -81,32 +81,8 @@ ENV TENSORFLOW_DIR=/opt/tensorflow
 ENV LD_LIBRARY_PATH=${TENSORFLOW_DIR}/lib:${LD_LIBRARY_PATH:-}
 ENV PKG_CONFIG_PATH=${TENSORFLOW_DIR}/lib/pkgconfig:${PKG_CONFIG_PATH:-}
 
-# Stage 3: Install Python dependencies for testing
-FROM tensorflow_install AS python_deps
-
-# Create and activate virtual environment for testing
-RUN python3 -m venv /opt/test_env
-ENV PATH=/opt/test_env/bin:$PATH
-
-# Install Python dependencies for model generation and testing
-RUN pip install --upgrade pip && \
-    pip install \
-    torch \
-    torchvision \
-    onnx \
-    numpy \
-    opencv-python \
-    pytest \
-    pytest-cov \
-    pytest-mock \
-    pytest-benchmark \
-    pytest-xdist \
-    coverage \
-    pytest-html \
-    pytest-json-report
-
-# Stage 4: Build application
-FROM python_deps AS builder
+# Stage 3: Build application
+FROM tensorflow_install AS builder
 
 WORKDIR /app
 
@@ -123,7 +99,7 @@ RUN rm -rf build && \
     -DTENSORFLOW_DIR=${TENSORFLOW_DIR} \
     && cmake --build build --config Release -j$(nproc)
 
-# Stage 5: Generate test models
+# Stage 4: Generate test models
 FROM builder AS model_generator
 
 # Generate TensorFlow SavedModel using model_downloader.py
@@ -131,7 +107,7 @@ WORKDIR /app/build/backends/libtensorflow/test
 RUN . /opt/tensorflow_env/bin/activate && \
     /opt/tensorflow_env/bin/python /app/scripts/model_downloader.py LIBTENSORFLOW --output-dir . --keep-temp
 
-# Stage 6: Final runtime image for testing
+# Stage 5: Final runtime image for testing
 FROM tensorflow_install AS final
 
 # Create non-root user
