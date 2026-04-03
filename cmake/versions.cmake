@@ -66,6 +66,7 @@ set(OPENVINO_VERSION "${OPENVINO_VERSION}" CACHE STRING "OpenVINO version")
 set(TENSORFLOW_VERSION "${TENSORFLOW_VERSION}" CACHE STRING "TensorFlow version")
 set(GGML_VERSION "${GGML_VERSION}" CACHE STRING "GGML version")
 set(TVM_VERSION "${TVM_VERSION}" CACHE STRING "TVM version")
+set(CACTUS_VERSION "${CACTUS_VERSION}" CACHE STRING "Cactus version")
 
 # CUDA Version (for GPU support)
 set(CUDA_VERSION "${CUDA_VERSION}" CACHE STRING "CUDA version for GPU support")
@@ -89,6 +90,7 @@ set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch inst
 set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
 set(GGML_DIR "${DEFAULT_DEPENDENCY_ROOT}/ggml" CACHE PATH "GGML installation directory")
 set(TVM_DIR "${DEFAULT_DEPENDENCY_ROOT}/tvm" CACHE PATH "TVM installation directory")
+set(CACTUS_DIR "${DEFAULT_DEPENDENCY_ROOT}/cactus" CACHE PATH "Cactus installation directory")
 
 # Version validation functions
 function(validate_version_found found_version required_version component_name)
@@ -136,6 +138,7 @@ function(validate_backend_versions)
         "OPENVINO:OPENVINO_VERSION"
         "GGML:GGML_VERSION"
         "TVM:TVM_VERSION"
+        "CACTUS:CACTUS_VERSION"
     )
 
     set(VALIDATION_FAILED FALSE)
@@ -164,6 +167,8 @@ function(validate_backend_versions)
             set(VERSION_VAR "${GGML_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "TVM_VERSION")
             set(VERSION_VAR "${TVM_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "CACTUS_VERSION")
+            set(VERSION_VAR "${CACTUS_VERSION}")
         else()
             set(VERSION_VAR "")
         endif()
@@ -203,6 +208,7 @@ message(STATUS "OpenVINO: ${OPENVINO_VERSION}")
 message(STATUS "TensorFlow: ${TENSORFLOW_VERSION}")
 message(STATUS "GGML: ${GGML_VERSION}")
 message(STATUS "TVM: ${TVM_VERSION}")
+message(STATUS "Cactus: ${CACTUS_VERSION}")
 message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "OpenCV: ${OPENCV_MIN_VERSION}")
 message(STATUS "Dependency Root: ${DEFAULT_DEPENDENCY_ROOT}") 

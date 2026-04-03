@@ -15,6 +15,8 @@
 #include "OVInfer.hpp"
 #elif USE_GGML
 #include "GGMLInfer.hpp"
+#elif USE_CACTUS
+#include "CactusInfer.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface>
