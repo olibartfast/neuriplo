@@ -13,8 +13,8 @@ NC='\033[0m'
 echo -e "${GREEN}=== Generating Cactus Test Model ===${NC}"
 
 MODEL_DIR="${1:-.}"
-MODEL_FILE="$MODEL_DIR/gemma-3-270m-it-Q4_K_M.gguf"
-HF_URL="https://huggingface.co/Cactus-Compute/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf"
+MODEL_FILE="$MODEL_DIR/gemma-4-E2B-it-Q4_K_M.gguf"
+HF_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"
 
 if [ -f "$MODEL_FILE" ]; then
     echo -e "${GREEN}✓ Model already present: $MODEL_FILE${NC}"

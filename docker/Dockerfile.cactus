@@ -70,13 +70,13 @@ FROM cactus_install AS model_downloader
 
 RUN mkdir -p /opt/models
 
-# Download gemma-3-270m-it quantised (smallest available Cactus-supported model)
-RUN wget -q -O /opt/models/gemma-3-270m-it-Q4_K_M.gguf \
-    "https://huggingface.co/Cactus-Compute/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf" \
+# Download gemma-4-E2B-it quantised (smallest Gemma 4 GGUF, suitable for edge/mobile)
+RUN wget -q -O /opt/models/gemma-4-E2B-it-Q4_K_M.gguf \
+    "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf" \
     || (echo "Model download failed — tests will use mock inference" && \
         python3 -c "
 import struct, os
-p='/opt/models/gemma-3-270m-it-Q4_K_M.gguf'
+p='/opt/models/gemma-4-E2B-it-Q4_K_M.gguf'
 with open(p,'wb') as f:
     f.write(b'GGUF')
     f.write(struct.pack('<I',3))
@@ -105,8 +105,8 @@ FROM builder AS model_generator
 
 WORKDIR /app/build/backends/cactus/test
 
-RUN cp /opt/models/gemma-3-270m-it-Q4_K_M.gguf . && \
-    echo "$(pwd)/gemma-3-270m-it-Q4_K_M.gguf" > model_path.txt && \
+RUN cp /opt/models/gemma-4-E2B-it-Q4_K_M.gguf . && \
+    echo "$(pwd)/gemma-4-E2B-it-Q4_K_M.gguf" > model_path.txt && \
     echo "Model path: $(cat model_path.txt)"
 
 # Stage 6: Final runtime image
