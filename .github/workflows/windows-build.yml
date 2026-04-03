@@ -29,23 +29,30 @@ jobs:
       - name: Set up MSVC developer shell
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Set up vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: 5b1214315250939257ef5d62ecdcbca18cf4fb1c
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
 
       - name: Install dependencies
         shell: pwsh
         run: |
-          vcpkg install opencv4[core,dnn]:x64-windows glog:x64-windows
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            opencv4[core,dnn]:x64-windows `
+            glog:x64-windows
 
       - name: Configure
         shell: pwsh
         run: |
           cmake -S . -B build `
-            -G "Ninja" `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DDEFAULT_BACKEND=OPENCV_DNN `
             -DBUILD_INFERENCE_ENGINE_TESTS=OFF
