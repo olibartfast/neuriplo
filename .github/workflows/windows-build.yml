@@ -1,0 +1,54 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - feature/windows-support
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - CMakeLists.txt
+      - cmake/**
+      - include/**
+      - src/**
+      - backends/**
+      - .github/workflows/windows-build.yml
+  workflow_dispatch:
+
+jobs:
+  build-windows-opencvdnn:
+    name: Windows / OPENCV_DNN
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/windows-support'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          vcpkg install opencv4[core,dnn]:x64-windows glog:x64-windows
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DDEFAULT_BACKEND=OPENCV_DNN `
+            -DBUILD_INFERENCE_ENGINE_TESTS=OFF
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
