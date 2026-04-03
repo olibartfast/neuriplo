@@ -1,21 +1,23 @@
-#include <gtest/gtest.h>
 #include "TVMInfer.hpp"
-#include <glog/logging.h>
-#include <opencv2/opencv.hpp>
-#include <fstream>
-#include <iostream>
+
 #include <filesystem>
+#include <fstream>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
+#include <iostream>
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
 // Mock inference implementation for unit testing
 class MockTVMInfer {
-public:
+  public:
     MockTVMInfer() = default;
 
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input) {
+        (void)input;
         // Mock output: 1x1000 classification results
         std::vector<TensorElement> output_vector(1000);
         for (int i = 0; i < 1000; ++i) {
@@ -30,7 +32,7 @@ public:
 };
 
 class TVMInferTest : public ::testing::Test {
-protected:
+  protected:
     std::string model_path;
     bool has_real_model;
     std::unique_ptr<TVMInfer> real_infer;
@@ -103,18 +105,14 @@ TEST_F(TVMInferTest, BasicInference) {
     ASSERT_TRUE(std::holds_alternative<float>(output_vectors[0][0]));
 
     // Value access checking
-    ASSERT_NO_THROW({
-        float value = std::get<float>(output_vectors[0][0]);
-    });
+    ASSERT_NO_THROW({ (void)std::get<float>(output_vectors[0][0]); });
 
     // Size checking
     ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
 
     // Check all elements are of the expected type
     ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
-        [](const TensorElement& element) {
-            return std::holds_alternative<float>(element);
-        }));
+                            [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
 // Integration test - only runs with real model
@@ -200,7 +198,7 @@ TEST_F(TVMInferTest, GPUTest) {
     }
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

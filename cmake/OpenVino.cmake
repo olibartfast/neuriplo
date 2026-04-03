@@ -9,7 +9,7 @@ if(DEFINED ENV{OPENVINO_DIR})
     set(InferenceEngine_DIR "$ENV{OPENVINO_DIR}/runtime/cmake")
     
     # Add include directories
-    include_directories("$ENV{OPENVINO_DIR}/runtime/include")
+    include_directories(SYSTEM "$ENV{OPENVINO_DIR}/runtime/include")
     
     # Add to CMAKE_PREFIX_PATH
     list(APPEND CMAKE_PREFIX_PATH "$ENV{OPENVINO_DIR}")
@@ -28,8 +28,7 @@ else()
     set(InferenceEngine_DIR "${OPENVINO_INSTALL_DIR}/runtime/cmake")
     
     # Add include directories
-    include_directories("${OPENVINO_INSTALL_DIR}/runtime/include")
-
+    include_directories(SYSTEM "${OPENVINO_INSTALL_DIR}/runtime/include")
     # Add to CMAKE_PREFIX_PATH
     list(APPEND CMAKE_PREFIX_PATH "${OPENVINO_INSTALL_DIR}")
     

@@ -14,8 +14,8 @@ message(STATUS "TensorFlow found: ${TensorFlow_INCLUDE_DIRS}")
 message(STATUS "TensorFlow libraries: ${TensorFlow_LIBRARIES}")
 message(STATUS "TensorFlow_INCLUDE_DIR: ${TensorFlow_INCLUDE_DIR}")
 
-# Set TensorFlow include directories globally immediately after finding TensorFlow
-include_directories(${TensorFlow_INCLUDE_DIR})
+# Set TensorFlow include directories as SYSTEM to suppress warnings from vendor headers
+include_directories(SYSTEM ${TensorFlow_INCLUDE_DIR})
 
 set(TensorFlow_SOURCES
     ${INFER_ROOT}/libtensorflow/src/TFDetectionAPI.cpp

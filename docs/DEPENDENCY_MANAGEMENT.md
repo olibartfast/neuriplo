@@ -55,7 +55,17 @@ All backends can be set up using the unified script:
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`
+Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`
+
+### MIGraphX model support
+
+In neuriplo, the MIGraphX backend accepts **ONNX** model files only.
+
+- Models are loaded through MIGraphX's ONNX parser in `backends/migraphx/src/MIGraphXInfer.cpp`
+- PyTorch models must be exported to ONNX before use
+- Native PyTorch/TorchScript model loading is not supported by this integration
+
+This is a neuriplo backend constraint, not a general statement about every ROCm or MIGraphX integration.
 
 ## Usage
 
@@ -110,13 +120,14 @@ validate_all_dependencies()
    cmake .. -DDEFAULT_BACKEND=OPENVINO -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=GGML -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=TVM -DBUILD_INFERENCE_ENGINE_TESTS=ON
+   cmake .. -DDEFAULT_BACKEND=MIGRAPHX -DBUILD_INFERENCE_ENGINE_TESTS=ON
    ```
 
 ### Configuration Options
 
 #### CMake Variables
 
-- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML, TVM)
+- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML, TVM, MIGRAPHX)
 - `BUILD_INFERENCE_ENGINE_TESTS`: Enable/disable test building (ON/OFF)
 - `DEPENDENCY_ROOT`: Set custom dependency installation root (default: `$HOME/dependencies`)
 - `ONNX_RUNTIME_VERSION`: Override ONNX Runtime version

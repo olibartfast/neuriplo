@@ -28,16 +28,18 @@ if(NOT TENSORRT_NVINFER_LIBRARY OR NOT TENSORRT_NVONNXPARSER_LIBRARY)
     message(FATAL_ERROR "Unable to locate the TensorRT test libraries under ${TENSORRT_DIR}")
 endif()
 
-target_include_directories(TensorRTInferTest PRIVATE
-    ${CMAKE_SOURCE_DIR}/backends/tensorrt/src
-    ${CMAKE_SOURCE_DIR}/backends/src
-    ${CMAKE_SOURCE_DIR}/include
+target_include_directories(TensorRTInferTest SYSTEM PRIVATE
     ${TENSORRT_DIR}/include
     ${CUDAToolkit_INCLUDE_DIRS}
     ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
+target_include_directories(TensorRTInferTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/backends/tensorrt/src
+    ${CMAKE_SOURCE_DIR}/backends/src
+    ${CMAKE_SOURCE_DIR}/include
+)
 target_link_libraries(TensorRTInferTest PRIVATE
     neuriplo
     ${TENSORRT_NVINFER_LIBRARY}
