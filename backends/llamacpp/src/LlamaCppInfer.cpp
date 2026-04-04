@@ -113,7 +113,7 @@ LlamaCppInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
                 batch.token[batch.n_tokens] = tokens[i];
                 batch.pos[batch.n_tokens] = i;
                 batch.n_seq_id[batch.n_tokens] = 1;
-                batch.seq_id[batch.n_tokens] = &(batch.seq_id[batch.n_tokens][0]);
+                // batch.seq_id[i] is pre-allocated by llama_batch_init with n_seq_max=1
                 batch.seq_id[batch.n_tokens][0] = 0;
                 batch.logits[batch.n_tokens] = (i == n_tokens - 1);
                 batch.n_tokens++;
@@ -142,7 +142,7 @@ LlamaCppInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
                 // Convert token to text
                 char buf[256];
                 const int n = llama_token_to_piece(vocab_, new_token_id, buf, sizeof(buf), 0, true);
-                if (n > 0) {
+                if (n > 0 && n <= static_cast<int>(sizeof(buf))) {
                     response.append(buf, n);
                 }
 
