@@ -28,7 +28,7 @@ if(NOT DEFINED DEFAULT_BACKEND)
 endif()
 
 # Define the supported backends directly
-set(SUPPORTED_BACKENDS "OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+set(SUPPORTED_BACKENDS "OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "LLAMACPP")
 message(STATUS "Supported backends: ${SUPPORTED_BACKENDS}")
 
 # Validate that all backends have corresponding versions in versions.env

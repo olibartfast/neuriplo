@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "LLAMACPP")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -35,6 +35,7 @@ declare -A BACKEND_DIRS=(
     ["OPENVINO"]="openvino"
     ["GGML"]="ggml"
     ["TVM"]="tvm"
+    ["LLAMACPP"]="llamacpp"
 )
 
 # Test executable mapping
@@ -47,6 +48,7 @@ declare -A BACKEND_TEST_EXES=(
     ["OPENVINO"]="OpenVINOInferTest"
     ["GGML"]="GGMLInferTest"
     ["TVM"]="TVMInferTest"
+    ["LLAMACPP"]="LlamaCppInferTest"
 )
 
 # Helper functions

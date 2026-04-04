@@ -182,6 +182,8 @@ function(validate_all_dependencies)
         validate_ggml()
     elseif(DEFAULT_BACKEND STREQUAL "TVM")
         validate_tvm()
+    elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        validate_llamacpp()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -222,6 +224,8 @@ function(print_setup_instructions)
         message(STATUS "  ./scripts/setup_dependencies.sh --backend OPENVINO")
     elseif(DEFAULT_BACKEND STREQUAL "GGML")
         message(STATUS "  ./scripts/setup_dependencies.sh --backend GGML")
+    elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend LLAMACPP")
     endif()
     
     message(STATUS "")
@@ -324,5 +328,26 @@ function(validate_tvm)
         endforeach()
         
         message(STATUS "✓ TVM validation passed")
+    endif()
+endfunction()
+
+# Function to validate llama.cpp
+function(validate_llamacpp)
+    if(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        validate_dependency("llama.cpp" "${LLAMACPP_DIR}")
+
+        set(required_files
+            "${LLAMACPP_DIR}/include/llama.h"
+            "${LLAMACPP_DIR}/lib/libllama.so"
+            "${LLAMACPP_DIR}/lib/libggml.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "llama.cpp installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ llama.cpp validation passed")
     endif()
 endfunction()
