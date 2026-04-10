@@ -30,7 +30,7 @@ set(CMAKE_MIN_VERSION "3.10" CACHE STRING "Minimum CMake version")
 The `cmake/DependencyValidation.cmake` module provides validation:
 
 - **System Dependencies**: OpenCV, glog, CMake version
-- **Inference Backends**: ONNX Runtime, TensorRT, LibTorch, OpenVINO, TensorFlow
+- **Inference Backends**: ONNX Runtime, TensorRT, LibTorch, OpenVINO, TensorFlow, GGML, TVM, MIGraphX, Cactus, llama.cpp
 - **GPU Support**: CUDA validation for GPU-enabled backends
 - **Installation Completeness**: Checks for required files and libraries
 
@@ -56,6 +56,15 @@ All backends can be set up using the unified script:
 ```
 
 Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`, `CACTUS`, `LLAMACPP`
+
+### GGUF-native backends
+
+The converged multimodal branch adds two GGUF-oriented backends:
+
+- `CACTUS`: Cactus runtime integration for prompt-in / generated-text-out inference
+- `LLAMACPP`: llama.cpp integration for GGUF LLM and multimodal inference
+
+Both are installed through `scripts/setup_dependencies.sh` and validated through the same CMake dependency validation entry points as the other optional backends.
 
 ### MIGraphX model support
 
@@ -150,7 +159,9 @@ export ONNX_RUNTIME_DIR="$HOME/dependencies/onnxruntime-linux-x64-gpu-1.19.2"
 export TENSORRT_DIR="$HOME/dependencies/TensorRT-10.7.0.23"
 export LIBTORCH_DIR="$HOME/dependencies/libtorch"
 export OPENVINO_DIR="$HOME/dependencies/openvino-2023.1.0"
-export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/lib:$OPENVINO_DIR/lib:$LD_LIBRARY_PATH"
+export CACTUS_DIR="$HOME/dependencies/cactus"
+export LLAMACPP_DIR="$HOME/dependencies/llamacpp"
+export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/lib:$OPENVINO_DIR/lib:$CACTUS_DIR/lib:$LLAMACPP_DIR/lib:$LD_LIBRARY_PATH"
 ```
 
 **Note**: TensorFlow environment variables are set by the individual TensorFlow setup scripts.
