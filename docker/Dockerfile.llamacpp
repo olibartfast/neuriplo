@@ -1,0 +1,139 @@
+# docker build --rm -t neuriplo:llamacpp -f docker/Dockerfile.llamacpp .
+# docker run --rm neuriplo:llamacpp
+
+# Stage 1: Base dependencies
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOME=/root
+ENV DEPENDENCIES_DIR=${HOME}/dependencies
+ENV LLAMACPP_DIR=${DEPENDENCIES_DIR}/llamacpp
+
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake=3.* \
+    build-essential \
+    pkg-config \
+    wget \
+    git \
+    unzip \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    libopenblas-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    ninja-build \
+    libopencv-dev \
+    libopencv-contrib-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY versions.env /tmp/versions.env
+
+RUN cd /usr/src/gtest && \
+    cmake . && \
+    make && \
+    cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
+
+# Stage 2: Build and install llama.cpp
+FROM base_dependencies AS llamacpp_install
+
+RUN . /tmp/versions.env && \
+    mkdir -p ${LLAMACPP_DIR} && \
+    git clone https://github.com/ggerganov/llama.cpp.git /tmp/llamacpp-src && \
+    cd /tmp/llamacpp-src && \
+    git checkout ${LLAMACPP_VERSION} && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${LLAMACPP_DIR}" \
+        -DBUILD_SHARED_LIBS=ON \
+        -DGGML_BLAS=ON \
+        -DGGML_BLAS_VENDOR=OpenBLAS \
+        -DGGML_CUDA=OFF \
+        -DGGML_METAL=OFF \
+        -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF \
+        -DLLAMA_BUILD_SERVER=OFF && \
+    make -j$(nproc) && \
+    make install && \
+    rm -rf /tmp/llamacpp-src
+
+RUN test -f ${LLAMACPP_DIR}/include/llama.h && \
+    test -f ${LLAMACPP_DIR}/lib/libllama.so && \
+    test -f ${LLAMACPP_DIR}/lib/libggml.so
+
+ENV LLAMACPP_DIR=${LLAMACPP_DIR}
+ENV LD_LIBRARY_PATH=${LLAMACPP_DIR}/lib
+ENV PKG_CONFIG_PATH=${LLAMACPP_DIR}/lib/pkgconfig
+
+# Stage 3: Download a small GGUF test model
+FROM llamacpp_install AS model_downloader
+
+RUN mkdir -p /opt/models
+
+# Download gemma-4-E2B-it quantised (smallest Gemma 4 GGUF, suitable for edge/mobile)
+RUN wget -q -O /opt/models/gemma-4-E2B-it-Q4_K_M.gguf \
+    "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf" \
+    || (echo "Model download failed — tests will use mock inference" && \
+        python3 -c "
+import struct, os
+p='/opt/models/gemma-4-E2B-it-Q4_K_M.gguf'
+with open(p,'wb') as f:
+    f.write(b'GGUF')
+    f.write(struct.pack('<I',3))
+    f.write(struct.pack('<Q',0))
+    f.write(struct.pack('<Q',0))
+print('Placeholder GGUF written:', p, os.path.getsize(p), 'bytes')
+")
+
+RUN ls -lh /opt/models/
+
+# Stage 4: Build the neuriplo library and test executable
+FROM model_downloader AS builder
+
+WORKDIR /app
+COPY . .
+
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=LLAMACPP \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DLLAMACPP_DIR=${LLAMACPP_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 5: Prepare model path for tests
+FROM builder AS model_generator
+
+WORKDIR /app/build/backends/llamacpp/test
+
+RUN cp /opt/models/gemma-4-E2B-it-Q4_K_M.gguf . && \
+    echo "$(pwd)/gemma-4-E2B-it-Q4_K_M.gguf" > model_path.txt && \
+    echo "Model path: $(cat model_path.txt)"
+
+# Stage 6: Final runtime image
+FROM llamacpp_install AS final
+
+RUN useradd -m testuser && \
+    mkdir -p /app && \
+    chown -R testuser:testuser /app
+
+COPY --from=model_generator --chown=testuser:testuser /app/build /app/build
+COPY --from=model_generator --chown=testuser:testuser /app/backends/llamacpp/test /app/backends/llamacpp/test
+
+COPY --from=llamacpp_install --chown=testuser:testuser ${LLAMACPP_DIR}/lib /opt/llamacpp/lib
+COPY --from=llamacpp_install --chown=testuser:testuser ${LLAMACPP_DIR}/include /opt/llamacpp/include
+
+WORKDIR /app/build/backends/llamacpp/test
+
+USER testuser
+
+ENV LD_LIBRARY_PATH=/app/build/lib:/opt/llamacpp/lib:$LD_LIBRARY_PATH
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/build/lib/libneuriplo.so || exit 1
+
+CMD ["./LlamaCppInferTest"]

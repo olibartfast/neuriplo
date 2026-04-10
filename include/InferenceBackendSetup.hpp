@@ -19,6 +19,8 @@
 #include "CactusInfer.hpp"
 #elif USE_MIGRAPHX
 #include "MIGraphXInfer.hpp"
+#elif USE_LLAMACPP
+#include "LlamaCppInfer.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface>

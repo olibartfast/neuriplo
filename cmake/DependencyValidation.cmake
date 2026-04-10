@@ -198,6 +198,8 @@ function(validate_all_dependencies)
         validate_cactus()
     elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
         validate_migraphx()
+    elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        validate_llamacpp()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -242,6 +244,8 @@ function(print_setup_instructions)
         message(STATUS "  ./scripts/setup_dependencies.sh --backend CACTUS")
     elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
         message(STATUS "  ./scripts/setup_dependencies.sh --backend MIGRAPHX")
+    elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend LLAMACPP")
     endif()
     
     message(STATUS "")
@@ -308,7 +312,8 @@ function(validate_ggml)
     endif()
 endfunction()
 
-function(validate_tvm)    if(DEFAULT_BACKEND STREQUAL "TVM")
+function(validate_tvm)
+    if(DEFAULT_BACKEND STREQUAL "TVM")
         validate_dependency("TVM" "${TVM_DIR}")
         
         # Check for required files - try multiple possible header paths for different TVM versions
@@ -343,6 +348,27 @@ function(validate_tvm)    if(DEFAULT_BACKEND STREQUAL "TVM")
         endforeach()
         
         message(STATUS "✓ TVM validation passed")
+    endif()
+endfunction()
+
+# Function to validate llama.cpp
+function(validate_llamacpp)
+    if(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        validate_dependency("llama.cpp" "${LLAMACPP_DIR}")
+
+        set(required_files
+            "${LLAMACPP_DIR}/include/llama.h"
+            "${LLAMACPP_DIR}/lib/libllama.so"
+            "${LLAMACPP_DIR}/lib/libggml.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "llama.cpp installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ llama.cpp validation passed")
     endif()
 endfunction()
 
