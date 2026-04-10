@@ -244,6 +244,11 @@ jobs:
             image: neuriplo-libtorch-cpu
             test_exe: LibtorchInferTest
 
+          - backend: CACTUS
+            dockerfile: docker/Dockerfile.cactus
+            image: neuriplo-cactus
+            test_exe: CactusInferTest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4

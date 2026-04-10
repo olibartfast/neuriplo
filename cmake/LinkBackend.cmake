@@ -49,6 +49,11 @@ elseif(DEFAULT_BACKEND STREQUAL "TVM")
     target_compile_options(${PROJECT_NAME} PRIVATE 
         $<$<COMPILE_LANGUAGE:CXX>:-Wno-macro-redefined>
         $<$<COMPILE_LANGUAGE:CXX>:-w>)
+elseif(DEFAULT_BACKEND STREQUAL "CACTUS")
+    target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${CACTUS_DIR}/include)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/cactus/src)
+    target_link_directories(${PROJECT_NAME} PRIVATE ${CACTUS_DIR}/lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${CACTUS_DIR}/lib/libcactus.so)
 elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${INFER_ROOT}/migraphx/src)
