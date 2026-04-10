@@ -68,6 +68,7 @@ set(GGML_VERSION "${GGML_VERSION}" CACHE STRING "GGML version")
 set(TVM_VERSION "${TVM_VERSION}" CACHE STRING "TVM version")
 set(MIGRAPHX_VERSION "${MIGRAPHX_VERSION}" CACHE STRING "MIGraphX version")
 set(CACTUS_VERSION "${CACTUS_VERSION}" CACHE STRING "Cactus version")
+set(LLAMACPP_VERSION "${LLAMACPP_VERSION}" CACHE STRING "llama.cpp version")
 
 # CUDA Version (for GPU support)
 set(CUDA_VERSION "${CUDA_VERSION}" CACHE STRING "CUDA version for GPU support")
@@ -92,6 +93,7 @@ set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE
 set(GGML_DIR "${DEFAULT_DEPENDENCY_ROOT}/ggml" CACHE PATH "GGML installation directory")
 set(TVM_DIR "${DEFAULT_DEPENDENCY_ROOT}/tvm" CACHE PATH "TVM installation directory")
 set(CACTUS_DIR "${DEFAULT_DEPENDENCY_ROOT}/cactus" CACHE PATH "Cactus installation directory")
+set(LLAMACPP_DIR "${DEFAULT_DEPENDENCY_ROOT}/llamacpp" CACHE PATH "llama.cpp installation directory")
 
 # Version validation functions
 function(validate_version_found found_version required_version component_name)
@@ -141,6 +143,7 @@ function(validate_backend_versions)
         "TVM:TVM_VERSION"
         "CACTUS:CACTUS_VERSION"
         "MIGRAPHX:MIGRAPHX_VERSION"
+        "LLAMACPP:LLAMACPP_VERSION"
     )
 
     set(VALIDATION_FAILED FALSE)
@@ -173,6 +176,8 @@ function(validate_backend_versions)
             set(VERSION_VAR "${CACTUS_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "MIGRAPHX_VERSION")
             set(VERSION_VAR "${MIGRAPHX_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "LLAMACPP_VERSION")
+            set(VERSION_VAR "${LLAMACPP_VERSION}")
         else()
             set(VERSION_VAR "")
         endif()
@@ -214,6 +219,7 @@ message(STATUS "GGML: ${GGML_VERSION}")
 message(STATUS "TVM: ${TVM_VERSION}")
 message(STATUS "MIGraphX: ${MIGRAPHX_VERSION}")
 message(STATUS "Cactus: ${CACTUS_VERSION}")
+message(STATUS "llama.cpp: ${LLAMACPP_VERSION}")
 message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "OpenCV: ${OPENCV_MIN_VERSION}")
 message(STATUS "Dependency Root: ${DEFAULT_DEPENDENCY_ROOT}") 

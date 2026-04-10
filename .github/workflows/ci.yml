@@ -248,6 +248,10 @@ jobs:
             dockerfile: docker/Dockerfile.cactus
             image: neuriplo-cactus
             test_exe: CactusInferTest
+          - backend: LLAMACPP
+            dockerfile: docker/Dockerfile.llamacpp
+            image: neuriplo-llamacpp
+            test_exe: LlamaCppInferTest
 
     steps:
       - name: Checkout

@@ -25,6 +25,8 @@
 * GGML - Efficient tensor library for machine learning
 * TVM - Open deep learning compiler stack
 * MIGraphX - AMD ROCm graph inference engine
+* Cactus - GGUF-native text generation backend
+* llama.cpp - GGUF-native LLM and multimodal backend
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -49,6 +51,8 @@ Supported `<BACKEND_NAME>` values:
 * `GGML`
 * `TVM`
 * `MIGRAPHX`
+* `CACTUS`
+* `LLAMACPP`
 
 #### Test All Backends
 ```bash
@@ -206,3 +210,4 @@ For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
+- **[Multimodal Convergence Roadmap](docs/MULTIMODAL_ROADMAP.md)** - Merge plan for `llamacpp` and `cactus` backend work

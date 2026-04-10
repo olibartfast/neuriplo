@@ -28,4 +28,7 @@ elseif (DEFAULT_BACKEND STREQUAL "CACTUS")
 elseif (DEFAULT_BACKEND STREQUAL "MIGRAPHX")
     # Set MIGraphX
     include(MIGraphX)
+elseif (DEFAULT_BACKEND STREQUAL "LLAMACPP")
+    # Set llama.cpp
+    include(LlamaCpp)
 endif()
