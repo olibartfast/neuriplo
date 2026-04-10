@@ -5,8 +5,8 @@
 
 ## Overview
 
-* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks. 
-* It supports multiple frameworks and libraries such as OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM and GGML.
+* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks.
+* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, and llama.cpp.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Vision Inference Project](https://github.com/olibartfast/vision-inference)
 
@@ -81,6 +81,20 @@ Run the MIGraphX backend test container on a ROCm-capable host:
 
 ```bash
 docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video neuriplo:migraphx
+```
+
+### GGUF Backends
+
+`CACTUS` and `LLAMACPP` are the converged GGUF-native backends in this branch.
+
+- `CACTUS` targets text-generation style GGUF workflows through the Cactus runtime
+- `LLAMACPP` targets llama.cpp-based LLM and multimodal GGUF workflows
+
+Both backends are wired through the same Neuriplo backend-selection path and are available through:
+
+```bash
+./scripts/setup_dependencies.sh --backend CACTUS
+./scripts/setup_dependencies.sh --backend LLAMACPP
 ```
 
 
@@ -210,4 +224,3 @@ For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
-- **[Multimodal Convergence Roadmap](docs/MULTIMODAL_ROADMAP.md)** - Merge plan for `llamacpp` and `cactus` backend work

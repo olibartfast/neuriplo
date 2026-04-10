@@ -25,7 +25,7 @@ validate_scripts() {
 
 # Validate test files
 validate_test_files() {
-    local backends=("opencv-dnn" "libtorch" "onnx-runtime" "libtensorflow" "tensorrt" "openvino")
+    local backends=("opencv-dnn" "libtorch" "onnx-runtime" "libtensorflow" "tensorrt" "openvino" "ggml" "tvm" "migraphx" "cactus" "llamacpp")
     local all_valid=true
 
     for backend in "${backends[@]}"; do
@@ -91,7 +91,7 @@ generate_validation_report() {
         echo "Test Validation Report - $(date)"
         echo ""
         echo "Test Files Status:"
-        for backend in opencv-dnn libtorch onnx-runtime libtensorflow tensorrt openvino; do
+        for backend in opencv-dnn libtorch onnx-runtime libtensorflow tensorrt openvino ggml tvm migraphx cactus llamacpp; do
             local test_dir="$PROJECT_ROOT/backends/$backend/test"
             if [[ -d "$test_dir" ]]; then
                 echo "  $backend: Test directory exists"
