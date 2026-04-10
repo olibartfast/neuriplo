@@ -194,6 +194,8 @@ function(validate_all_dependencies)
         validate_ggml()
     elseif(DEFAULT_BACKEND STREQUAL "TVM")
         validate_tvm()
+    elseif(DEFAULT_BACKEND STREQUAL "CACTUS")
+        validate_cactus()
     elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
         validate_migraphx()
     else()
@@ -236,6 +238,8 @@ function(print_setup_instructions)
         message(STATUS "  ./scripts/setup_dependencies.sh --backend OPENVINO")
     elseif(DEFAULT_BACKEND STREQUAL "GGML")
         message(STATUS "  ./scripts/setup_dependencies.sh --backend GGML")
+    elseif(DEFAULT_BACKEND STREQUAL "CACTUS")
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend CACTUS")
     elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
         message(STATUS "  ./scripts/setup_dependencies.sh --backend MIGRAPHX")
     endif()
@@ -304,8 +308,7 @@ function(validate_ggml)
     endif()
 endfunction()
 
-function(validate_tvm)
-    if(DEFAULT_BACKEND STREQUAL "TVM")
+function(validate_tvm)    if(DEFAULT_BACKEND STREQUAL "TVM")
         validate_dependency("TVM" "${TVM_DIR}")
         
         # Check for required files - try multiple possible header paths for different TVM versions
@@ -340,5 +343,25 @@ function(validate_tvm)
         endforeach()
         
         message(STATUS "✓ TVM validation passed")
+    endif()
+endfunction()
+
+# Function to validate Cactus
+function(validate_cactus)
+    if(DEFAULT_BACKEND STREQUAL "CACTUS")
+        validate_dependency("Cactus" "${CACTUS_DIR}")
+
+        set(required_files
+            "${CACTUS_DIR}/include/cactus.h"
+            "${CACTUS_DIR}/lib/libcactus.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "Cactus installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ Cactus validation passed")
     endif()
 endfunction()
