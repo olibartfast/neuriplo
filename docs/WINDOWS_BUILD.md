@@ -105,20 +105,20 @@ cmake -S . -B build -DDEFAULT_BACKEND=ONNX_RUNTIME `
 
 ## 4. Configure and Build
 
-All commands assume a Developer PowerShell (Step 2 complete) and CMake on PATH (Step 1 complete).
+All commands assume CMake is on PATH (Step 1 complete). No Developer PowerShell required — MSBuild is found automatically via the VS Build Tools.
 
-### Configure
+### Configure (vcpkg path — recommended)
 
 ```powershell
-# Example with OpenCV DNN (simplest to start)
+$toolchain = "$HOME\vcpkg\scripts\buildsystems\vcpkg.cmake"
+$vcpkgInstalled = "$HOME\vcpkg\installed\x64-windows"
+
 cmake -S . -B build `
       -DDEFAULT_BACKEND=OPENCV_DNN `
-      -DBUILD_INFERENCE_ENGINE_TESTS=ON
-
-# To use Ninja instead of MSBuild (faster):
-cmake -S . -B build -G Ninja `
-      -DDEFAULT_BACKEND=OPENCV_DNN `
-      -DBUILD_INFERENCE_ENGINE_TESTS=ON
+      -DBUILD_INFERENCE_ENGINE_TESTS=ON `
+      "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+      -DVCPKG_TARGET_TRIPLET=x64-windows `
+      "-DCMAKE_PREFIX_PATH=$vcpkgInstalled"
 ```
 
 ### Build
@@ -153,19 +153,48 @@ Version numbers are defined in [versions.env](../versions.env).
 
 ## 6. OpenCV via vcpkg (recommended for OPENCV_DNN)
 
-vcpkg is the easiest way to get OpenCV on Windows:
+This is the validated path on this machine.
+
+### Install vcpkg and packages
 
 ```powershell
-git clone https://github.com/microsoft/vcpkg "$HOME\vcpkg"
-& "$HOME\vcpkg\bootstrap-vcpkg.bat"
-& "$HOME\vcpkg\vcpkg" install opencv4:x64-windows
+git clone https://github.com/microsoft/vcpkg "$HOME\vcpkg" --depth=1
+& "$HOME\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+
+# Required packages
+& "$HOME\vcpkg\vcpkg.exe" install opencv4:x64-windows glog:x64-windows gtest:x64-windows --disable-metrics
+```
+
+### Configure
+
+```powershell
+$toolchain = "$HOME\vcpkg\scripts\buildsystems\vcpkg.cmake"
+$vcpkgInstalled = "$HOME\vcpkg\installed\x64-windows"
 
 cmake -S . -B build `
       -DDEFAULT_BACKEND=OPENCV_DNN `
-      -DCMAKE_TOOLCHAIN_FILE="$HOME\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+      -DBUILD_INFERENCE_ENGINE_TESTS=ON `
+      "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
       -DVCPKG_TARGET_TRIPLET=x64-windows `
-      -DBUILD_INFERENCE_ENGINE_TESTS=ON
+      "-DCMAKE_PREFIX_PATH=$vcpkgInstalled"
 ```
+
+> **Note:** `-DCMAKE_PREFIX_PATH` must be set explicitly because the vcpkg toolchain
+> integration requires it to resolve package configs (Protobuf, gflags, etc.) that
+> OpenCV and glog depend on transitively.
+
+### Build
+
+```powershell
+cmake --build build --config Release --parallel
+```
+
+### Known Windows-specific CMake fixes applied to this repo
+
+| File | Fix |
+|------|-----|
+| `CMakeLists.txt` | Added `find_package(gflags CONFIG QUIET)` before `find_package(Glog REQUIRED)` — vcpkg's `glog-targets.cmake` requires `gflags::gflags` to be imported first |
+| `cmake/SetupTests.cmake` | Added `ALIAS` targets mapping `gtest`/`gtest_main` → `GTest::gtest`/`GTest::gtest_main` for vcpkg config-mode GTest compatibility |
 
 ---
 

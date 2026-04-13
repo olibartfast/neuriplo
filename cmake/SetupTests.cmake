@@ -1,6 +1,16 @@
 
 message(STATUS "Test enabled")
 find_package(GTest REQUIRED)
+if(VCPKG_TOOLCHAIN)
+    # vcpkg provides GTest via config-mode targets (GTest::gtest / GTest::gtest_main).
+    # Alias them to the bare names expected by all backend test CMakeLists files.
+    if(NOT TARGET gtest AND TARGET GTest::gtest)
+        add_library(gtest ALIAS GTest::gtest)
+    endif()
+    if(NOT TARGET gtest_main AND TARGET GTest::gtest_main)
+        add_library(gtest_main ALIAS GTest::gtest_main)
+    endif()
+endif()
 enable_testing()
 # Add test directories
 if(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW" )

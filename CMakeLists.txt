@@ -17,6 +17,11 @@ include(cmake/versions.cmake)
 include(cmake/DependencyValidation.cmake)
 
 find_package(OpenCV REQUIRED)
+if(VCPKG_TOOLCHAIN)
+    # vcpkg's glog-targets.cmake validates gflags::gflags at generate time;
+    # import gflags first so the target exists before find_package(Glog).
+    find_package(gflags CONFIG QUIET)
+endif()
 find_package(Glog REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
