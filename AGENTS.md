@@ -113,7 +113,7 @@ cmake -B build -DONNX_RUNTIME_DIR=/opt/onnxruntime-1.19.2 -DDEFAULT_BACKEND=ONNX
 
 ### CI
 
-CI runs each CPU backend in a dedicated Docker image (`docker/Dockerfile.<backend>`). GPU backends (TensorRT, LibTorch GPU, MIGraphX) require a self-hosted runner and are gated by `if: false` in `.github/workflows/ci.yml` until one is registered. MIGraphX requires `--device=/dev/kfd --device=/dev/dri --group-add video` for GPU passthrough.
+CI runs Linux backend jobs in dedicated Docker images (`docker/Dockerfile.<backend>`). Native Windows CI lives in `.github/workflows/windows-build.yml` as a shared matrix for `OPENCV_DNN` and `ONNX_RUNTIME`; it uses `windows-latest`, reuses common vcpkg setup, caches vcpkg downloads/binaries, and downloads ONNX Runtime from GitHub releases. GPU backends (TensorRT, LibTorch GPU, MIGraphX) require a self-hosted runner and are gated by `if: false` in `.github/workflows/ci.yml` until one is registered. MIGraphX requires `--device=/dev/kfd --device=/dev/dri --group-add video` for GPU passthrough.
 
 
 ### REMEBER TO UPDATED DOCS AFTER EACH MODIFICATIONS

@@ -66,6 +66,7 @@ Supported `<BACKEND_NAME>` values:
 **Model format support:** neuriplo's MIGraphX backend loads **ONNX** models only. If your model starts in PyTorch, export it to ONNX first; native PyTorch/TorchScript model loading is not supported by this backend integration.
 
 For backend-specific setup and usage constraints, see [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
+For native Windows builds with MSVC and vcpkg, see [docs/WINDOWS_BUILD.md](docs/WINDOWS_BUILD.md).
 
 Build the MIGraphX test image:
 
@@ -205,4 +206,5 @@ cmake ..
 For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
+- **[Windows Build Guide](docs/WINDOWS_BUILD.md)** - Native Windows build instructions for local development and CI-aligned setup
 - **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend

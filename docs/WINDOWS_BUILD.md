@@ -2,6 +2,11 @@
 
 This guide covers building neuriplo natively on Windows using Visual Studio Build Tools 2022 and CMake.
 
+## CI and local development
+
+- **Local development:** keep using `vcpkg` for OpenCV, glog, and GTest.
+- **Native Windows CI:** `.github/workflows/windows-build.yml` builds `OPENCV_DNN` and `ONNX_RUNTIME` in **Release** mode with a shared matrix job, cached vcpkg downloads/binaries, and an ONNX Runtime release archive download.
+
 ## Detected Environment (this machine)
 
 | Tool | Status | Path |
@@ -80,7 +85,7 @@ Backends that build and run well on Windows CPU-only:
 | Backend | CMake flag | Notes |
 |---------|-----------|-------|
 | `OPENCV_DNN` | `-DDEFAULT_BACKEND=OPENCV_DNN` | Easiest — OpenCV is widely packaged |
-| `ONNX_RUNTIME` | `-DDEFAULT_BACKEND=ONNX_RUNTIME` | Pre-built `.zip` from GitHub releases |
+| `ONNX_RUNTIME` | `-DDEFAULT_BACKEND=ONNX_RUNTIME` | Pre-built `.zip` from GitHub releases; current top-level CMake still requires OpenCV to be available too |
 | `LIBTORCH` | `-DDEFAULT_BACKEND=LIBTORCH` | Download CPU zip from pytorch.org |
 | `OPENVINO` | `-DDEFAULT_BACKEND=OPENVINO` | Use the OpenVINO Windows installer |
 | `LIBTENSORFLOW` | `-DDEFAULT_BACKEND=LIBTENSORFLOW` | Pre-built `.zip` from tensorflow.org |
@@ -91,15 +96,18 @@ GPU backends (`TENSORRT`, `MIGRAPHX`) require CUDA and additional drivers — no
 
 ```powershell
 # Download from https://github.com/microsoft/onnxruntime/releases
-# Extract to ~/dependencies/onnxruntime-1.19.2 (matches ONNX_RUNTIME_VERSION in versions.env)
-$dest = "$HOME\dependencies\onnxruntime-1.19.2"
+# Extract to ~/dependencies/onnxruntime-win-x64-gpu-<version>
+# Example for the current versions.env entry:
+$dest = "$HOME\dependencies\onnxruntime-win-x64-gpu-1.24.4"
 ```
 
 Or override the path at configure time:
 ```powershell
 cmake -S . -B build -DDEFAULT_BACKEND=ONNX_RUNTIME `
-      -DONNX_RUNTIME_DIR="C:\path\to\onnxruntime-1.19.2"
+      -DONNX_RUNTIME_DIR="C:\path\to\onnxruntime-win-x64-gpu-1.24.4"
 ```
+
+> **Note:** `ONNX_RUNTIME` builds on Windows still need OpenCV and glog available during configure because the current top-level `CMakeLists.txt` finds and links them for all backends.
 
 ---
 
@@ -153,7 +161,7 @@ Version numbers are defined in [versions.env](../versions.env).
 
 ## 6. OpenCV via vcpkg (recommended for OPENCV_DNN)
 
-This is the validated path on this machine.
+This is also the recommended local development path on Windows.
 
 ### Install vcpkg and packages
 

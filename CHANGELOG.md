@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- Consolidated native Windows CI into a shared `OPENCV_DNN` / `ONNX_RUNTIME` matrix workflow
+- Added GitHub Actions caching for Windows vcpkg downloads and binary artifacts to reduce repeat build times
+
+### Fixed
+- Windows `ONNX_RUNTIME` CI dependency setup now includes OpenCV, matching the top-level CMake requirements
+
 ## [0.2.0] - 2026-03-31
 
 ### Changed

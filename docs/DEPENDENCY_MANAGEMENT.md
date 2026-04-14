@@ -6,24 +6,19 @@ This document describes the dependency management system for the neuriplo librar
 
 ### Version Management
 
-All inference backend versions are centrally managed in `cmake/versions.cmake`:
+Backend versions are defined in `versions.env` and loaded into CMake through `cmake/versions.cmake`:
 
-```cmake
-# Inference Backend Versions
-set(ONNX_RUNTIME_VERSION "1.19.2" CACHE STRING "ONNX Runtime version")
-set(TENSORRT_VERSION "10.7.0.23" CACHE STRING "TensorRT version")
-set(LIBTORCH_VERSION "2.0.0" CACHE STRING "LibTorch version")
-set(OPENVINO_VERSION "2023.1.0" CACHE STRING "OpenVINO version")
-set(TENSORFLOW_VERSION "2.19.0" CACHE STRING "TensorFlow version")
-
-# CUDA Version (for GPU support)
-set(CUDA_VERSION "12.6" CACHE STRING "CUDA version for GPU support")
-
-# System Dependencies (minimum versions)
-set(OPENCV_MIN_VERSION "4.6.0" CACHE STRING "Minimum OpenCV version")
-set(GLOG_MIN_VERSION "0.6.0" CACHE STRING "Minimum glog version")
-set(CMAKE_MIN_VERSION "3.10" CACHE STRING "Minimum CMake version")
+```bash
+# versions.env
+ONNX_RUNTIME_VERSION=1.24.4
+TENSORRT_VERSION=10.14.1.48
+PYTORCH_VERSION=2.3.0
+OPENVINO_VERSION=2025.2.0
+TENSORFLOW_VERSION=2.19.0
+CUDA_VERSION=13.0
 ```
+
+`cmake/versions.cmake` reads these values, populates cache variables, selects platform-specific default paths such as `ONNX_RUNTIME_DIR`, and validates that each supported backend has a version entry.
 
 ### Dependency Validation
 
@@ -171,8 +166,9 @@ export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/li
 - Refer to individual setup scripts for guidance
 
 ### Windows
-- Not currently supported
-- Future development planned
+- Native MSVC builds are supported for the Windows-oriented dependency flows documented in [WINDOWS_BUILD.md](WINDOWS_BUILD.md)
+- Local Windows development is expected to use `vcpkg` for OpenCV, glog, and GTest
+- Native Windows CI currently builds `OPENCV_DNN` and `ONNX_RUNTIME` in Release mode
 
 ## Troubleshooting
 
