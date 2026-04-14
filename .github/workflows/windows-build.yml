@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
-            opencv4[core,dnn,highgui,videoio]:x64-windows `
+            opencv4[core,dnn,highgui]:x64-windows `
             glog:x64-windows
 
       - name: Configure
