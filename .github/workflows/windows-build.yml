@@ -61,3 +61,62 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build --config Release --parallel
+
+  build-windows-onnxruntime:
+    name: Windows / ONNX_RUNTIME
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request' || github.head_ref == 'feature/windows-support'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Install dependencies via vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            glog:x64-windows
+
+      - name: Download and Extract ONNX Runtime
+        shell: pwsh
+        run: |
+          $ver = "1.24.4"
+          $zipName = "onnxruntime-win-x64-gpu-$ver.zip"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/$zipName"
+          $destDir = "$HOME/dependencies"
+          if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir }
+          Invoke-WebRequest -Uri $url -OutFile "$destDir/$zipName"
+          Expand-Archive -Path "$destDir/$zipName" -DestinationPath $destDir
+          # Ensure the directory matches what CMake expects (it extracted to $destDir/onnxruntime-win-x64-gpu-$ver)
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $ver = "1.24.4"
+          $onnxDir = "$HOME/dependencies/onnxruntime-win-x64-gpu-$ver"
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DDEFAULT_BACKEND=ONNX_RUNTIME `
+            -DONNX_RUNTIME_DIR="$onnxDir" `
+            -DBUILD_INFERENCE_ENGINE_TESTS=OFF
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel

@@ -50,7 +50,12 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     }
 
     try {
+#ifdef _WIN32
+        std::wstring wide_path(model_path.begin(), model_path.end());
+        session_ = Ort::Session(env_, wide_path.c_str(), session_options);
+#else
         session_ = Ort::Session(env_, model_path.c_str(), session_options);
+#endif
     } catch (const Ort::Exception& ex) {
         LOG(ERROR) << "Failed to load the ONNX model: " << ex.what();
         std::exit(1);
