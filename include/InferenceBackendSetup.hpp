@@ -15,8 +15,12 @@
 #include "OVInfer.hpp"
 #elif USE_GGML
 #include "GGMLInfer.hpp"
+#elif USE_CACTUS
+#include "CactusInfer.hpp"
 #elif USE_MIGRAPHX
 #include "MIGraphXInfer.hpp"
+#elif USE_LLAMACPP
+#include "LlamaCppInfer.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface>
