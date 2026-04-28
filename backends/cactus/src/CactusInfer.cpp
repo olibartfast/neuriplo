@@ -68,8 +68,7 @@ CactusInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
 
             // Build a minimal single-turn chat message compatible with the
             // Cactus Engine API.
-            std::string messages =
-                R"([{"role":"user","content":")" + prompt + R"("}])";
+            std::string messages = R"([{"role":"user","content":")" + prompt + R"("}])";
 
             std::vector<char> response_buf(kDefaultResponseBufferSize, '\0');
             const int rc = cactus_complete(model_, messages.c_str(), response_buf.data(),
@@ -107,23 +106,37 @@ std::string CactusInfer::bytes_to_prompt(const std::vector<uint8_t>& data) const
     result.reserve(data.size() * 2);
     for (const uint8_t byte : data) {
         switch (byte) {
-            case '"':  result += "\\\""; break;
-            case '\\': result += "\\\\"; break;
-            case '\n': result += "\\n";  break;
-            case '\r': result += "\\r";  break;
-            case '\t': result += "\\t";  break;
-            case '\b': result += "\\b";  break;
-            case '\f': result += "\\f";  break;
-            default:
-                if (byte < 0x20) {
-                    // Escape other control characters as \uXXXX
-                    char buf[7];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(byte));
-                    result += buf;
-                } else {
-                    result += static_cast<char>(byte);
-                }
-                break;
+        case '"':
+            result += "\\\"";
+            break;
+        case '\\':
+            result += "\\\\";
+            break;
+        case '\n':
+            result += "\\n";
+            break;
+        case '\r':
+            result += "\\r";
+            break;
+        case '\t':
+            result += "\\t";
+            break;
+        case '\b':
+            result += "\\b";
+            break;
+        case '\f':
+            result += "\\f";
+            break;
+        default:
+            if (byte < 0x20) {
+                // Escape other control characters as \uXXXX
+                char buf[7];
+                std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(byte));
+                result += buf;
+            } else {
+                result += static_cast<char>(byte);
+            }
+            break;
         }
     }
     return result;
