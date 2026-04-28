@@ -74,16 +74,7 @@ RUN mkdir -p /opt/models
 RUN wget -q -O /opt/models/gemma-3-270m-it-Q4_K_M.gguf \
     "https://huggingface.co/Cactus-Compute/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf" \
     || (echo "Model download failed — tests will use mock inference" && \
-        python3 -c "
-import struct, os
-p='/opt/models/gemma-3-270m-it-Q4_K_M.gguf'
-with open(p,'wb') as f:
-    f.write(b'GGUF')
-    f.write(struct.pack('<I',3))
-    f.write(struct.pack('<Q',0))
-    f.write(struct.pack('<Q',0))
-print('Placeholder GGUF written:', p, os.path.getsize(p), 'bytes')
-")
+        python3 -c "import struct, os; p='/opt/models/gemma-3-270m-it-Q4_K_M.gguf'; open(p,'wb').write(b'GGUF'+struct.pack('<I',3)+struct.pack('<Q',0)*2); print('Placeholder GGUF written:', p, os.path.getsize(p), 'bytes')")
 
 RUN ls -lh /opt/models/
 
