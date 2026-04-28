@@ -30,7 +30,7 @@ set(CMAKE_MIN_VERSION "3.10" CACHE STRING "Minimum CMake version")
 The `cmake/DependencyValidation.cmake` module provides validation:
 
 - **System Dependencies**: OpenCV, glog, CMake version
-- **Inference Backends**: ONNX Runtime, TensorRT, LibTorch, OpenVINO, TensorFlow
+- **Inference Backends**: ONNX Runtime, TensorRT, LibTorch, OpenVINO, TensorFlow, GGML, TVM, MIGraphX, Cactus, llama.cpp
 - **GPU Support**: CUDA validation for GPU-enabled backends
 - **Installation Completeness**: Checks for required files and libraries
 
@@ -55,7 +55,16 @@ All backends can be set up using the unified script:
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`
+Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`, `CACTUS`, `LLAMACPP`
+
+### GGUF-native backends
+
+The converged multimodal branch adds two GGUF-oriented backends:
+
+- `CACTUS`: Cactus runtime integration for prompt-in / generated-text-out inference
+- `LLAMACPP`: llama.cpp integration for GGUF LLM and multimodal inference
+
+Both are installed through `scripts/setup_dependencies.sh` and validated through the same CMake dependency validation entry points as the other optional backends.
 
 ### MIGraphX model support
 
@@ -121,13 +130,15 @@ validate_all_dependencies()
    cmake .. -DDEFAULT_BACKEND=GGML -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=TVM -DBUILD_INFERENCE_ENGINE_TESTS=ON
    cmake .. -DDEFAULT_BACKEND=MIGRAPHX -DBUILD_INFERENCE_ENGINE_TESTS=ON
+   cmake .. -DDEFAULT_BACKEND=CACTUS -DBUILD_INFERENCE_ENGINE_TESTS=ON
+   cmake .. -DDEFAULT_BACKEND=LLAMACPP -DBUILD_INFERENCE_ENGINE_TESTS=ON
    ```
 
 ### Configuration Options
 
 #### CMake Variables
 
-- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML, TVM, MIGRAPHX)
+- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP)
 - `BUILD_INFERENCE_ENGINE_TESTS`: Enable/disable test building (ON/OFF)
 - `DEPENDENCY_ROOT`: Set custom dependency installation root (default: `$HOME/dependencies`)
 - `ONNX_RUNTIME_VERSION`: Override ONNX Runtime version
@@ -148,7 +159,9 @@ export ONNX_RUNTIME_DIR="$HOME/dependencies/onnxruntime-linux-x64-gpu-1.19.2"
 export TENSORRT_DIR="$HOME/dependencies/TensorRT-10.7.0.23"
 export LIBTORCH_DIR="$HOME/dependencies/libtorch"
 export OPENVINO_DIR="$HOME/dependencies/openvino-2023.1.0"
-export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/lib:$OPENVINO_DIR/lib:$LD_LIBRARY_PATH"
+export CACTUS_DIR="$HOME/dependencies/cactus"
+export LLAMACPP_DIR="$HOME/dependencies/llamacpp"
+export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/lib:$OPENVINO_DIR/lib:$CACTUS_DIR/lib:$LLAMACPP_DIR/lib:$LD_LIBRARY_PATH"
 ```
 
 **Note**: TensorFlow environment variables are set by the individual TensorFlow setup scripts.
