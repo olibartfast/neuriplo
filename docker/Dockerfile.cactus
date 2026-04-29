@@ -42,20 +42,16 @@ FROM base_dependencies AS cactus_install
 
 # Clone the Cactus repository and build the shared library
 RUN . /tmp/versions.env && \
-    mkdir -p ${CACTUS_DIR} && \
+    mkdir -p ${CACTUS_DIR}/include ${CACTUS_DIR}/lib && \
     git clone https://github.com/cactus-compute/cactus.git /tmp/cactus-src && \
     cd /tmp/cactus-src && \
     git checkout ${CACTUS_VERSION} && \
-    mkdir -p build && \
-    cd build && \
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="${CACTUS_DIR}" \
-        -DBUILD_SHARED_LIBS=ON \
-        -DCACTUS_BUILD_TESTS=OFF \
-        -DCACTUS_BUILD_EXAMPLES=OFF && \
+    mkdir -p /tmp/cactus-src/cactus/build && \
+    cd /tmp/cactus-src/cactus/build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
     make -j$(nproc) && \
-    make install && \
+    cp /tmp/cactus-src/cactus/cactus.h ${CACTUS_DIR}/include/ && \
+    cp /tmp/cactus-src/cactus/build/libcactus.so ${CACTUS_DIR}/lib/ && \
     rm -rf /tmp/cactus-src
 
 RUN test -f ${CACTUS_DIR}/include/cactus.h && \

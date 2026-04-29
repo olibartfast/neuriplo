@@ -28,8 +28,8 @@ target_link_libraries(CactusInferTest PRIVATE
 
 add_test(NAME CactusInferTest COMMAND CactusInferTest)
 
-configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_model.sh
-               ${CMAKE_CURRENT_BINARY_DIR}/generate_model.sh
-               FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
+file(COPY ${CMAKE_CURRENT_LIST_DIR}/generate_model.sh
+     DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
+     FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/create_test_model.py
                ${CMAKE_CURRENT_BINARY_DIR}/create_test_model.py COPYONLY)
