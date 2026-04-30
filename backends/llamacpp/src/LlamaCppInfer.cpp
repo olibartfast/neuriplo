@@ -98,8 +98,8 @@ LlamaCppInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
             }
             tokens.resize(n_tokens);
 
-            // Clear KV cache for a fresh generation
-            llama_kv_cache_clear(ctx_llama_);
+            // Clear memory (KV cache) for a fresh generation
+            llama_memory_clear(llama_get_memory(ctx_llama_), true);
 
             // Create a sampler chain with greedy sampling
             auto sparams = llama_sampler_chain_default_params();
