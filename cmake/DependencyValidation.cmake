@@ -359,7 +359,6 @@ function(validate_llamacpp)
         set(required_files
             "${LLAMACPP_DIR}/include/llama.h"
             "${LLAMACPP_DIR}/lib/libllama.so"
-            "${LLAMACPP_DIR}/lib/libggml.so"
         )
 
         foreach(file ${required_files})
@@ -367,6 +366,13 @@ function(validate_llamacpp)
                 message(FATAL_ERROR "llama.cpp installation incomplete. Missing: ${file}")
             endif()
         endforeach()
+
+        # libggml.so was split into libggml-base.so + libggml-cpu.so in newer master;
+        # accept either form since we link by name (-lggml) not by path.
+        if(NOT EXISTS "${LLAMACPP_DIR}/lib/libggml.so" AND
+           NOT EXISTS "${LLAMACPP_DIR}/lib/libggml-base.so")
+            message(FATAL_ERROR "llama.cpp installation incomplete. Missing libggml.so or libggml-base.so in ${LLAMACPP_DIR}/lib")
+        endif()
 
         message(STATUS "✓ llama.cpp validation passed")
     endif()

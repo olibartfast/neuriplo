@@ -51,7 +51,9 @@ RUN . /tmp/versions.env && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
     make -j$(nproc) && \
     cp /tmp/cactus-src/cactus/cactus.h ${CACTUS_DIR}/include/ && \
-    cp /tmp/cactus-src/cactus/build/libcactus.so ${CACTUS_DIR}/lib/ && \
+    find /tmp/cactus-src/cactus/build -name 'libcactus.so*' -exec cp {} ${CACTUS_DIR}/lib/ \; && \
+    test -f ${CACTUS_DIR}/lib/libcactus.so || \
+      ln -s "$(ls ${CACTUS_DIR}/lib/libcactus.so.* | head -1)" ${CACTUS_DIR}/lib/libcactus.so && \
     rm -rf /tmp/cactus-src
 
 RUN test -f ${CACTUS_DIR}/include/cactus.h && \
