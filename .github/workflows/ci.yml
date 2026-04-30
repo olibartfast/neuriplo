@@ -219,7 +219,7 @@ jobs:
   # =============================================================
   build-and-test-cpu:
     name: "${{ matrix.backend }}"
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs_on || 'ubuntu-latest' }}
     strategy:
       fail-fast: true
       matrix:
@@ -263,6 +263,7 @@ jobs:
             dockerfile: docker/Dockerfile.cactus
             image: neuriplo-cactus
             test_exe: CactusInferTest
+            runs_on: ubuntu-24.04-arm
           - backend: LLAMACPP
             dockerfile: docker/Dockerfile.llamacpp
             image: neuriplo-llamacpp
