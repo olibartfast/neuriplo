@@ -64,7 +64,7 @@ RUN . /tmp/versions.env && \
 
 RUN test -f ${LLAMACPP_DIR}/include/llama.h && \
     test -f ${LLAMACPP_DIR}/lib/libllama.so && \
-    test -f ${LLAMACPP_DIR}/lib/libggml.so
+    { test -f ${LLAMACPP_DIR}/lib/libggml.so || test -f ${LLAMACPP_DIR}/lib/libggml-base.so; }
 
 ENV LLAMACPP_DIR=${LLAMACPP_DIR}
 ENV LD_LIBRARY_PATH=${LLAMACPP_DIR}/lib

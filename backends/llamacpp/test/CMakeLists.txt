@@ -16,12 +16,14 @@ target_include_directories(LlamaCppInferTest PRIVATE
     ${LLAMACPP_DIR}/include
 )
 
+target_link_directories(LlamaCppInferTest PRIVATE ${LLAMACPP_DIR}/lib)
+
 target_link_libraries(LlamaCppInferTest PRIVATE
     neuriplo
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
-    ${LLAMACPP_DIR}/lib/libllama.so
-    ${LLAMACPP_DIR}/lib/libggml.so
+    llama
+    ggml
     gtest
     gtest_main
     glog::glog

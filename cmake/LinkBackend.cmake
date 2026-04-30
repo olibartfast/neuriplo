@@ -62,8 +62,5 @@ elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LLAMACPP_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/llamacpp/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${LLAMACPP_DIR}/lib)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        ${LLAMACPP_DIR}/lib/libllama.so
-        ${LLAMACPP_DIR}/lib/libggml.so
-    )
+    target_link_libraries(${PROJECT_NAME} PRIVATE llama ggml)
 endif()

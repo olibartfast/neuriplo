@@ -54,7 +54,7 @@ jobs:
     name: "Clang-Tidy / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
@@ -112,7 +112,7 @@ jobs:
     name: "Werror / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
@@ -163,7 +163,7 @@ jobs:
     name: "Sanitizers / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn,      test_exe: OCVDNNInferTest }
@@ -221,7 +221,7 @@ jobs:
     name: "${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - backend: OPENCV_DNN
