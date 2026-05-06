@@ -260,7 +260,8 @@ For backends requiring manual installation:
    pip install -e .
    ```
 4. Set TVM directory: `export TVM_DIR=$HOME/dependencies/tvm`
-5. For detailed instructions, see [TVM Installation Guide](https://tvm.apache.org/docs/install/from_source.html)
+5. For neuriplo-specific build and usage details, see [TVM Backend Build Guide](TVM_BUILD_GUIDE.md)
+6. For upstream installation details, see [TVM Installation Guide](https://tvm.apache.org/docs/install/from_source.html)
 
 ## Testing Integration
 
