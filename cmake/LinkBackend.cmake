@@ -63,4 +63,13 @@ elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/llamacpp/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${LLAMACPP_DIR}/lib)
     target_link_libraries(${PROJECT_NAME} PRIVATE llama ggml)
+elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+    target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/executorch/src)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        executorch
+        extension_module_static
+        extension_tensor
+        portable_ops_lib
+        portable_kernels
+    )
 endif()

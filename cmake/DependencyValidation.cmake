@@ -200,6 +200,8 @@ function(validate_all_dependencies)
         validate_migraphx()
     elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
         validate_llamacpp()
+    elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+        validate_executorch()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -359,6 +361,26 @@ function(validate_llamacpp)
         endif()
 
         message(STATUS "✓ llama.cpp validation passed")
+    endif()
+endfunction()
+
+# Function to validate ExecuTorch
+function(validate_executorch)
+    if(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+        validate_dependency("ExecuTorch" "${EXECUTORCH_DIR}")
+
+        set(required_files
+            "${EXECUTORCH_DIR}/include/executorch/runtime/core/error.h"
+            "${EXECUTORCH_DIR}/lib/libexecutorch.a"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "ExecuTorch installation incomplete. Missing: ${file}\nRun: ./scripts/setup_executorch.sh")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ ExecuTorch validation passed")
     endif()
 endfunction()
 
