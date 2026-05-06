@@ -64,7 +64,14 @@ The converged multimodal branch adds two GGUF-oriented backends:
 - `CACTUS`: Cactus runtime integration for prompt-in / generated-text-out inference
 - `LLAMACPP`: llama.cpp integration for GGUF LLM and multimodal inference
 
-Both are installed through `scripts/setup_dependencies.sh` and validated through the same CMake dependency validation entry points as the other optional backends.
+Both backends are wired through the same neuriplo backend-selection path as the
+other optional backends. They are installed through `scripts/setup_dependencies.sh`
+and validated through the same CMake dependency validation entry points:
+
+```bash
+./scripts/setup_dependencies.sh --backend CACTUS
+./scripts/setup_dependencies.sh --backend LLAMACPP
+```
 
 ### MIGraphX model support
 
@@ -75,6 +82,20 @@ In neuriplo, the MIGraphX backend accepts **ONNX** model files only.
 - Native PyTorch/TorchScript model loading is not supported by this integration
 
 This is a neuriplo backend constraint, not a general statement about every ROCm or MIGraphX integration.
+
+### MIGraphX Docker workflow
+
+Build the MIGraphX test image:
+
+```bash
+docker build --rm -t neuriplo:migraphx -f docker/Dockerfile.migraphx .
+```
+
+Run the MIGraphX backend test container on a ROCm-capable host:
+
+```bash
+docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video neuriplo:migraphx
+```
 
 ## Usage
 
