@@ -70,8 +70,8 @@ CactusInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
             std::string messages = R"([{"role":"user","content":")" + prompt + R"("}])";
 
             std::vector<char> response_buf(kDefaultResponseBufferSize, '\0');
-            const int rc = cactus_complete(model_, messages.c_str(), response_buf.data(),
-                                           response_buf.size(), "{}", nullptr, nullptr, nullptr, nullptr, 0);
+            const int rc = cactus_complete(model_, messages.c_str(), response_buf.data(), response_buf.size(), "{}",
+                                           nullptr, nullptr, nullptr, nullptr, 0);
             if (rc != 0) {
                 throw InferenceExecutionException("cactus_complete returned error code " + std::to_string(rc));
             }
