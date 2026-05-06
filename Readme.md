@@ -182,4 +182,3 @@ For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
-- **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
