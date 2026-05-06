@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Blocks push if any .cpp/.hpp file fails clang-format.
+set -euo pipefail
+
+echo "Running clang-format check..."
+find src include backends -name '*.cpp' -o -name '*.hpp' \
+  | xargs clang-format --dry-run --Werror 2>&1
+echo "clang-format check passed."
