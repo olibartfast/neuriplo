@@ -5,7 +5,8 @@
 # This file works with versions.env to maintain backend versions:
 #
 #   1. versions.env         → Defines version numbers (TVM_VERSION=0.18.0)  
-#   2. cmake/versions.cmake → Reads versions.env and validates consistency (this file)
+#   2. cmake/BackendRegistry.cmake → Defines supported backend metadata
+#   3. cmake/versions.cmake → Reads versions.env and validates consistency (this file)
 #
 # WORKFLOW:
 # ---------
@@ -21,8 +22,8 @@
 # 2. Add cache variable here (after read_versions_from_env()):
 #      set(NEW_BACKEND_VERSION "${NEW_BACKEND_VERSION}" CACHE STRING "New Backend version")
 #
-# 3. Add to BACKEND_VERSION_MAPPING in this file:
-#      Add "NEW_BACKEND:NEW_BACKEND_VERSION" to the mapping list
+# 3. Add VERSION_VAR to cmake/BackendRegistry.cmake:
+#      set(NEURIPLO_BACKEND_NEW_BACKEND_VERSION_VAR NEW_BACKEND_VERSION)
 #
 # ==============================================================================
 
@@ -131,20 +132,11 @@ function(validate_backend_versions)
     
     message(STATUS "=== Validating Backend-Version Consistency ===")
 
-    # Define backend to version variable mapping directly
-    set(BACKEND_VERSION_MAPPING
-        "OPENCV_DNN:OPENCV_VERSION"
-        "ONNX_RUNTIME:ONNX_RUNTIME_VERSION" 
-        "LIBTORCH:PYTORCH_VERSION"
-        "LIBTENSORFLOW:TENSORFLOW_VERSION"
-        "TENSORRT:TENSORRT_VERSION"
-        "OPENVINO:OPENVINO_VERSION"
-        "GGML:GGML_VERSION"
-        "TVM:TVM_VERSION"
-        "CACTUS:CACTUS_VERSION"
-        "MIGRAPHX:MIGRAPHX_VERSION"
-        "LLAMACPP:LLAMACPP_VERSION"
-    )
+    set(BACKEND_VERSION_MAPPING)
+    foreach(BACKEND_NAME ${NEURIPLO_BACKEND_IDS})
+        neuriplo_get_backend_property("${BACKEND_NAME}" VERSION_VAR VERSION_VAR_NAME)
+        list(APPEND BACKEND_VERSION_MAPPING "${BACKEND_NAME}:${VERSION_VAR_NAME}")
+    endforeach()
 
     set(VALIDATION_FAILED FALSE)
     set(MISSING_VERSIONS "")

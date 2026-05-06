@@ -10,6 +10,9 @@ project(neuriplo VERSION ${PROJECT_SEMVER})
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Include centralized backend metadata before version/dependency checks.
+include(cmake/BackendRegistry.cmake)
+
 # Include centralized version management first
 include(cmake/versions.cmake)
 
@@ -27,16 +30,14 @@ if(NOT DEFINED DEFAULT_BACKEND)
     set(DEFAULT_BACKEND "OPENCV_DNN" CACHE STRING "Default backend for inference")
 endif()
 
-# Define the supported backends directly
-set(SUPPORTED_BACKENDS "OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP")
+neuriplo_get_supported_backends(SUPPORTED_BACKENDS)
 message(STATUS "Supported backends: ${SUPPORTED_BACKENDS}")
 
 # Validate that all backends have corresponding versions in versions.env
 validate_backend_versions()
 
-# Check if the specified backend is supported
-list(FIND SUPPORTED_BACKENDS ${DEFAULT_BACKEND} SUPPORTED_BACKEND_INDEX)
-if(SUPPORTED_BACKEND_INDEX EQUAL -1)
+neuriplo_is_supported_backend("${DEFAULT_BACKEND}" DEFAULT_BACKEND_SUPPORTED)
+if(NOT DEFAULT_BACKEND_SUPPORTED)
     if(PROJECT_IS_TOP_LEVEL)
         message(FATAL_ERROR "Unsupported default backend: ${DEFAULT_BACKEND}")
     else()
