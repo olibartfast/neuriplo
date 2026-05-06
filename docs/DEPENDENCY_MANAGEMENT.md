@@ -4,33 +4,23 @@ This document describes the dependency management system for the neuriplo librar
 
 ## Architecture
 
-### Version Management
+### Backend Registry and Version Management
 
-All inference backend versions are centrally managed in `cmake/versions.cmake`:
+The CMake backend registry is the source of truth for supported backend IDs and
+their CMake metadata:
 
-```cmake
-# Inference Backend Versions
-set(ONNX_RUNTIME_VERSION "1.19.2" CACHE STRING "ONNX Runtime version")
-set(TENSORRT_VERSION "10.7.0.23" CACHE STRING "TensorRT version")
-set(LIBTORCH_VERSION "2.0.0" CACHE STRING "LibTorch version")
-set(OPENVINO_VERSION "2023.1.0" CACHE STRING "OpenVINO version")
-set(TENSORFLOW_VERSION "2.19.0" CACHE STRING "TensorFlow version")
-
-# CUDA Version (for GPU support)
-set(CUDA_VERSION "12.6" CACHE STRING "CUDA version for GPU support")
-
-# System Dependencies (minimum versions)
-set(OPENCV_MIN_VERSION "4.6.0" CACHE STRING "Minimum OpenCV version")
-set(GLOG_MIN_VERSION "0.6.0" CACHE STRING "Minimum glog version")
-set(CMAKE_MIN_VERSION "3.10" CACHE STRING "Minimum CMake version")
-```
+- `cmake/BackendRegistry.cmake`: supported `DEFAULT_BACKEND` values, backend
+  CMake modules, test directories, and version-variable mapping.
+- `versions.env`: dependency versions.
+- `cmake/versions.cmake`: reads `versions.env` and validates that every
+  registered backend has a version variable.
 
 ### Dependency Validation
 
 The `cmake/DependencyValidation.cmake` module provides validation:
 
 - **System Dependencies**: OpenCV, glog, CMake version
-- **Inference Backends**: ONNX Runtime, TensorRT, LibTorch, OpenVINO, TensorFlow, GGML, TVM, MIGraphX, Cactus, llama.cpp
+- **Inference Backends**: only the selected `DEFAULT_BACKEND` is validated
 - **GPU Support**: CUDA validation for GPU-enabled backends
 - **Installation Completeness**: Checks for required files and libraries
 
@@ -38,14 +28,16 @@ The `cmake/DependencyValidation.cmake` module provides validation:
 
 #### Unified Setup Script
 
-The main setup script `scripts/setup_dependencies.sh` supports the following inference backends:
+The main setup script installs dependencies for a selected backend:
 
 ```bash
 # Setup any backend
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-**Note**: TensorFlow (LIBTENSORFLOW) and OpenCV DNN (OPENCV_DNN) backends are supported by the CMake build system but require separate setup procedures (see individual backend scripts below).
+For supported backend IDs, use the values registered in
+`cmake/BackendRegistry.cmake`. Some backends still require backend-specific
+installation steps even when they are valid CMake `DEFAULT_BACKEND` values.
 
 #### Individual Backend Scripts
 
@@ -55,7 +47,7 @@ All backends can be set up using the unified script:
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-Supported backend values: `OPENCV_DNN`, `ONNX_RUNTIME`, `LIBTORCH`, `TENSORRT`, `LIBTENSORFLOW`, `OPENVINO`, `GGML`, `TVM`, `MIGRAPHX`, `CACTUS`, `LLAMACPP`
+Use the same `<BACKEND_NAME>` values accepted by `DEFAULT_BACKEND`.
 
 ### GGUF-native backends
 
@@ -121,13 +113,6 @@ validate_all_dependencies()
    # Setup any backend
    ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
    
-   # Examples:
-   ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME
-   ./scripts/setup_dependencies.sh --backend TENSORRT
-   ./scripts/setup_dependencies.sh --backend LIBTORCH
-   ./scripts/setup_dependencies.sh --backend OPENVINO
-   ./scripts/setup_dependencies.sh --backend GGML
-   ...
    ```
 
 2. **Set environment variables**:
@@ -143,23 +128,13 @@ validate_all_dependencies()
    cmake .. -DDEFAULT_BACKEND=<BACKEND_NAME> -DBUILD_INFERENCE_ENGINE_TESTS=ON
    make
    
-   # Examples:
-   cmake .. -DDEFAULT_BACKEND=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=TENSORRT -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=LIBTORCH -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=OPENVINO -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=GGML -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=TVM -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=MIGRAPHX -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=CACTUS -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   cmake .. -DDEFAULT_BACKEND=LLAMACPP -DBUILD_INFERENCE_ENGINE_TESTS=ON
    ```
 
 ### Configuration Options
 
 #### CMake Variables
 
-- `DEFAULT_BACKEND`: Choose the inference backend (ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, OPENCV_DNN, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP)
+- `DEFAULT_BACKEND`: Choose one backend registered in `cmake/BackendRegistry.cmake`
 - `BUILD_INFERENCE_ENGINE_TESTS`: Enable/disable test building (ON/OFF)
 - `DEPENDENCY_ROOT`: Set custom dependency installation root (default: `$HOME/dependencies`)
 - `ONNX_RUNTIME_VERSION`: Override ONNX Runtime version
@@ -217,8 +192,6 @@ export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/li
    # Reinstall with force flag for unified script
    ./scripts/setup_dependencies.sh --backend <BACKEND_NAME> --force
    
-   # Example:
-   ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME --force
    ```
 
 2. **Version Conflicts**:
@@ -299,11 +272,6 @@ The testing framework supports all backends:
 # Test specific backend
 ./scripts/test_backends.sh --backend <BACKEND_NAME>
 
-# Examples:
-./scripts/test_backends.sh --backend ONNX_RUNTIME
-./scripts/test_backends.sh --backend TENSORRT
-./scripts/test_backends.sh --backend LIBTORCH
-
 # Test all backends
 ./scripts/test_backends.sh
 
@@ -344,17 +312,11 @@ target_link_libraries(my_project PRIVATE neuriplo)
 
 ## Contributing
 
-When adding new inference backends:
-
-1. **Update versions.cmake**: Add version variables for the new backend
-2. **Update DependencyValidation.cmake**: Add validation functions for the backend
-3. **Update setup_dependencies.sh**: Add installation logic (if automatic download is possible)
-4. **Update unified setup**: Add installation logic to `scripts/setup_dependencies.sh` for the new backend
-5. **Update CMakeLists.txt**: Add backend to `SUPPORTED_BACKENDS` list
-6. **Create backend implementation**: Add source files in `backends/<backend>/src/`
-7. **Add tests**: Create test files in `backends/<backend>/test/`
-8. **Update documentation**: Document the new backend in this file
-9. **Add testing integration**: Integrate with `scripts/test_backends.sh` framework
+When adding new inference backends, use
+[Adding an Inference Backend](ADDING_BACKEND.md) as the checklist. Keep the
+backend ID and CMake metadata in `cmake/BackendRegistry.cmake`; this document
+should only include backend-specific operational notes that users need at setup
+time.
 
 ## Available Scripts
 
