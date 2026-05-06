@@ -65,37 +65,10 @@ Supported `<BACKEND_NAME>` values:
 ./scripts/test_backends.sh --backend <BACKEND_NAME>
 ```
 
-### MIGraphX Docker Workflow
+### Backend-Specific Workflows
 
-**Model format support:** neuriplo's MIGraphX backend loads **ONNX** models only. If your model starts in PyTorch, export it to ONNX first; native PyTorch/TorchScript model loading is not supported by this backend integration.
-
-For backend-specific setup and usage constraints, see [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
-
-Build the MIGraphX test image:
-
-```bash
-docker build --rm -t neuriplo:migraphx -f docker/Dockerfile.migraphx .
-```
-
-Run the MIGraphX backend test container on a ROCm-capable host:
-
-```bash
-docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video neuriplo:migraphx
-```
-
-### GGUF Backends
-
-`CACTUS` and `LLAMACPP` are the converged GGUF-native backends in this branch.
-
-- `CACTUS` targets text-generation style GGUF workflows through the Cactus runtime
-- `LLAMACPP` targets llama.cpp-based LLM and multimodal GGUF workflows
-
-Both backends are wired through the same Neuriplo backend-selection path and are available through:
-
-```bash
-./scripts/setup_dependencies.sh --backend CACTUS
-./scripts/setup_dependencies.sh --backend LLAMACPP
-```
+Backend-specific setup notes, model format constraints, Docker workflows, and
+GGUF backend details live in [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
 
 
 ### Manual Build Instructions
