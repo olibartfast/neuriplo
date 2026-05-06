@@ -9,10 +9,9 @@ CactusInfer::CactusInfer(const std::string& model_path, bool use_gpu, size_t bat
       vocab_size_(0) {
     LOG(INFO) << "Running using Cactus runtime: " << model_path;
 
-    // cactus_init expects the folder that contains the model weights and an
-    // optional RAG text path.  Pass an empty string for the RAG path so the
-    // engine performs straightforward completion only.
-    model_ = cactus_init(model_path.c_str(), "", static_cast<int>(use_gpu));
+    // cactus_init(path, corpus_dir, cache_index): pass nullptr for no RAG corpus,
+    // false to skip index caching (GPU selection was removed from this API).
+    model_ = cactus_init(model_path.c_str(), nullptr, false);
     if (!model_) {
         throw std::runtime_error("Failed to initialise Cactus model from: " + model_path);
     }
@@ -32,7 +31,7 @@ CactusInfer::CactusInfer(const std::string& model_path, bool use_gpu, size_t bat
 
 CactusInfer::~CactusInfer() {
     if (model_) {
-        cactus_free(model_);
+        cactus_destroy(model_);
         model_ = nullptr;
     }
 }
@@ -72,7 +71,7 @@ CactusInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
 
             std::vector<char> response_buf(kDefaultResponseBufferSize, '\0');
             const int rc = cactus_complete(model_, messages.c_str(), response_buf.data(),
-                                           static_cast<int>(response_buf.size()), "{}", nullptr, nullptr, nullptr);
+                                           response_buf.size(), "{}", nullptr, nullptr, nullptr, nullptr, 0);
             if (rc != 0) {
                 throw InferenceExecutionException("cactus_complete returned error code " + std::to_string(rc));
             }
