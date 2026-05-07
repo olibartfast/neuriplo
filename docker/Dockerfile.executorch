@@ -40,9 +40,12 @@ FROM base_dependencies AS executorch_install
 
 ENV EXECUTORCH_DIR=/opt/executorch
 
-# Isolated Python environment avoids PEP 668 conflicts on Ubuntu 24.04
+# Isolated Python environment avoids PEP 668 conflicts on Ubuntu 24.04.
+# Use an explicit PATH rather than $PATH expansion: Ubuntu base images don't
+# set PATH as a Dockerfile ENV so $PATH would expand to an empty string.
 RUN python3 -m venv /opt/et-venv
-ENV PATH=/opt/et-venv/bin:$PATH
+ENV VIRTUAL_ENV=/opt/et-venv
+ENV PATH=/opt/et-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN pip install --no-cache-dir tomli zstd setuptools wheel flatbuffers
 
