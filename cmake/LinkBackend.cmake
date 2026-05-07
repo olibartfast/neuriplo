@@ -62,7 +62,11 @@ elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LLAMACPP_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/llamacpp/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${LLAMACPP_DIR}/lib)
-    target_link_libraries(${PROJECT_NAME} PRIVATE llama ggml)
+    # Recent llama.cpp (b3000+) may install libggml-base.so instead of the
+    # monolithic libggml.so — try both names so either layout works.
+    find_library(LLAMACPP_GGML_LIB NAMES ggml ggml-base
+        PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PRIVATE llama ${LLAMACPP_GGML_LIB})
 elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/executorch/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE
