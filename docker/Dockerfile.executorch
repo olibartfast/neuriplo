@@ -1,0 +1,119 @@
+# docker build --rm -t neuriplo:executorch -f docker/Dockerfile.executorch .
+# docker run --rm neuriplo:executorch
+
+# Stage 1: Base system dependencies
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOME=/root
+ENV EXECUTORCH_DIR=/opt/executorch
+
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y \
+    cmake \
+    ninja-build \
+    build-essential \
+    pkg-config \
+    wget \
+    git \
+    python3 \
+    python3-pip \
+    python3-dev \
+    python3-venv \
+    libopenblas-dev \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    libopencv-dev \
+    libopencv-contrib-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY versions.env /tmp/versions.env
+
+RUN cd /usr/src/gtest && \
+    cmake . && \
+    make && \
+    cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
+
+# Stage 2: Build and install the ExecuTorch C++ runtime
+FROM base_dependencies AS executorch_install
+
+ENV EXECUTORCH_DIR=/opt/executorch
+
+# Isolated Python environment avoids PEP 668 conflicts on Ubuntu 24.04.
+# Use an explicit PATH rather than $PATH expansion: Ubuntu base images don't
+# set PATH as a Dockerfile ENV so $PATH would expand to an empty string.
+RUN python3 -m venv /opt/et-venv
+ENV VIRTUAL_ENV=/opt/et-venv
+ENV PATH=/opt/et-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN pip install --no-cache-dir tomli zstd setuptools wheel flatbuffers
+
+# Shallow clone + shallow submodules keeps disk/time usage manageable
+RUN . /tmp/versions.env && \
+    git clone \
+        --branch ${EXECUTORCH_VERSION} \
+        --depth 1 \
+        https://github.com/pytorch/executorch.git \
+        /tmp/executorch-src && \
+    cd /tmp/executorch-src && \
+    git submodule sync --recursive && \
+    git submodule update --init --recursive --depth 1
+
+# Install ExecuTorch Python build-time dependencies (skip pybind / torch wheel)
+RUN cd /tmp/executorch-src && \
+    if [ -f install_requirements.sh ]; then \
+        bash install_requirements.sh --pybind off 2>&1 | tail -10; \
+    fi
+
+# Configure, build, and install ExecuTorch (core + required extensions only)
+RUN cd /tmp/executorch-src && \
+    cmake -S . -B cmake-out \
+        -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_STANDARD=17 \
+        -DCMAKE_INSTALL_PREFIX=${EXECUTORCH_DIR} \
+        -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
+        -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
+        -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
+        -DEXECUTORCH_ENABLE_LOGGING=ON \
+        -DEXECUTORCH_BUILD_TESTS=OFF \
+        -DEXECUTORCH_BUILD_EXAMPLES=OFF \
+        "-DPYTHON_EXECUTABLE=$(which python3)" && \
+    cmake --build cmake-out -j$(nproc) && \
+    cmake --install cmake-out && \
+    rm -rf /tmp/executorch-src
+
+# Stage 3: Build the neuriplo library and test executable
+FROM executorch_install AS builder
+
+WORKDIR /app
+COPY . .
+
+RUN rm -rf build && \
+    cmake -Bbuild -H. \
+    -DDEFAULT_BACKEND=EXECUTORCH \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    -DEXECUTORCH_DIR=${EXECUTORCH_DIR} \
+    && cmake --build build --config Release -j$(nproc)
+
+# Stage 4: Final runtime image (mock tests only — no .pte model needed)
+FROM executorch_install AS final
+
+RUN useradd -m testuser && \
+    mkdir -p /app && \
+    chown -R testuser:testuser /app
+
+COPY --from=builder --chown=testuser:testuser /app/build /app/build
+
+WORKDIR /app/build
+
+USER testuser
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD test -f /app/build/lib/libneuriplo.so || exit 1
+
+CMD ["/bin/bash", "-c", \
+    "EXE=$(find /app -name 'ExecuTorchInferTest' -type f -executable | head -1); \
+     echo \"Running: $EXE\"; \
+     \"$EXE\""]

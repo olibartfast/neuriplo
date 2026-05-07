@@ -342,3 +342,35 @@ jobs:
               --cache-from type=gha,scope=docker-TENSORRT \
               ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-TENSORRT' || '' }} \
               .
+
+  # =============================================================
+  # ExecuTorch Build (build-only — tests use mock inference, but
+  # model export requires Python torch install done separately)
+  # =============================================================
+  build-executorch:
+    name: Build (EXECUTORCH)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 90
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.executorch \
+              --tag neuriplo-executorch:ci \
+              --cache-from type=gha,scope=docker-EXECUTORCH \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-EXECUTORCH' || '' }} \
+              .
