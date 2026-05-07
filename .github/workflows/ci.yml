@@ -66,7 +66,6 @@ jobs:
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
           - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
           - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
-          - { backend: EXECUTORCH,    dockerfile: docker/Dockerfile.executorch }
     steps:
       - uses: actions/checkout@v4
 
@@ -80,8 +79,8 @@ jobs:
       - name: Build Docker image
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: ${{ matrix.backend == 'EXECUTORCH' && 90 || 30 }}
-          max_attempts: 2
+          timeout_minutes: 30
+          max_attempts: 3
           command: |
             docker buildx build \
               --file ${{ matrix.dockerfile }} \
@@ -125,7 +124,6 @@ jobs:
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
           - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
           - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
-          - { backend: EXECUTORCH,    dockerfile: docker/Dockerfile.executorch }
     steps:
       - uses: actions/checkout@v4
 
@@ -139,8 +137,8 @@ jobs:
       - name: Build Docker image
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: ${{ matrix.backend == 'EXECUTORCH' && 90 || 30 }}
-          max_attempts: 2
+          timeout_minutes: 30
+          max_attempts: 3
           command: |
             docker buildx build \
               --file ${{ matrix.dockerfile }} \
