@@ -46,6 +46,7 @@ RUN . /tmp/versions.env && \
     git clone https://github.com/cactus-compute/cactus.git /tmp/cactus-src && \
     cd /tmp/cactus-src && \
     git checkout ${CACTUS_VERSION} && \
+    git submodule update --init --recursive && \
     mkdir -p /tmp/cactus-src/cactus/build && \
     cd /tmp/cactus-src/cactus/build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
