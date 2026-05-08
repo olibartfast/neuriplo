@@ -96,63 +96,22 @@ setup_ggml() {
     DEPENDENCY_ROOT="${DEPENDENCY_ROOT}" FORCE="${FORCE}" ./scripts/setup_ggml.sh
 }
 
-# Setup MIGraphX (ships with ROCm — just install the apt package)
+# Setup MIGraphX
 setup_migraphx() {
     echo "Setting up MIGraphX..."
-    echo "MIGraphX is distributed as part of ROCm. Install with:"
-    echo "  sudo apt update && sudo apt install -y migraphx migraphx-dev"
-    echo "Ensure ROCm is already installed at /opt/rocm."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_migraphx.sh
 }
 
 # Setup Cactus
 setup_cactus() {
     echo "Setting up Cactus..."
-    local install_dir="$DEPENDENCY_ROOT/cactus"
-    local src_dir="/tmp/cactus-src"
-
-    rm -rf "$src_dir"
-    git clone https://github.com/cactus-compute/cactus.git "$src_dir"
-    (
-        cd "$src_dir"
-        git checkout "${CACTUS_VERSION}"
-        cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$install_dir" \
-            -DBUILD_SHARED_LIBS=ON \
-            -DCACTUS_BUILD_TESTS=OFF \
-            -DCACTUS_BUILD_EXAMPLES=OFF
-        cmake --build build -j"$(nproc)"
-        cmake --install build
-    )
-    rm -rf "$src_dir"
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_cactus.sh --install-dir "$DEPENDENCY_ROOT/cactus"
 }
 
 # Setup llama.cpp
 setup_llamacpp() {
     echo "Setting up llama.cpp..."
-    local install_dir="$DEPENDENCY_ROOT/llamacpp"
-    local src_dir="/tmp/llamacpp-src"
-
-    rm -rf "$src_dir"
-    git clone https://github.com/ggerganov/llama.cpp.git "$src_dir"
-    (
-        cd "$src_dir"
-        git checkout "${LLAMACPP_VERSION}"
-        cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$install_dir" \
-            -DBUILD_SHARED_LIBS=ON \
-            -DGGML_BLAS=ON \
-            -DGGML_BLAS_VENDOR=OpenBLAS \
-            -DGGML_CUDA=OFF \
-            -DGGML_METAL=OFF \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_SERVER=OFF
-        cmake --build build -j"$(nproc)"
-        cmake --install build
-    )
-    rm -rf "$src_dir"
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_llamacpp.sh --install-dir "$DEPENDENCY_ROOT/llamacpp"
 }
 
 # Setup TVM
