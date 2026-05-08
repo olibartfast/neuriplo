@@ -53,15 +53,17 @@ Use the same `<BACKEND_NAME>` values accepted by `DEFAULT_BACKEND`.
 
 The converged multimodal branch adds two GGUF-oriented backends:
 
-- `CACTUS`: Cactus runtime integration for prompt-in / generated-text-out inference
-- `LLAMACPP`: llama.cpp integration for GGUF LLM and multimodal inference
+- `CACTUS`: Cactus runtime integration for prompt-in / generated-text-out inference.
+  **ARM64 only** — the library uses ARM NEON intrinsics unconditionally and cannot be
+  compiled on x86_64. Tested targets: Jetson Orin, Raspberry Pi 5.
+- `LLAMACPP`: llama.cpp integration for GGUF LLM and multimodal inference.
 
 Both backends are wired through the same neuriplo backend-selection path as the
 other optional backends. They are installed through `scripts/setup_dependencies.sh`
 and validated through the same CMake dependency validation entry points:
 
 ```bash
-./scripts/setup_dependencies.sh --backend CACTUS
+./scripts/setup_dependencies.sh --backend CACTUS   # ARM64 host required
 ./scripts/setup_dependencies.sh --backend LLAMACPP
 ```
 
@@ -164,11 +166,15 @@ export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/li
 
 ## Supported Platforms
 
-### Linux (Ubuntu/Debian)
-- Full support for all inference backends
+### Linux (Ubuntu/Debian) — x86_64
+- Support for all inference backends except CACTUS (ARM64 only)
 - Automatic system dependency installation via apt-get
 - OpenCV and glog installation
 - TensorFlow C++ library support
+
+### Linux (Ubuntu/Debian) — ARM64 (aarch64)
+- Full support for all inference backends including CACTUS
+- Tested targets: Jetson Orin, Raspberry Pi 5
 
 ### Linux (CentOS/RHEL/Fedora)
 - Basic support with manual dependency installation
@@ -242,6 +248,40 @@ For backends requiring manual installation:
 2. Run setup script: `./scripts/setup_libtensorflow.sh`
 3. Alternative: Use `./scripts/setup_tensorflow_pip.sh` for automated pip installation
 
+**ExecuTorch**:
+
+ExecuTorch has no pre-built binary release — it must be built from source. The
+recommended path is the project's Docker image, which handles all Python build
+dependencies and installs the C++ runtime to `/opt/executorch`:
+
+```bash
+docker build --rm -t neuriplo:executorch -f docker/Dockerfile.executorch .
+```
+
+For a native (non-Docker) build, follow the steps in
+`docker/Dockerfile.executorch` stages `base_dependencies` and
+`executorch_install`. The key cmake flags are:
+
+```bash
+cmake -S /tmp/executorch -B /tmp/executorch/cmake-out \
+    -DCMAKE_INSTALL_PREFIX=/opt/executorch \
+    -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
+    -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
+    -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
+    -DEXECUTORCH_BUILD_TESTS=OFF
+cmake --build /tmp/executorch/cmake-out -j$(nproc)
+cmake --install /tmp/executorch/cmake-out
+# Do NOT delete the cmake-out directory — ExecuTorchTargets.cmake references
+# build-tree paths that must remain accessible at neuriplo configure time.
+```
+
+Then build neuriplo:
+
+```bash
+cmake -B build -DDEFAULT_BACKEND=EXECUTORCH -DEXECUTORCH_DIR=/opt/executorch
+cmake --build build
+```
+
 **TVM**:
 1. Clone TVM repository: `git clone --recursive https://github.com/apache/tvm tvm`
 2. Build from source:
@@ -264,6 +304,12 @@ For backends requiring manual installation:
 6. For upstream installation details, see [TVM Installation Guide](https://tvm.apache.org/docs/install/from_source.html)
 
 ## Testing Integration
+
+### Local CI simulation
+
+Before pushing Dockerfile or workflow changes you can replay any CI job locally
+using [nektos/act](https://github.com/nektos/act). See [LOCAL_CI.md](LOCAL_CI.md)
+for installation, per-job commands, and YAML debugging flags.
 
 ### Automated Testing
 
