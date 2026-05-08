@@ -21,7 +21,7 @@ if(CMAKE_CUDA_COMPILER)
     set(CUDA_ARCH_FLAG "--expt-extended-lambda") # CUDA compiler option that enables support for C++11 lambdas in device code.
 else()
     # If CUDA is not available, set CPU flags
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3")
     set(CUDA_ARCH_FLAG "")
 endif()
 
