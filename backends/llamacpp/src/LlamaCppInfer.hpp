@@ -22,4 +22,5 @@ class LlamaCppInfer : public InferenceInterface {
   private:
     std::string bytes_to_prompt(const std::vector<uint8_t>& data) const;
     std::vector<TensorElement> response_to_tensor(const std::string& response) const;
+    std::string apply_chat_template(const std::string& user_prompt) const;
 };
