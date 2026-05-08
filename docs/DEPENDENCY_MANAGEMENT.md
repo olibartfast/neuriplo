@@ -1,361 +1,351 @@
 # Dependency Management for neuriplo
 
-This document describes the dependency management system for the neuriplo library, which provides a unified approach to managing inference backend dependencies.
+This document describes the dependency management system for the neuriplo library.
 
 ## Architecture
 
 ### Backend Registry and Version Management
 
-The CMake backend registry is the source of truth for supported backend IDs and
-their CMake metadata:
+The CMake backend registry is the single source of truth for all supported
+backend IDs and their CMake metadata:
 
-- `cmake/BackendRegistry.cmake`: supported `DEFAULT_BACKEND` values, backend
-  CMake modules, test directories, and version-variable mapping.
-- `versions.env`: dependency versions.
-- `cmake/versions.cmake`: reads `versions.env` and validates that every
-  registered backend has a version variable.
+- `cmake/BackendRegistry.cmake` — supported `DEFAULT_BACKEND` values, CMake
+  modules, test directories, and version-variable mapping.
+- `versions.env` — pinned dependency versions for all backends.
+- `cmake/versions.cmake` — reads `versions.env` and validates that every
+  registered backend has a version entry.
 
 ### Dependency Validation
 
-The `cmake/DependencyValidation.cmake` module provides validation:
+`cmake/DependencyValidation.cmake` validates at configure time:
 
-- **System Dependencies**: OpenCV, glog, CMake version
-- **Inference Backends**: only the selected `DEFAULT_BACKEND` is validated
-- **GPU Support**: CUDA validation for GPU-enabled backends
-- **Installation Completeness**: Checks for required files and libraries
+- **System dependencies**: OpenCV, glog, minimum CMake version
+- **Selected backend only**: the `DEFAULT_BACKEND` is validated; others are
+  ignored.
+- **GPU support**: CUDA presence checked for GPU-enabled backends.
+- **Installation completeness**: required headers and libraries must exist.
 
 ### Setup Scripts
 
-#### Unified Setup Script
-
-The main setup script installs dependencies for a selected backend:
-
-```bash
-# Setup any backend
-./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
-```
-
-For supported backend IDs, use the values registered in
-`cmake/BackendRegistry.cmake`. Some backends still require backend-specific
-installation steps even when they are valid CMake `DEFAULT_BACKEND` values.
-
-#### Individual Backend Scripts
-
-All backends can be set up using the unified script:
+#### Unified dispatcher
 
 ```bash
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-Use the same `<BACKEND_NAME>` values accepted by `DEFAULT_BACKEND`.
+`<BACKEND_NAME>` is one of the IDs listed in the [Available Scripts](#available-scripts)
+table below.  The dispatcher sources `versions.env` and delegates to the
+corresponding `scripts/setup_<backend>.sh`.
+
+#### Individual backend scripts
+
+Each backend has a dedicated script that can also be called directly:
+
+```bash
+./scripts/setup_onnx_runtime.sh
+./scripts/setup_libtorch.sh
+./scripts/setup_openvino.sh
+./scripts/setup_libtensorflow.sh
+./scripts/setup_ggml.sh
+./scripts/setup_tvm.sh
+./scripts/setup_executorch.sh          # builds from source
+./scripts/setup_cactus.sh              # ARM64 host required
+./scripts/setup_llamacpp.sh
+./scripts/setup_migraphx.sh            # requires ROCm
+# TensorRT requires a manual download first — see Manual Installation below
+```
 
 ### GGUF-native backends
 
-The converged multimodal branch adds two GGUF-oriented backends:
+Two GGUF-oriented backends provide LLM and multimodal inference:
 
-- `CACTUS`: Cactus runtime integration for prompt-in / generated-text-out inference.
-  **ARM64 only** — the library uses ARM NEON intrinsics unconditionally and cannot be
-  compiled on x86_64. Tested targets: Jetson Orin, Raspberry Pi 5.
-- `LLAMACPP`: llama.cpp integration for GGUF LLM and multimodal inference.
-
-Both backends are wired through the same neuriplo backend-selection path as the
-other optional backends. They are installed through `scripts/setup_dependencies.sh`
-and validated through the same CMake dependency validation entry points:
+- `CACTUS`: Cactus runtime — prompt bytes in, generated text out.
+  **ARM64 only** — the library uses ARM NEON intrinsics unconditionally and
+  cannot be compiled on x86_64. Tested targets: Jetson Orin, Raspberry Pi 5.
+- `LLAMACPP`: llama.cpp — GGUF LLM and multimodal inference.
 
 ```bash
-./scripts/setup_dependencies.sh --backend CACTUS   # ARM64 host required
-./scripts/setup_dependencies.sh --backend LLAMACPP
+./scripts/setup_cactus.sh              # ARM64 host required
+./scripts/setup_llamacpp.sh
 ```
 
-### MIGraphX model support
+### MIGraphX
 
-In neuriplo, the MIGraphX backend accepts **ONNX** model files only.
+MIGraphX ships as part of ROCm — there is no separate source build.
 
-- Models are loaded through MIGraphX's ONNX parser in `backends/migraphx/src/MIGraphXInfer.cpp`
-- PyTorch models must be exported to ONNX before use
-- Native PyTorch/TorchScript model loading is not supported by this integration
-
-This is a neuriplo backend constraint, not a general statement about every ROCm or MIGraphX integration.
-
-### MIGraphX Docker workflow
-
-Build the MIGraphX test image:
+- neuriplo's MIGraphX backend accepts **ONNX** model files only.
+- PyTorch models must be exported to ONNX before use.
+- Requires an AMD GPU with ROCm support.
 
 ```bash
-docker build --rm -t neuriplo:migraphx -f docker/Dockerfile.migraphx .
+./scripts/setup_migraphx.sh            # installs migraphx + migraphx-dev from apt
 ```
 
-Run the MIGraphX backend test container on a ROCm-capable host:
+Docker test image on a ROCm-capable host:
 
 ```bash
+docker build --rm -t neuriplo:migraphx -f docker/Dockerfile.migrachx .
 docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video neuriplo:migraphx
 ```
 
 ## Usage
 
-### Building with CMake
+### Quick start
 
-The CMakeLists.txt automatically includes version management and validation:
+```bash
+# 1. Install backend dependencies
+./scripts/setup_dependencies.sh --backend ONNX_RUNTIME
 
-```cmake
-# Include centralized version management first
-include(cmake/versions.cmake)
+# 2. Export environment variables written by the setup script
+source $HOME/dependencies/setup_env.sh
 
-# Include dependency validation
-include(cmake/DependencyValidation.cmake)
+# 3. Configure and build
+cmake -B build -DDEFAULT_BACKEND=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON
+cmake --build build
 
-# Validate dependencies before proceeding
-validate_all_dependencies()
+# 4. Run tests
+ctest --test-dir build --output-on-failure
 ```
-
-### Setting Up Dependencies
-
-1. **Choose your backend**:
-   ```bash
-   # Setup any backend
-   ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
-   
-   ```
-
-2. **Set environment variables**:
-   ```bash
-   source $HOME/dependencies/setup_env.sh
-   ```
-
-3. **Build the library**:
-   ```bash
-   mkdir build && cd build
-   
-   # Build with any backend
-   cmake .. -DDEFAULT_BACKEND=<BACKEND_NAME> -DBUILD_INFERENCE_ENGINE_TESTS=ON
-   make
-   
-   ```
 
 ### Configuration Options
 
-#### CMake Variables
+#### CMake variables
 
-- `DEFAULT_BACKEND`: Choose one backend registered in `cmake/BackendRegistry.cmake`
-- `BUILD_INFERENCE_ENGINE_TESTS`: Enable/disable test building (ON/OFF)
-- `DEPENDENCY_ROOT`: Set custom dependency installation root (default: `$HOME/dependencies`)
-- `ONNX_RUNTIME_VERSION`: Override ONNX Runtime version
-- `TENSORRT_VERSION`: Override TensorRT version
-- `LIBTORCH_VERSION`: Override LibTorch version
-- `OPENVINO_VERSION`: Override OpenVINO version
-- `TENSORFLOW_VERSION`: Override TensorFlow version
-- `TVM_VERSION`: Override TVM version
-- `CUDA_VERSION`: Override CUDA version for GPU support
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEFAULT_BACKEND` | — | Backend to compile (required) |
+| `BUILD_INFERENCE_ENGINE_TESTS` | `OFF` | Build GTest executables |
+| `DEPENDENCY_ROOT` | `$HOME/dependencies` | Root for installed backends |
+| `ONNX_RUNTIME_DIR` | `$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-<ver>` | ONNX Runtime install path |
+| `LIBTORCH_DIR` | `$DEPENDENCY_ROOT/libtorch` | LibTorch install path |
+| `OPENVINO_DIR` | `$DEPENDENCY_ROOT/openvino_<ver>` | OpenVINO install path |
+| `TENSORFLOW_DIR` | `$DEPENDENCY_ROOT/tensorflow` | TensorFlow C++ install path |
+| `GGML_DIR` | `$DEPENDENCY_ROOT/ggml` | GGML install path |
+| `TVM_DIR` | `$DEPENDENCY_ROOT/tvm` | TVM install path |
+| `EXECUTORCH_DIR` | `$HOME/dependencies/executorch` | ExecuTorch install path |
+| `CACTUS_DIR` | `$DEPENDENCY_ROOT/cactus` | Cactus install path |
+| `LLAMACPP_DIR` | `$DEPENDENCY_ROOT/llamacpp` | llama.cpp install path |
+| `TENSORRT_DIR` | `$DEPENDENCY_ROOT/TensorRT-<ver>` | TensorRT install path |
+| `MIGRAPHX_ROOT` | `/opt/rocm` | ROCm/MIGraphX install root |
+| `ONNX_RUNTIME_VERSION` | from `versions.env` | Override ONNX Runtime version |
+| `TENSORRT_VERSION` | from `versions.env` | Override TensorRT version |
+| `LIBTORCH_VERSION` / `PYTORCH_VERSION` | from `versions.env` | Override LibTorch version |
+| `OPENVINO_VERSION` | from `versions.env` | Override OpenVINO version |
+| `TENSORFLOW_VERSION` | from `versions.env` | Override TensorFlow version |
+| `GGML_VERSION` | from `versions.env` | Override GGML version |
+| `TVM_VERSION` | from `versions.env` | Override TVM version |
+| `EXECUTORCH_VERSION` | from `versions.env` | Override ExecuTorch version |
+| `CACTUS_VERSION` | from `versions.env` | Override Cactus version |
+| `LLAMACPP_VERSION` | from `versions.env` | Override llama.cpp version |
+| `MIGRAPHX_VERSION` | from `versions.env` | Override MIGraphX version |
+| `CUDA_VERSION` | from `versions.env` | Override CUDA version |
 
-#### Environment Variables
+#### Environment variables written by setup scripts
 
-The setup script creates environment variables for each backend:
+After running any `setup_*.sh` script, source `$HOME/dependencies/setup_env.sh`
+to export:
 
 ```bash
 export DEPENDENCY_ROOT="$HOME/dependencies"
-export ONNX_RUNTIME_DIR="$HOME/dependencies/onnxruntime-linux-x64-gpu-1.19.2"
-export TENSORRT_DIR="$HOME/dependencies/TensorRT-10.7.0.23"
-export LIBTORCH_DIR="$HOME/dependencies/libtorch"
-export OPENVINO_DIR="$HOME/dependencies/openvino-2023.1.0"
-export CACTUS_DIR="$HOME/dependencies/cactus"
-export LLAMACPP_DIR="$HOME/dependencies/llamacpp"
-export LD_LIBRARY_PATH="$ONNX_RUNTIME_DIR/lib:$TENSORRT_DIR/lib:$LIBTORCH_DIR/lib:$OPENVINO_DIR/lib:$CACTUS_DIR/lib:$LLAMACPP_DIR/lib:$LD_LIBRARY_PATH"
+export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2"
+export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.14.1.48"
+export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
+export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
+export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
+export GGML_DIR="$DEPENDENCY_ROOT/ggml"
+export TVM_DIR="$DEPENDENCY_ROOT/tvm"
+export EXECUTORCH_DIR="$HOME/dependencies/executorch"
+export CACTUS_DIR="$DEPENDENCY_ROOT/cactus"
+export LLAMACPP_DIR="$DEPENDENCY_ROOT/llamacpp"
+export MIGRAPHX_ROOT="/opt/rocm"
+export LD_LIBRARY_PATH="\
+$ONNX_RUNTIME_DIR/lib:\
+$TENSORRT_DIR/lib:\
+$LIBTORCH_DIR/lib:\
+$OPENVINO_DIR/runtime/lib/intel64:\
+$TENSORFLOW_DIR/lib:\
+$GGML_DIR/lib:\
+$TVM_DIR/build:\
+$EXECUTORCH_DIR/lib:\
+$CACTUS_DIR/lib:\
+$LLAMACPP_DIR/lib:\
+$MIGRAPHX_ROOT/lib:\
+$LD_LIBRARY_PATH"
+export PATH="$OPENVINO_DIR/bin:$TVM_DIR/bin:$PATH"
+export PYTHONPATH="$TVM_DIR/python:$PYTHONPATH"
 ```
-
-**Note**: TensorFlow environment variables are set by the individual TensorFlow setup scripts.
 
 ## Supported Platforms
 
 ### Linux (Ubuntu/Debian) — x86_64
-- Support for all inference backends except CACTUS (ARM64 only)
-- Automatic system dependency installation via apt-get
-- OpenCV and glog installation
-- TensorFlow C++ library support
+- All backends except CACTUS (ARM NEON intrinsics — ARM64 only).
+- Recommended Ubuntu version: 24.04 (required for ExecuTorch).
 
 ### Linux (Ubuntu/Debian) — ARM64 (aarch64)
-- Full support for all inference backends including CACTUS
-- Tested targets: Jetson Orin, Raspberry Pi 5
+- All backends including CACTUS.
+- Tested targets: Jetson Orin, Raspberry Pi 5.
 
 ### Linux (CentOS/RHEL/Fedora)
-- Basic support with manual dependency installation
-- Uses yum/dnf package manager
-- May require additional configuration
-
-### Other Linux Distributions
-- Manual dependency installation required
-- Refer to individual setup scripts for guidance
+- Basic support; uses yum/dnf. May require additional configuration.
 
 ### Windows
-- Not currently supported
-- Future development planned
+- Not supported.
 
-## Troubleshooting
+## Manual Installation
 
-### Common Issues
+Use the setup scripts when possible. The entries below cover cases that require
+extra steps or have no automated installer.
 
-1. **Missing Dependencies**:
-   ```bash
-   # Reinstall with force flag for unified script
-   ./scripts/setup_dependencies.sh --backend <BACKEND_NAME> --force
-   
-   ```
+**OpenCV DNN** — system package, no setup script needed:
 
-2. **Version Conflicts**:
-   ```bash
-   # Override version in CMake
-   cmake .. -DTENSORFLOW_VERSION=2.18.0
-   ```
-
-3. **CUDA Issues**:
-   ```bash
-   # Check CUDA installation
-   nvcc --version
-   nvidia-smi
-   ```
-
-4. **TensorFlow C++ Library Issues**:
-   ```bash
-   # Check TensorFlow installation
-   python -c "import tensorflow as tf; print(tf.__version__)"
-   ```
-
-### Validation Errors
-
-The validation system provides detailed error messages:
-
-```
-[ERROR] TensorFlow not found at /home/user/dependencies/tensorflow
-Please ensure the inference backend is properly installed or run the setup script.
+```bash
+sudo apt-get install -y libopencv-dev libopencv-contrib-dev
 ```
 
-### Manual Installation
+**ONNX Runtime**:
+```bash
+./scripts/setup_onnx_runtime.sh
+```
 
-For backends requiring manual installation:
+**LibTorch**:
+```bash
+./scripts/setup_libtorch.sh
+```
 
-**TensorRT**:
-1. Download from [NVIDIA Developer](https://developer.nvidia.com/tensorrt)
-2. Extract to `$HOME/dependencies/TensorRT-<VERSION>`
-3. Ensure CUDA is installed
-4. Run validation: `./scripts/setup_dependencies.sh --backend TENSORRT`
+**GGML**:
+```bash
+./scripts/setup_ggml.sh
+```
+
+**TensorRT** — manual download required (NVIDIA login):
+1. Download from [NVIDIA Developer](https://developer.nvidia.com/tensorrt).
+2. Extract to `$HOME/dependencies/TensorRT-<VERSION>`.
+3. Ensure CUDA is installed.
+4. Run: `./scripts/setup_tensorrt.sh`
 
 **OpenVINO**:
-1. Download from [Intel Developer Zone](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html)
-2. Extract to `$HOME/dependencies/openvino-<VERSION>`
-3. Run validation: `./scripts/setup_dependencies.sh --backend OPENVINO`
+1. Download from [Intel Developer Zone](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html).
+2. Extract to `$HOME/dependencies/openvino_<VERSION>`.
+3. Run: `./scripts/setup_openvino.sh`
 
 **TensorFlow**:
-1. Install via pip: `pip install tensorflow==2.19.0`
-2. Run setup script: `./scripts/setup_libtensorflow.sh`
-3. Alternative: Use `./scripts/setup_tensorflow_pip.sh` for automated pip installation
+1. Run: `./scripts/setup_libtensorflow.sh`
+2. Alternative pip path: `./scripts/setup_tensorflow_pip.sh`
 
-**ExecuTorch**:
+**ExecuTorch** — no pre-built binaries; built from source:
 
-ExecuTorch has no pre-built binary release — it must be built from source. The
-recommended path is the project's Docker image, which handles all Python build
-dependencies and installs the C++ runtime to `/opt/executorch`:
+```bash
+./scripts/setup_executorch.sh [--install-dir <path>]
+```
+
+Or use the Docker image (recommended — handles all Python build deps):
 
 ```bash
 docker build --rm -t neuriplo:executorch -f docker/Dockerfile.executorch .
 ```
 
-For a native (non-Docker) build, follow the steps in
-`docker/Dockerfile.executorch` stages `base_dependencies` and
-`executorch_install`. The key cmake flags are:
+> **Note**: do **not** delete the `cmake-out` build directory after installing.
+> `ExecuTorchTargets.cmake` references build-tree paths that must remain
+> accessible when neuriplo is configured.
+
+**Cactus** (ARM64 only):
 
 ```bash
-cmake -S /tmp/executorch -B /tmp/executorch/cmake-out \
-    -DCMAKE_INSTALL_PREFIX=/opt/executorch \
-    -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
-    -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
-    -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
-    -DEXECUTORCH_BUILD_TESTS=OFF
-cmake --build /tmp/executorch/cmake-out -j$(nproc)
-cmake --install /tmp/executorch/cmake-out
-# Do NOT delete the cmake-out directory — ExecuTorchTargets.cmake references
-# build-tree paths that must remain accessible at neuriplo configure time.
+./scripts/setup_cactus.sh [--install-dir <path>]
+# or build the Docker image:
+./scripts/build_cactus.sh
 ```
 
-Then build neuriplo:
+**llama.cpp**:
 
 ```bash
-cmake -B build -DDEFAULT_BACKEND=EXECUTORCH -DEXECUTORCH_DIR=/opt/executorch
-cmake --build build
+./scripts/setup_llamacpp.sh [--install-dir <path>]
 ```
 
-**TVM**:
-1. Clone TVM repository: `git clone --recursive https://github.com/apache/tvm tvm`
-2. Build from source:
-   ```bash
-   cd tvm
-   mkdir build
-   cp cmake/config.cmake build/
-   cd build
-   # Edit config.cmake to enable desired features (LLVM, CUDA, etc.)
-   cmake ..
-   make -j$(nproc)
-   ```
-3. Install Python package:
-   ```bash
-   cd ../python
-   pip install -e .
-   ```
-4. Set TVM directory: `export TVM_DIR=$HOME/dependencies/tvm`
-5. For neuriplo-specific build and usage details, see [TVM Backend Build Guide](TVM_BUILD_GUIDE.md)
-6. For upstream installation details, see [TVM Installation Guide](https://tvm.apache.org/docs/install/from_source.html)
+**MIGraphX** — requires ROCm:
+
+```bash
+./scripts/setup_migraphx.sh
+```
+
+**TVM** — built from source:
+```bash
+./scripts/setup_tvm.sh
+```
+For full build options see [TVM Backend Build Guide](TVM_BUILD_GUIDE.md) and
+the [upstream installation guide](https://tvm.apache.org/docs/install/from_source.html).
+
+## Troubleshooting
+
+**Missing dependency after setup**:
+```bash
+./scripts/setup_dependencies.sh --backend <BACKEND_NAME> --force
+```
+
+**Version conflict** — override in CMake:
+```bash
+cmake -B build -DDEFAULT_BACKEND=LIBTENSORFLOW -DTENSORFLOW_VERSION=2.18.0
+```
+
+**CUDA not found**:
+```bash
+nvcc --version
+nvidia-smi
+```
+
+**ExecuTorch cmake error** (`extension_evalue_util` not found):
+The `cmake-out` directory from the ExecuTorch source build was deleted.
+Re-run `setup_executorch.sh` or rebuild the Docker image — and do not clean
+the build directory afterwards.
+
+**Cactus fails on x86_64**:
+Expected — Cactus requires an ARM64 host. Use a Jetson Orin or Raspberry Pi 5,
+or run the Docker image on an ARM64 machine.
+
+**Validation error message**:
+```
+[ERROR] TensorFlow not found at /home/user/dependencies/tensorflow
+Please ensure the inference backend is properly installed or run the setup script.
+```
 
 ## Testing Integration
 
 ### Local CI simulation
 
-Before pushing Dockerfile or workflow changes you can replay any CI job locally
-using [nektos/act](https://github.com/nektos/act). See [LOCAL_CI.md](LOCAL_CI.md)
-for installation, per-job commands, and YAML debugging flags.
-
-### Automated Testing
-
-The testing framework supports all backends:
+Replay any CI job locally before pushing:
 
 ```bash
-# Test specific backend
-./scripts/test_backends.sh --backend <BACKEND_NAME>
-
-# Test all backends
-./scripts/test_backends.sh
-
-# Run complete test suite with analysis
-./scripts/run_complete_tests.sh
-
-# Validate test system setup
-./scripts/validate_test_system.sh
+act push --job build-executorch --dryrun   # inspect resolved steps
+act push --job build-executorch --verbose  # full run
 ```
 
-### Model Generation and Testing
+See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 
-- **TensorFlow**: Tests automatically generate SavedModel during execution using ResNet-50 from Keras Applications
-- **ONNX Runtime**: Uses pre-downloaded ONNX models via `scripts/model_downloader.py`
-- **LibTorch**: Tests with TorchScript models
-- **TensorRT**: Requires model conversion from ONNX or other formats
-- **OpenVINO**: Uses Intel OpenVINO IR format models
-- **GGML**: Uses quantized GGML format models
-- **TVM**: Requires model compilation using TVM compiler
+### Automated testing
 
-Use `scripts/setup_test_models.sh` to download and prepare test models for all backends.
-
-## Integration with Main Project
-
-The neuriplo library is designed as a standalone component that can be integrated into larger projects:
-
-1. **CMake Integration**: Can be included via `add_subdirectory()` or `FetchContent`
-2. **Version Synchronization**: All backend versions are managed centrally in this library
-3. **Dependency Isolation**: Each backend's dependencies are self-contained
-4. **Testing Framework**: Comprehensive testing across all backends
-
-Example integration:
-```cmake
-# In main project CMakeLists.txt
-add_subdirectory(neuriplo)
-target_link_libraries(my_project PRIVATE neuriplo)
+```bash
+./scripts/test_backends.sh --backend <BACKEND_NAME>   # single backend
+./scripts/test_backends.sh                             # all backends
+./scripts/run_complete_tests.sh                        # full suite + report
+./scripts/validate_test_system.sh                      # preflight check
 ```
+
+### Test models per backend
+
+| Backend | Model format | How it is obtained |
+|---|---|---|
+| OpenCV DNN | ONNX, Darknet | `scripts/setup_test_models.sh` |
+| ONNX Runtime | ONNX | `scripts/model_downloader.py` |
+| LibTorch | TorchScript (`.pt`) | `backends/libtorch/test/generate_model.sh` |
+| TensorFlow | SavedModel | auto-generated at test runtime via Keras |
+| TensorRT | TensorRT engine (`.engine`) | converted from ONNX at test time |
+| OpenVINO | IR (`.xml` / `.bin`) | `backends/openvino/test/generate_model.sh` |
+| GGML | quantized GGML | `scripts/convert_to_ggml.sh` |
+| TVM | compiled TVM module | `backends/tvm/test/generate_model.sh` |
+| MIGraphX | ONNX only | `backends/migraphx/test/generate_model.sh` |
+| ExecuTorch | `.pte` | `backends/executorch/test/export_executorch_classifier.py` |
+| Cactus | GGUF | downloaded by Dockerfile or mock fallback |
+| llama.cpp | GGUF | downloaded by Dockerfile or mock fallback |
 
 ## Contributing
 
@@ -367,16 +357,13 @@ time.
 
 ## Available Scripts
 
-Scripts in `scripts/` follow a consistent naming convention: `setup_<backend>.sh`
-for individual backends, with `setup_dependencies.sh` as the unified dispatcher.
-
 ### Dependency setup
 
 | Script | Backend / purpose |
 |---|---|
 | `setup_dependencies.sh` | Unified dispatcher — delegates to the script below for the chosen `--backend` |
 | `setup_onnx_runtime.sh` | ONNX Runtime |
-| `setup_tensorrt.sh` | NVIDIA TensorRT (manual download required) |
+| `setup_tensorrt.sh` | NVIDIA TensorRT (manual download required first) |
 | `setup_libtorch.sh` | PyTorch LibTorch |
 | `setup_openvino.sh` | Intel OpenVINO |
 | `setup_libtensorflow.sh` | TensorFlow C++ library |
