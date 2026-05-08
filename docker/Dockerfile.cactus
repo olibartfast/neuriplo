@@ -61,13 +61,17 @@ RUN . /tmp/versions.env && \
     cd /tmp/cactus-src/cactus/build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
     make -j$(nproc) && \
-    cp /tmp/cactus-src/cactus/cactus.h ${CACTUS_DIR}/include/ && \
+    cd /tmp/cactus-src/cactus && \
+    find . -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t ${CACTUS_DIR}/include && \
+    cd /tmp/cactus-src && \
+    if [ -d "libs" ]; then find libs -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t ${CACTUS_DIR}/include; fi && \
     find /tmp/cactus-src/cactus/build -name 'libcactus.so*' -exec cp {} ${CACTUS_DIR}/lib/ \; && \
     test -f ${CACTUS_DIR}/lib/libcactus.so || \
       ln -s "$(ls ${CACTUS_DIR}/lib/libcactus.so.* | head -1)" ${CACTUS_DIR}/lib/libcactus.so && \
     rm -rf /tmp/cactus-src
 
 RUN test -f ${CACTUS_DIR}/include/cactus.h && \
+    test -f ${CACTUS_DIR}/include/graph/graph.h && \
     test -f ${CACTUS_DIR}/lib/libcactus.so
 
 ENV CACTUS_DIR=${CACTUS_DIR}
