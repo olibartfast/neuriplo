@@ -1,6 +1,27 @@
 # Dependency Management for neuriplo
 
 This document describes the dependency management system for the neuriplo library.
+Backend metadata is maintained in [`docs/backends.yaml`](backends.yaml).
+Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated sections.
+
+## Supported backends
+
+<!-- GEN:backend-overview -->
+| Backend ID | Name | Version | Arch | GPU |
+|---|---|---|---|---|
+| `OPENCV_DNN` | OpenCV DNN | `4.6.0` | x86_64, ARM64 | no |
+| `ONNX_RUNTIME` | ONNX Runtime | `1.19.2` | x86_64, ARM64 | no |
+| `LIBTORCH` | LibTorch | `2.3.0` | x86_64, ARM64 | no |
+| `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
+| `TENSORRT` | TensorRT | `10.14.1.48` | x86_64 only | yes |
+| `OPENVINO` | OpenVINO | `2025.2.0` | x86_64, ARM64 | no |
+| `GGML` | GGML | `v0.11.0` | x86_64, ARM64 | no |
+| `TVM` | Apache TVM | `0.22.0` | x86_64, ARM64 | no |
+| `MIGRAPHX` | MIGraphX | `2.12.0` | x86_64 only | yes |
+| `CACTUS` | Cactus | `v1.14` | ARM64 only | no |
+| `LLAMACPP` | llama.cpp | `b9049` | x86_64, ARM64 | no |
+| `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
+<!-- /GEN:backend-overview -->
 
 ## Architecture
 
@@ -33,8 +54,8 @@ backend IDs and their CMake metadata:
 ./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
 ```
 
-`<BACKEND_NAME>` is one of the IDs listed in the [Available Scripts](#available-scripts)
-table below.  The dispatcher sources `versions.env` and delegates to the
+`<BACKEND_NAME>` is one of the IDs in the [Supported backends](#supported-backends)
+table above.  The dispatcher sources `versions.env` and delegates to the
 corresponding `scripts/setup_<backend>.sh`.
 
 #### Individual backend scripts
@@ -111,66 +132,87 @@ ctest --test-dir build --output-on-failure
 
 #### CMake variables
 
+Static variables:
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `DEFAULT_BACKEND` | — | Backend to compile (required) |
 | `BUILD_INFERENCE_ENGINE_TESTS` | `OFF` | Build GTest executables |
 | `DEPENDENCY_ROOT` | `$HOME/dependencies` | Root for installed backends |
-| `ONNX_RUNTIME_DIR` | `$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-<ver>` | ONNX Runtime install path |
-| `LIBTORCH_DIR` | `$DEPENDENCY_ROOT/libtorch` | LibTorch install path |
-| `OPENVINO_DIR` | `$DEPENDENCY_ROOT/openvino_<ver>` | OpenVINO install path |
-| `TENSORFLOW_DIR` | `$DEPENDENCY_ROOT/tensorflow` | TensorFlow C++ install path |
-| `GGML_DIR` | `$DEPENDENCY_ROOT/ggml` | GGML install path |
-| `TVM_DIR` | `$DEPENDENCY_ROOT/tvm` | TVM install path |
-| `EXECUTORCH_DIR` | `$HOME/dependencies/executorch` | ExecuTorch install path |
-| `CACTUS_DIR` | `$DEPENDENCY_ROOT/cactus` | Cactus install path |
-| `LLAMACPP_DIR` | `$DEPENDENCY_ROOT/llamacpp` | llama.cpp install path |
-| `TENSORRT_DIR` | `$DEPENDENCY_ROOT/TensorRT-<ver>` | TensorRT install path |
-| `MIGRAPHX_ROOT` | `/opt/rocm` | ROCm/MIGraphX install root |
-| `ONNX_RUNTIME_VERSION` | from `versions.env` | Override ONNX Runtime version |
-| `TENSORRT_VERSION` | from `versions.env` | Override TensorRT version |
-| `LIBTORCH_VERSION` / `PYTORCH_VERSION` | from `versions.env` | Override LibTorch version |
-| `OPENVINO_VERSION` | from `versions.env` | Override OpenVINO version |
-| `TENSORFLOW_VERSION` | from `versions.env` | Override TensorFlow version |
-| `GGML_VERSION` | from `versions.env` | Override GGML version |
-| `TVM_VERSION` | from `versions.env` | Override TVM version |
-| `EXECUTORCH_VERSION` | from `versions.env` | Override ExecuTorch version |
-| `CACTUS_VERSION` | from `versions.env` | Override Cactus version |
-| `LLAMACPP_VERSION` | from `versions.env` | Override llama.cpp version |
-| `MIGRAPHX_VERSION` | from `versions.env` | Override MIGraphX version |
-| `CUDA_VERSION` | from `versions.env` | Override CUDA version |
+
+Per-backend install-path overrides:
+
+<!-- GEN:cmake-dir-variables -->
+| Variable | Default path |
+|---|---|
+| `ONNX_RUNTIME_DIR` | `$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-<ver>` |
+| `LIBTORCH_DIR` | `$DEPENDENCY_ROOT/libtorch` |
+| `TENSORFLOW_DIR` | `$DEPENDENCY_ROOT/tensorflow` |
+| `TENSORRT_DIR` | `$DEPENDENCY_ROOT/TensorRT-<ver>` |
+| `OPENVINO_DIR` | `$DEPENDENCY_ROOT/openvino_<ver>` |
+| `GGML_DIR` | `$DEPENDENCY_ROOT/ggml` |
+| `TVM_DIR` | `$DEPENDENCY_ROOT/tvm` |
+| `MIGRAPHX_ROOT` | `/opt/rocm` |
+| `CACTUS_DIR` | `$DEPENDENCY_ROOT/cactus` |
+| `LLAMACPP_DIR` | `$DEPENDENCY_ROOT/llamacpp` |
+| `EXECUTORCH_DIR` | `$HOME/dependencies/executorch` |
+<!-- /GEN:cmake-dir-variables -->
+
+Per-backend version overrides (default from `versions.env`):
+
+<!-- GEN:cmake-version-variables -->
+| Variable | Current value in `versions.env` |
+|---|---|
+| `OPENCV_VERSION` | `4.6.0` |
+| `ONNX_RUNTIME_VERSION` | `1.19.2` |
+| `PYTORCH_VERSION` | `2.3.0` |
+| `TENSORFLOW_VERSION` | `2.19.0` |
+| `TENSORRT_VERSION` | `10.14.1.48` |
+| `OPENVINO_VERSION` | `2025.2.0` |
+| `GGML_VERSION` | `v0.11.0` |
+| `TVM_VERSION` | `0.22.0` |
+| `MIGRAPHX_VERSION` | `2.12.0` |
+| `CACTUS_VERSION` | `v1.14` |
+| `LLAMACPP_VERSION` | `b9049` |
+| `EXECUTORCH_VERSION` | `v1.2.0` |
+<!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
 
 After running any `setup_*.sh` script, source `$HOME/dependencies/setup_env.sh`
 to export:
 
+<!-- GEN:env-variables -->
 ```bash
 export DEPENDENCY_ROOT="$HOME/dependencies"
 export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2"
-export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.14.1.48"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
-export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
+export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.14.1.48"
+export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
 export GGML_DIR="$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="$DEPENDENCY_ROOT/tvm"
-export EXECUTORCH_DIR="$HOME/dependencies/executorch"
+export MIGRAPHX_ROOT="/opt/rocm"
 export CACTUS_DIR="$DEPENDENCY_ROOT/cactus"
 export LLAMACPP_DIR="$DEPENDENCY_ROOT/llamacpp"
-export MIGRAPHX_ROOT="/opt/rocm"
+export EXECUTORCH_DIR="$HOME/dependencies/executorch"
 export LD_LIBRARY_PATH="\
 $ONNX_RUNTIME_DIR/lib:\
-$TENSORRT_DIR/lib:\
 $LIBTORCH_DIR/lib:\
-$OPENVINO_DIR/runtime/lib/intel64:\
 $TENSORFLOW_DIR/lib:\
+$TENSORRT_DIR/lib:\
+$OPENVINO_DIR/runtime/lib/intel64:\
 $GGML_DIR/lib:\
 $TVM_DIR/build:\
-$EXECUTORCH_DIR/lib:\
+$MIGRAPHX_ROOT/lib:\
 $CACTUS_DIR/lib:\
 $LLAMACPP_DIR/lib:\
-$MIGRAPHX_ROOT/lib:\
+$EXECUTORCH_DIR/lib:\
 $LD_LIBRARY_PATH"
+```
+<!-- /GEN:env-variables -->
+
+```bash
 export PATH="$OPENVINO_DIR/bin:$TVM_DIR/bin:$PATH"
 export PYTHONPATH="$TVM_DIR/python:$PYTHONPATH"
 ```
@@ -332,20 +374,22 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 
 ### Test models per backend
 
+<!-- GEN:test-models-table -->
 | Backend | Model format | How it is obtained |
 |---|---|---|
 | OpenCV DNN | ONNX, Darknet | `scripts/setup_test_models.sh` |
 | ONNX Runtime | ONNX | `scripts/model_downloader.py` |
-| LibTorch | TorchScript (`.pt`) | `backends/libtorch/test/generate_model.sh` |
-| TensorFlow | SavedModel | auto-generated at test runtime via Keras |
-| TensorRT | TensorRT engine (`.engine`) | converted from ONNX at test time |
-| OpenVINO | IR (`.xml` / `.bin`) | `backends/openvino/test/generate_model.sh` |
+| LibTorch | TorchScript (.pt) | `backends/libtorch/test/generate_model.sh` |
+| TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
+| TensorRT | TensorRT engine (.engine) | converted from ONNX at test time |
+| OpenVINO | IR (.xml / .bin) | `backends/openvino/test/generate_model.sh` |
 | GGML | quantized GGML | `scripts/convert_to_ggml.sh` |
-| TVM | compiled TVM module | `backends/tvm/test/generate_model.sh` |
+| Apache TVM | compiled TVM module | `backends/tvm/test/generate_model.sh` |
 | MIGraphX | ONNX only | `backends/migraphx/test/generate_model.sh` |
-| ExecuTorch | `.pte` | `backends/executorch/test/export_executorch_classifier.py` |
 | Cactus | GGUF | downloaded by Dockerfile or mock fallback |
 | llama.cpp | GGUF | downloaded by Dockerfile or mock fallback |
+| ExecuTorch | .pte | `backends/executorch/test/export_executorch_classifier.py` |
+<!-- /GEN:test-models-table -->
 
 ## Contributing
 
@@ -359,22 +403,24 @@ time.
 
 ### Dependency setup
 
+<!-- GEN:setup-scripts-table -->
 | Script | Backend / purpose |
 |---|---|
 | `setup_dependencies.sh` | Unified dispatcher — delegates to the script below for the chosen `--backend` |
+| _(none)_ | OpenCV DNN — system package — no script needed |
 | `setup_onnx_runtime.sh` | ONNX Runtime |
-| `setup_tensorrt.sh` | NVIDIA TensorRT (manual download required first) |
-| `setup_libtorch.sh` | PyTorch LibTorch |
-| `setup_openvino.sh` | Intel OpenVINO |
-| `setup_libtensorflow.sh` | TensorFlow C++ library |
-| `setup_tensorflow_pip.sh` | TensorFlow via pip (alternative) |
+| `setup_libtorch.sh` | LibTorch |
+| `setup_libtensorflow.sh` | TensorFlow C++ — alternative pip path via `setup_tensorflow_pip.sh` |
+| `setup_tensorrt.sh` | TensorRT — manual NVIDIA download required first |
+| `setup_openvino.sh` | OpenVINO |
 | `setup_ggml.sh` | GGML |
-| `setup_tvm.sh` | Apache TVM |
-| `setup_executorch.sh` | ExecuTorch C++ runtime (builds from source) |
-| `setup_cactus.sh` | Cactus (ARM64 only — fails fast on x86_64) |
+| `setup_tvm.sh` | Apache TVM — builds from source — see TVM_BUILD_GUIDE.md |
+| `setup_migraphx.sh` | MIGraphX — installs from ROCm apt repo — requires ROCm |
+| `setup_cactus.sh` | Cactus — **ARM64 only** — fails fast on x86_64 |
 | `setup_llamacpp.sh` | llama.cpp |
-| `setup_migraphx.sh` | AMD MIGraphX (installs from ROCm apt repo) |
-| `build_cactus.sh` | Builds the Cactus Docker image (ARM64 only) |
+| `setup_executorch.sh` | ExecuTorch — builds from source — do not delete cmake-out after install |
+| `build_cactus.sh` | Build the Cactus Docker image (ARM64 only) |
+<!-- /GEN:setup-scripts-table -->
 
 ### Testing
 
