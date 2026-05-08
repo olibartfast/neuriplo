@@ -86,7 +86,9 @@ LlamaCppInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
 
     try {
         for (const auto& raw_input : input_tensors) {
-            const std::string prompt(raw_input.begin(), raw_input.end());
+            const std::string raw_prompt(raw_input.begin(), raw_input.end());
+
+            const std::string prompt = apply_chat_template(raw_prompt);
 
             // Tokenize the prompt
             const int n_prompt_max = static_cast<int>(prompt.size()) + 16;
@@ -202,4 +204,22 @@ std::vector<TensorElement> LlamaCppInfer::response_to_tensor(const std::string& 
         tensor.push_back(static_cast<float>(static_cast<unsigned char>(c)));
     }
     return tensor;
+}
+
+std::string LlamaCppInfer::apply_chat_template(const std::string& user_prompt) const {
+    const llama_chat_message message = {"user", user_prompt.c_str()};
+
+    const int32_t tmpl_size = llama_chat_apply_template(vocab_, nullptr, &message, 1, true, nullptr, 0);
+    if (tmpl_size <= 0) {
+        return user_prompt;
+    }
+
+    std::string formatted(tmpl_size, '\0');
+    const int32_t result = llama_chat_apply_template(vocab_, nullptr, &message, 1, true, formatted.data(), tmpl_size);
+    if (result < 0) {
+        return user_prompt;
+    }
+
+    formatted.resize(result);
+    return formatted;
 }
