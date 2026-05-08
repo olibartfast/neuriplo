@@ -64,7 +64,7 @@ RUN . /tmp/versions.env && \
     cd /tmp/cactus-src/cactus && \
     find . -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t ${CACTUS_DIR}/include && \
     cd /tmp/cactus-src && \
-    if [ -d "libs" ]; then find libs -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t ${CACTUS_DIR}/include; fi && \
+    if [ -d "libs" ]; then find libs -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t ${CACTUS_DIR}; fi && \
     find /tmp/cactus-src/cactus/build -name 'libcactus.so*' -exec cp {} ${CACTUS_DIR}/lib/ \; && \
     test -f ${CACTUS_DIR}/lib/libcactus.so || \
       ln -s "$(ls ${CACTUS_DIR}/lib/libcactus.so.* | head -1)" ${CACTUS_DIR}/lib/libcactus.so && \
