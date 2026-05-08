@@ -47,7 +47,7 @@ RUN python3 -m venv /opt/et-venv
 ENV VIRTUAL_ENV=/opt/et-venv
 ENV PATH=/opt/et-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-RUN pip install --no-cache-dir tomli zstd setuptools wheel flatbuffers
+RUN pip install --no-cache-dir tomli zstd setuptools wheel flatbuffers pyyaml
 
 # Shallow clone + shallow submodules keeps disk/time usage manageable
 RUN . /tmp/versions.env && \
@@ -55,25 +55,25 @@ RUN . /tmp/versions.env && \
         --branch ${EXECUTORCH_VERSION} \
         --depth 1 \
         https://github.com/pytorch/executorch.git \
-        /tmp/executorch-src && \
-    cd /tmp/executorch-src && \
+        /tmp/executorch && \
+    cd /tmp/executorch && \
     git submodule sync --recursive && \
     git submodule update --init --recursive --depth 1
 
-# Install ExecuTorch Python build-time dependencies (skip pybind / torch wheel)
-RUN cd /tmp/executorch-src && \
-    if [ -f install_requirements.sh ]; then \
-        bash install_requirements.sh --pybind off 2>&1 | tail -10; \
-    fi
+# Install ExecuTorch Python build-time dependencies (provides torchgen via torch).
+# --use-pt-pinned-commit pins torch to the exact version ExecuTorch 1.2.0 was tested with.
+RUN cd /tmp/executorch && \
+    bash install_requirements.sh --use-pt-pinned-commit
 
 # Configure, build, and install ExecuTorch (core + required extensions only)
-RUN cd /tmp/executorch-src && \
+RUN cd /tmp/executorch && \
     cmake -S . -B cmake-out \
         -GNinja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_STANDARD=17 \
         -DCMAKE_INSTALL_PREFIX=${EXECUTORCH_DIR} \
         -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
+        -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
         -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
         -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
         -DEXECUTORCH_ENABLE_LOGGING=ON \
@@ -82,7 +82,7 @@ RUN cd /tmp/executorch-src && \
         "-DPYTHON_EXECUTABLE=$(which python3)" && \
     cmake --build cmake-out -j$(nproc) && \
     cmake --install cmake-out && \
-    rm -rf /tmp/executorch-src
+    rm -rf /tmp/executorch
 
 # Stage 3: Build the neuriplo library and test executable
 FROM executorch_install AS builder

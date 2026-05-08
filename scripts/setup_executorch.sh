@@ -20,7 +20,8 @@ if [[ "${1:-}" == "--install-dir" ]]; then
     INSTALL_DIR="${2:?--install-dir requires a path argument}"
 fi
 
-SRC_DIR="/tmp/executorch-${EXECUTORCH_VERSION}-src"
+# v1.2.0 requires the source directory to be named exactly "executorch"
+SRC_DIR="/tmp/executorch"
 
 # ── Already installed? ────────────────────────────────────────────────────────
 if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ]; then
@@ -58,13 +59,17 @@ cd "${SRC_DIR}"
 git submodule sync --recursive
 git submodule update --init --recursive --depth 1
 
-# ── Python build dependencies ─────────────────────────────────────────────────
+# ── Python venv + build dependencies ─────────────────────────────────────────
 # ExecuTorch uses Python for flatbuffers codegen during cmake configure.
-pip3 install --quiet tomli zstd setuptools wheel
+VENV_DIR="/tmp/executorch-venv"
+python3 -m venv "${VENV_DIR}"
+source "${VENV_DIR}/bin/activate"
+pip install --quiet --upgrade pip
+pip install --quiet tomli zstd setuptools wheel
 
 # install_requirements.sh installs the executorch Python package and its deps.
 if [ -f "${SRC_DIR}/install_requirements.sh" ]; then
-    bash "${SRC_DIR}/install_requirements.sh" --pybind off 2>&1 | tail -5
+    bash "${SRC_DIR}/install_requirements.sh" 2>&1 | tail -10
 fi
 
 # ── CMake configure ───────────────────────────────────────────────────────────
@@ -75,12 +80,13 @@ cmake -S . -B cmake-out \
     -DCMAKE_CXX_STANDARD=17 \
     -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
     -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
+    -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
     -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
     -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
     -DEXECUTORCH_ENABLE_LOGGING=ON \
     -DEXECUTORCH_BUILD_TESTS=OFF \
     -DEXECUTORCH_BUILD_EXAMPLES=OFF \
-    -DPYTHON_EXECUTABLE="$(command -v python3)"
+    -DPYTHON_EXECUTABLE="${VENV_DIR}/bin/python3"
 
 # ── Build & install ───────────────────────────────────────────────────────────
 cmake --build cmake-out --config Release -j"$(nproc)"
