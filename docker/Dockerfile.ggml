@@ -61,7 +61,8 @@ RUN . /tmp/versions.env && \
         -DGGML_AVX=ON \
         -DGGML_AVX2=ON \
         -DGGML_F16C=ON \
-        -DGGML_FMA=ON && \
+        -DGGML_FMA=ON \
+        -DGGML_NATIVE=OFF && \
     make -j$(nproc) && \
     make install
 
