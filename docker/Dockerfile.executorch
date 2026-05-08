@@ -76,13 +76,13 @@ RUN cd /tmp/executorch && \
         -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
         -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
         -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
+        -DEXECUTORCH_BUILD_EXTENSION_TOKENIZER=OFF \
         -DEXECUTORCH_ENABLE_LOGGING=ON \
         -DEXECUTORCH_BUILD_TESTS=OFF \
         -DEXECUTORCH_BUILD_EXAMPLES=OFF \
         "-DPYTHON_EXECUTABLE=$(which python3)" && \
     cmake --build cmake-out -j$(nproc) && \
-    cmake --install cmake-out && \
-    rm -rf /tmp/executorch
+    cmake --install cmake-out
 
 # Stage 3: Build the neuriplo library and test executable
 FROM executorch_install AS builder
