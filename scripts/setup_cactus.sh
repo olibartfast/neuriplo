@@ -40,7 +40,7 @@ fi
 SRC_DIR="/tmp/cactus-src"
 
 # ── Already installed? ────────────────────────────────────────────────────────
-if [ -f "${INSTALL_DIR}/lib/libcactus.so" ] && [ -f "${INSTALL_DIR}/include/cactus.h" ]; then
+if [ -f "${INSTALL_DIR}/lib/libcactus.so" ] && [ -f "${INSTALL_DIR}/include/cactus.h" ] && [ -f "${INSTALL_DIR}/include/graph/graph.h" ]; then
     echo "✓ Cactus ${CACTUS_VERSION} already installed at ${INSTALL_DIR}"
     exit 0
 fi
@@ -74,7 +74,13 @@ cmake .. \
 make -j"$(nproc)"
 
 # ── Install ───────────────────────────────────────────────────────────────────
-cp "${SRC_DIR}/cactus/cactus.h" "${INSTALL_DIR}/include/"
+cd "${SRC_DIR}/cactus"
+find . -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t "${INSTALL_DIR}/include/"
+# Also copy headers from libs directory (e.g. stb) which are referenced by main headers
+cd "${SRC_DIR}"
+if [ -d "libs" ]; then
+    find libs -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t "${INSTALL_DIR}/include/"
+fi
 find "${SRC_DIR}/cactus/build" -name 'libcactus.so*' -exec cp {} "${INSTALL_DIR}/lib/" \;
 # Ensure the unversioned symlink exists
 if [ ! -f "${INSTALL_DIR}/lib/libcactus.so" ]; then

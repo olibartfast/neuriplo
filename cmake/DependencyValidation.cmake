@@ -391,6 +391,7 @@ function(validate_cactus)
 
         set(required_files
             "${CACTUS_DIR}/include/cactus.h"
+            "${CACTUS_DIR}/include/graph/graph.h"
             "${CACTUS_DIR}/lib/libcactus.so"
         )
 
