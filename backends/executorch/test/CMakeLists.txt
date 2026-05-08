@@ -36,6 +36,6 @@ target_link_libraries(ExecuTorchInferTest PRIVATE
 add_test(NAME ExecuTorchInferTest COMMAND ExecuTorchInferTest)
 
 configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_model.sh
-    ${CMAKE_CURRENT_BINARY_DIR}/generate_model.sh FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
+    ${CMAKE_CURRENT_BINARY_DIR}/generate_model.sh COPYONLY FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/export_executorch_classifier.py
     ${CMAKE_CURRENT_BINARY_DIR}/export_executorch_classifier.py COPYONLY)
