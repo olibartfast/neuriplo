@@ -1,5 +1,9 @@
 # docker build --rm -t neuriplo:cactus -f docker/Dockerfile.cactus .
 # docker run --rm neuriplo:cactus
+#
+# IMPORTANT: Cactus v1.14 requires an ARM64 (aarch64) host.
+# The library uses ARM NEON intrinsics unconditionally in its source code
+# and cannot be compiled on x86_64.  Tested targets: Jetson Orin, Raspberry Pi 5.
 
 # Stage 1: Base dependencies
 ARG UBUNTU_VERSION=24.04
@@ -40,6 +44,18 @@ RUN cd /usr/src/gtest && \
 
 # Stage 2: Build and install Cactus
 FROM base_dependencies AS cactus_install
+
+RUN arch=$(uname -m); \
+    if [ "$arch" != "aarch64" ] && [ "$arch" != "arm64" ]; then \
+        echo ""; \
+        echo "ERROR: Cactus backend requires an ARM64 host."; \
+        echo "  Detected architecture: $arch"; \
+        echo "  Cactus v1.14 uses ARM NEON intrinsics (<arm_neon.h>) unconditionally"; \
+        echo "  and cannot be compiled on x86_64."; \
+        echo "  Build this image on a Jetson Orin, Raspberry Pi 5, or any aarch64 host."; \
+        echo ""; \
+        exit 1; \
+    fi
 
 # Clone the Cactus repository and build the shared library
 RUN . /tmp/versions.env && \
