@@ -397,7 +397,6 @@ for individual backends, with `setup_dependencies.sh` as the unified dispatcher.
 | `run_complete_tests.sh` | Full test suite with result aggregation |
 | `validate_test_system.sh` | Validate test system setup |
 | `setup_test_models.sh` | Download / generate test models for all backends |
-| `setup_test_env.sh` | Configure environment variables for tests |
 | `model_downloader.py` | Download individual test models |
 | `analyze_test_results.sh` | Parse and summarise test result XML files |
 
