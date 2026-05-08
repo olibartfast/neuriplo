@@ -367,18 +367,44 @@ time.
 
 ## Available Scripts
 
-For reference, the following scripts are available in the `scripts/` directory:
+Scripts in `scripts/` follow a consistent naming convention: `setup_<backend>.sh`
+for individual backends, with `setup_dependencies.sh` as the unified dispatcher.
 
-- `setup_dependencies.sh` - Unified setup for ONNX Runtime, TensorRT, LibTorch, OpenVINO
-- `setup_libtensorflow.sh` - TensorFlow C++ library setup
-- `setup_tensorflow_pip.sh` - TensorFlow pip installation
-- `setup_onnx_runtime.sh` - Individual ONNX Runtime setup
-- `setup_tensorrt.sh` - Individual TensorRT setup  
-- `setup_libtorch.sh` - Individual LibTorch setup
-- `setup_openvino.sh` - Individual OpenVINO setup
-- `test_backends.sh` - Backend testing framework
-- `run_complete_tests.sh` - Complete test suite execution
-- `validate_test_system.sh` - Test system validation
-- `model_downloader.py` - Test model download utility
-- `setup_test_models.sh` - Test model preparation
-- `analyze_test_results.sh` - Test result analysis
+### Dependency setup
+
+| Script | Backend / purpose |
+|---|---|
+| `setup_dependencies.sh` | Unified dispatcher — delegates to the script below for the chosen `--backend` |
+| `setup_onnx_runtime.sh` | ONNX Runtime |
+| `setup_tensorrt.sh` | NVIDIA TensorRT (manual download required) |
+| `setup_libtorch.sh` | PyTorch LibTorch |
+| `setup_openvino.sh` | Intel OpenVINO |
+| `setup_libtensorflow.sh` | TensorFlow C++ library |
+| `setup_tensorflow_pip.sh` | TensorFlow via pip (alternative) |
+| `setup_ggml.sh` | GGML |
+| `setup_tvm.sh` | Apache TVM |
+| `setup_executorch.sh` | ExecuTorch C++ runtime (builds from source) |
+| `setup_cactus.sh` | Cactus (ARM64 only — fails fast on x86_64) |
+| `setup_llamacpp.sh` | llama.cpp |
+| `setup_migraphx.sh` | AMD MIGraphX (installs from ROCm apt repo) |
+| `build_cactus.sh` | Builds the Cactus Docker image (ARM64 only) |
+
+### Testing
+
+| Script | Purpose |
+|---|---|
+| `test_backends.sh` | Build and run tests for one or all backends |
+| `run_complete_tests.sh` | Full test suite with result aggregation |
+| `validate_test_system.sh` | Validate test system setup |
+| `setup_test_models.sh` | Download / generate test models for all backends |
+| `setup_test_env.sh` | Configure environment variables for tests |
+| `model_downloader.py` | Download individual test models |
+| `analyze_test_results.sh` | Parse and summarise test result XML files |
+
+### Model conversion
+
+| Script | Purpose |
+|---|---|
+| `convert_to_ggml.sh` | Convert a model to GGML format |
+| `convert_onnx_to_ggml.py` | Convert an ONNX model to GGML |
+| `convert_resnet18_to_ggml.py` | Convert ResNet-18 to GGML (test helper) |
