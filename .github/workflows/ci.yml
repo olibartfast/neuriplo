@@ -70,6 +70,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Free disk space
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
@@ -128,6 +129,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Free disk space
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
@@ -177,6 +179,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Free disk space
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
@@ -274,6 +277,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Free disk space
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
@@ -323,6 +327,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Free disk space
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
@@ -355,6 +360,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Free disk space
+        if: ${{ !env.ACT }}
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
