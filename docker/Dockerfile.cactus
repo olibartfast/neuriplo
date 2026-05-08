@@ -31,6 +31,7 @@ RUN apt-get update && apt-get upgrade -y && \
     && rm -rf /var/lib/apt/lists/*
 
 COPY versions.env /tmp/versions.env
+COPY patches/cactus-v1.14-arch-detect.py /tmp/cactus-arch-detect.py
 
 RUN cd /usr/src/gtest && \
     cmake . && \
@@ -47,6 +48,7 @@ RUN . /tmp/versions.env && \
     cd /tmp/cactus-src && \
     git checkout ${CACTUS_VERSION} && \
     git submodule update --init --recursive && \
+    python3 /tmp/cactus-arch-detect.py /tmp/cactus-src/cactus/CMakeLists.txt && \
     mkdir -p /tmp/cactus-src/cactus/build && \
     cd /tmp/cactus-src/cactus/build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
