@@ -27,6 +27,17 @@ jobs:
           find src include backends -name '*.cpp' -o -name '*.hpp' | \
             xargs clang-format-18 --dry-run --Werror
 
+  backend-docs-check:
+    name: Backend Docs Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check generated sections are up to date
+        run: |
+          pip install pyyaml --quiet
+          python3 scripts/gen_backend_docs.py --check
+
   cppcheck:
     name: Cppcheck
     runs-on: ubuntu-latest
