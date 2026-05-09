@@ -1,7 +1,13 @@
 #include "LlamaCppInfer.hpp"
 
+#include <atomic>
 #include <cstdio>
 #include <stdexcept>
+
+// llama.cpp backend must be initialised once and torn down once.
+// Multiple LlamaCppInfer instances share one backend; a refcount
+// ensures init/free happen at the right times.
+static std::atomic<int> g_backend_refcount{0};
 
 LlamaCppInfer::LlamaCppInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                              const std::vector<std::vector<int64_t>>& input_sizes)
@@ -10,14 +16,18 @@ LlamaCppInfer::LlamaCppInfer(const std::string& model_path, bool use_gpu, size_t
     LOG(INFO) << "Running using llama.cpp runtime: " << model_path;
 
     // Initialise llama.cpp backend (once per process)
-    llama_backend_init();
+    if (g_backend_refcount.fetch_add(1) == 0) {
+        llama_backend_init();
+    }
 
     // Load model
     llama_model_params model_params = llama_model_default_params();
     model_params.n_gpu_layers = use_gpu ? 99 : 0;
     model_ = llama_model_load_from_file(model_path.c_str(), model_params);
     if (!model_) {
-        llama_backend_free();
+        if (g_backend_refcount.fetch_sub(1) == 1) {
+            llama_backend_free();
+        }
         throw std::runtime_error("Failed to load llama.cpp model from: " + model_path);
     }
 
@@ -30,7 +40,9 @@ LlamaCppInfer::LlamaCppInfer(const std::string& model_path, bool use_gpu, size_t
     ctx_llama_ = llama_init_from_model(model_, ctx_params);
     if (!ctx_llama_) {
         llama_model_free(model_);
-        llama_backend_free();
+        if (g_backend_refcount.fetch_sub(1) == 1) {
+            llama_backend_free();
+        }
         throw std::runtime_error("Failed to create llama.cpp context");
     }
 
@@ -56,7 +68,10 @@ LlamaCppInfer::~LlamaCppInfer() {
         llama_model_free(model_);
         model_ = nullptr;
     }
-    llama_backend_free();
+    // Last object out tears down the backend
+    if (g_backend_refcount.fetch_sub(1) == 1) {
+        llama_backend_free();
+    }
 }
 
 static constexpr int kMaxTokens = 512;
@@ -91,7 +106,7 @@ LlamaCppInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
             const std::string prompt = apply_chat_template(raw_prompt);
 
             // Tokenize the prompt
-            const int n_prompt_max = static_cast<int>(prompt.size()) + 16;
+            const int n_prompt_max = static_cast<int>(prompt.size()) * 4 + 64;
             std::vector<llama_token> tokens(n_prompt_max);
             const int n_tokens = llama_tokenize(vocab_, prompt.c_str(), static_cast<int>(prompt.size()), tokens.data(),
                                                 n_prompt_max, true, true);
@@ -207,12 +222,32 @@ std::vector<TensorElement> LlamaCppInfer::response_to_tensor(const std::string& 
 }
 
 std::string LlamaCppInfer::apply_chat_template(const std::string& user_prompt) const {
-    // Get the model's built-in chat template (e.g. Gemma, Llama, etc.)
-    const char* tmpl = llama_model_chat_template(model_, "tokenizer.chat_template");
-    if (!tmpl || !tmpl[0]) {
+    // Get the model's built-in chat template via metadata lookup.
+    // llama_model_chat_template may return NULL for some model versions;
+    // fall back to direct llama_model_meta_val_str.
+    std::string tmpl_str;
+    {
+        // First call with NULL to get required size
+        int32_t len = llama_model_meta_val_str(model_, "tokenizer.chat_template", nullptr, 0);
+        if (len < 0) {
+            len = -len; // negative means size needed
+        }
+        if (len > 0) {
+            tmpl_str.resize(static_cast<size_t>(len));
+            const int32_t ret =
+                llama_model_meta_val_str(model_, "tokenizer.chat_template", tmpl_str.data(), tmpl_str.size() + 1);
+            if (ret >= 0) {
+                tmpl_str.resize(static_cast<size_t>(ret));
+            } else {
+                tmpl_str.clear();
+            }
+        }
+    }
+    if (tmpl_str.empty()) {
         return user_prompt;
     }
 
+    const char* tmpl = tmpl_str.c_str();
     const llama_chat_message message = {"user", user_prompt.c_str()};
 
     const int32_t tmpl_size = llama_chat_apply_template(tmpl, &message, 1, true, nullptr, 0);
