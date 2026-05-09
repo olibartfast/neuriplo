@@ -106,7 +106,7 @@ TEST_F(LlamaCppInferTest, IntegrationTest) {
         GTEST_SKIP() << "Skipping integration test — no real model available";
     }
 
-    const std::string prompt = "What is 2+2?";
+    const std::string prompt = "What is the capital of France?";
     std::vector<uint8_t> input_data(prompt.begin(), prompt.end());
     std::vector<std::vector<uint8_t>> input_tensors = {input_data};
 
