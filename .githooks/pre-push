@@ -6,3 +6,7 @@ echo "Running clang-format check..."
 find src include backends -name '*.cpp' -o -name '*.hpp' \
   | xargs clang-format --dry-run --Werror 2>&1
 echo "clang-format check passed."
+
+echo "Checking auto-generated docs are in sync..."
+python3 scripts/gen_backend_docs.py --check
+echo "Auto-generated docs are in sync."
