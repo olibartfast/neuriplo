@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Blocks push if any .cpp/.hpp file fails clang-format.
+# Pre-push checks: clang-format, auto-generated docs, and act CI emulator.
+# Skip act with: SKIP_ACT=1 git push ...
+
 set -euo pipefail
 
 echo "Running clang-format check..."
@@ -10,3 +12,20 @@ echo "clang-format check passed."
 echo "Checking auto-generated docs are in sync..."
 python3 scripts/gen_backend_docs.py --check
 echo "Auto-generated docs are in sync."
+
+if [[ "${SKIP_ACT:-0}" == "1" ]]; then exit 0; fi
+
+ACT=$(command -v act 2>/dev/null || echo "")
+if [[ -z "$ACT" ]]; then
+    echo "[pre-push] act not found in PATH — skipping act CI check" >&2
+    exit 0
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    echo "[pre-push] Docker not running — skipping act CI check" >&2
+    exit 0
+fi
+
+echo "[pre-push] Running act CI (full pipeline) ..."
+act push --no-cache-server -q
+echo "[pre-push] act CI passed"
