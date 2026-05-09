@@ -207,15 +207,21 @@ std::vector<TensorElement> LlamaCppInfer::response_to_tensor(const std::string& 
 }
 
 std::string LlamaCppInfer::apply_chat_template(const std::string& user_prompt) const {
+    // Get the model's built-in chat template (e.g. Gemma, Llama, etc.)
+    const char* tmpl = llama_model_chat_template(model_, "tokenizer.chat_template");
+    if (!tmpl || !tmpl[0]) {
+        return user_prompt;
+    }
+
     const llama_chat_message message = {"user", user_prompt.c_str()};
 
-    const int32_t tmpl_size = llama_chat_apply_template(vocab_, nullptr, &message, 1, true, nullptr, 0);
+    const int32_t tmpl_size = llama_chat_apply_template(tmpl, &message, 1, true, nullptr, 0);
     if (tmpl_size <= 0) {
         return user_prompt;
     }
 
     std::string formatted(tmpl_size, '\0');
-    const int32_t result = llama_chat_apply_template(vocab_, nullptr, &message, 1, true, formatted.data(), tmpl_size);
+    const int32_t result = llama_chat_apply_template(tmpl, &message, 1, true, formatted.data(), tmpl_size);
     if (result < 0) {
         return user_prompt;
     }
