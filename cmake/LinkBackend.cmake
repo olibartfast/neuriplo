@@ -62,11 +62,26 @@ elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LLAMACPP_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/llamacpp/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${LLAMACPP_DIR}/lib)
-    # Recent llama.cpp (b3000+) may install libggml-base.so instead of the
-    # monolithic libggml.so — try both names so either layout works.
-    find_library(LLAMACPP_GGML_LIB NAMES ggml ggml-base
-        PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
-    target_link_libraries(${PROJECT_NAME} PRIVATE llama ${LLAMACPP_GGML_LIB})
+    # libllama.so has transitive SONAME deps on libggml.so and libggml-base.so;
+    # link all present ggml libs so the linker can resolve them.
+    find_library(LLAMACPP_GGML_LIB     NAMES ggml     PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    find_library(LLAMACPP_GGML_BASE_LIB NAMES ggml-base PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    find_library(LLAMACPP_GGML_CPU_LIB  NAMES ggml-cpu  PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    set(_GGML_LIBS "")
+    foreach(_lib IN ITEMS LLAMACPP_GGML_LIB LLAMACPP_GGML_BASE_LIB LLAMACPP_GGML_CPU_LIB)
+        if(${_lib})
+            list(APPEND _GGML_LIBS "${${_lib}}")
+        endif()
+    endforeach()
+    if(NOT _GGML_LIBS)
+        message(FATAL_ERROR "No ggml libraries found in ${LLAMACPP_DIR}/lib")
+    endif()
+    target_link_libraries(${PROJECT_NAME} PRIVATE llama ${_GGML_LIBS})
+    # rpath-link lets the linker resolve SONAME transitive deps (libggml.so.0, libggml-base.so.0)
+    # that libllama.so pulls in; rpath embeds the search path in the final binary.
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "-Wl,-rpath-link,${LLAMACPP_DIR}/lib"
+        "-Wl,-rpath,${LLAMACPP_DIR}/lib")
 elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/executorch/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE
