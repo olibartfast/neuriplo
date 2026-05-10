@@ -1,31 +1,50 @@
 #!/usr/bin/env bash
-# Pre-push checks: clang-format, auto-generated docs, and act CI emulator.
+# Pre-push checks: clang-format, auto-generated docs, and cppcheck via act.
 # Skip act with: SKIP_ACT=1 git push ...
+#
+# Why not run the full ci.yml via act?
+#   - format-check: clang-format not installed in the act container — run locally instead.
+#   - backend-docs-check: runs a local Python script — run locally instead.
+#   - clang-tidy, build-*, sanitizers: need heavy deps/GitHub auth (ccache-action) in Docker.
+#     These are validated by real GitHub CI after push.
+#   - cppcheck: works fine via act — run it here.
 
 set -euo pipefail
 
-echo "Running clang-format check..."
-find src include backends -name '*.cpp' -o -name '*.hpp' \
-  | xargs clang-format --dry-run --Werror 2>&1
-echo "clang-format check passed."
+# --- 1. Format check (local, mirrors format-check CI job) ---
+CFMT=$(command -v clang-format 2>/dev/null || echo "")
+if [[ -n "$CFMT" ]]; then
+    echo "Running clang-format check..."
+    if ! find src include backends -name '*.cpp' -o -name '*.hpp' \
+         | xargs clang-format --dry-run --Werror 2>&1; then
+        echo "clang-format violations found. Run:" >&2
+        echo "  find src include backends -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i" >&2
+        exit 1
+    fi
+    echo "clang-format check passed."
+else
+    echo "[pre-push] clang-format not found -- skipping format check" >&2
+fi
 
+# --- 2. Auto-generated docs check (local, mirrors backend-docs-check CI job) ---
 echo "Checking auto-generated docs are in sync..."
 python3 scripts/gen_backend_docs.py --check
 echo "Auto-generated docs are in sync."
 
-if [[ "${SKIP_ACT:-0}" == "1" ]]; then exit 0; fi
+[[ "${SKIP_ACT:-0}" == "1" ]] && exit 0
 
+# --- 3. cppcheck via act ---
 ACT=$(command -v act 2>/dev/null || echo "")
 if [[ -z "$ACT" ]]; then
-    echo "[pre-push] act not found in PATH — skipping act CI check" >&2
+    echo "[pre-push] act not found in PATH -- skipping cppcheck" >&2
     exit 0
 fi
 
 if ! docker info >/dev/null 2>&1; then
-    echo "[pre-push] Docker not running — skipping act CI check" >&2
+    echo "[pre-push] Docker not running -- skipping cppcheck" >&2
     exit 0
 fi
 
-echo "[pre-push] Running act CI (full pipeline) ..."
-act push --no-cache-server -q
-echo "[pre-push] act CI passed"
+echo "[pre-push] Running act CI (cppcheck job only) ..."
+act push -j cppcheck --no-cache-server -q
+echo "[pre-push] act cppcheck passed"
