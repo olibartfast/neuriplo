@@ -30,7 +30,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pinned `GGML_VERSION=v0.11.0`, `LLAMACPP_VERSION=b9049`, `CACTUS_VERSION=v1.14`
 - libmtmd linking in LLAMACPP cmake and Dockerfile validation
 - CI disk-space failures in LibTensorFlow and LibTorch Docker builds
-- OpenVINO AddressSanitizer `libtbbbind` deep-bind conflict (carried from 0.2.x)
 
 ## [0.2.0] - 2026-03-31
 
