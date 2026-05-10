@@ -2,8 +2,8 @@
 #include "InferenceInterface.hpp"
 
 #include <llama.h>
-#include <mtmd.h>
 #include <mtmd-helper.h>
+#include <mtmd.h>
 
 class LlamaCppInfer : public InferenceInterface {
   private:
