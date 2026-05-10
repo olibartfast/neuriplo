@@ -119,3 +119,50 @@ before passing to llama.cpp, or use a simpler model with a template the C engine
 Complex instruct models (Gemma-4, etc.) have large Jinja2 templates that won't work with
 the C-level `llama_chat_apply_template`. The silent fallback to raw prompt is correct:
 it won't crash, but the model may not respond without proper formatting.
+
+---
+
+## Gemma4 multimodal inference returns empty response
+
+**Symptom:** `infer_multimodal()` runs without error (image encodes in ~14s, decodes in ~18s)
+but the response string is empty or `"(no response)"`. Text-only inference on the same model
+works correctly.
+
+**Root cause:** `llama_chat_apply_template` applies Gemma3's turn tokens (`<start_of_turn>`,
+`<end_of_turn>`) rather than Gemma4's native token strings (`<|turn>` id=105, `<turn|>` id=106).
+The malformed conversation structure causes the model to emit the EOG token immediately,
+producing zero generated tokens. Since token 106 (`<turn|>`) is also Gemma4's EOG token,
+the autoregressive loop exits at the very first sample.
+
+**Fix:** Bypass `llama_chat_apply_template` entirely for the multimodal path. Construct the
+formatted prompt using Gemma4's native special-token strings, which `llama_tokenize` with
+`parse_special=true` correctly maps to their token IDs:
+
+```cpp
+const std::string marker = mtmd_default_marker();  // e.g. "<__media__>"
+const std::string formatted_prompt =
+    "<bos><|turn>user\n" + marker + "\n" + raw_prompt + "<turn|>\n<|turn>model\n";
+
+mtmd_input_text input_text{
+    formatted_prompt.c_str(),
+    /*add_special=*/true,
+    /*parse_special=*/true   // ← required: maps <bos>, <|turn>, <turn|> to IDs 2, 105, 106
+};
+```
+
+Token mapping for Gemma4:
+- `<bos>` → 2
+- `<|turn>` → 105
+- `<turn|>` → 106 (also the EOG token — model stops here naturally)
+
+**Also check `n_ctx`:** Gemma4 produces ~266 image tokens. With prompt and generation
+budget, `n_ctx=2048` is too small and causes silent truncation. Use at least 8192:
+
+```cpp
+ctx_params.n_ctx = 8192;
+```
+
+**Key insight:** **Each model family uses its own turn/BOS token vocabulary.** When adding
+a new VLM, inspect `llama_vocab_is_eog()` results and the model's vocabulary to confirm
+which token strings map to the correct IDs. Never assume `llama_chat_apply_template`
+handles multimodal turn structure correctly for complex instruct models.
