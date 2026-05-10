@@ -64,7 +64,9 @@ RUN . /tmp/versions.env && \
     rm -rf /tmp/llamacpp-src
 
 RUN test -f ${LLAMACPP_DIR}/include/llama.h && \
+    test -f ${LLAMACPP_DIR}/include/mtmd.h && \
     test -f ${LLAMACPP_DIR}/lib/libllama.so && \
+    test -f ${LLAMACPP_DIR}/lib/libmtmd.so && \
     { test -f ${LLAMACPP_DIR}/lib/libggml.so || test -f ${LLAMACPP_DIR}/lib/libggml-base.so; }
 
 ENV LLAMACPP_DIR=${LLAMACPP_DIR}
