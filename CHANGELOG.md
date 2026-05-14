@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Configurable ONNX Runtime execution providers via `NEURIPLO_ORT_EP`, with CMake
+  build gates for TensorRT, OpenVINO, MIGraphX, QNN, XNNPACK, CANN, and Vitis AI EPs
 - ExecuTorch v1.2.0 backend for PyTorch edge inference
 - llama.cpp multimodal VLM support via libmtmd
 - MIGraphX AMD ROCm graph inference backend
