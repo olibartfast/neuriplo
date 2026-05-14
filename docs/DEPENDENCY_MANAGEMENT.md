@@ -290,6 +290,10 @@ docker build --rm -t neuriplo:executorch -f docker/Dockerfile.executorch .
 > `ExecuTorchTargets.cmake` references build-tree paths that must remain
 > accessible when neuriplo is configured.
 
+The setup script and Docker image build ExecuTorch with the XNNPACK delegate
+(`-DEXECUTORCH_BUILD_XNNPACK=ON`). Configure neuriplo with `-DEXECUTORCH_DELEGATE`
+(`xnnpack` default, or `portable`) — see [EXECUTORCH_DELEGATES.md](EXECUTORCH_DELEGATES.md).
+
 **Cactus** (ARM64 only):
 
 ```bash

@@ -95,4 +95,12 @@ elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
         portable_ops_lib
         portable_kernels
     )
+    if(EXECUTORCH_DELEGATE STREQUAL "xnnpack")
+        # ExecuTorch delegate backends self-register through static initializers
+        # whose objects have no externally referenced symbols; without
+        # --whole-archive the linker drops the registration and any .pte exported
+        # with the XNNPACK partitioner fails to load at runtime.
+        target_link_libraries(${PROJECT_NAME} PRIVATE
+            -Wl,--whole-archive xnnpack_backend -Wl,--no-whole-archive)
+    endif()
 endif()
