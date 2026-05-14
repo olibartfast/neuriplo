@@ -4,6 +4,8 @@
 #include <glog/logging.h>
 #include <onnxruntime_c_api.h>   // for CUDA execution provider (if using CUDA)
 #include <onnxruntime_cxx_api.h> // for ONNX Runtime C++ API
+#include <string>
+#include <vector>
 
 class ORTInfer : public InferenceInterface {
   public:
@@ -11,6 +13,9 @@ class ORTInfer : public InferenceInterface {
     ORTInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
              const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
     size_t getSizeByDim(const std::vector<int64_t>& dims);
+    static std::vector<std::string> parseExecutionProviderList(const std::string& provider_list);
+    static std::string providerAliasToOrtName(const std::string& provider_alias);
+    static bool isProviderBuildEnabled(const std::string& provider_alias);
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 

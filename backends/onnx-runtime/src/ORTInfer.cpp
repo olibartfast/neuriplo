@@ -1,15 +1,221 @@
 #include "ORTInfer.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <numeric>
+#include <sstream>
+#include <stdexcept>
+#include <unordered_map>
+
+namespace {
+
+std::string trim_copy(const std::string& value) {
+    const auto first =
+        std::find_if_not(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c) != 0; });
+    const auto last =
+        std::find_if_not(value.rbegin(), value.rend(), [](unsigned char c) { return std::isspace(c) != 0; }).base();
+    if (first >= last) {
+        return "";
+    }
+    return std::string(first, last);
+}
+
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+std::string canonical_provider_alias(const std::string& provider_alias) {
+    const auto alias = lower_copy(trim_copy(provider_alias));
+    if (alias == "default" || alias == "default_cpu") {
+        return "cpu";
+    }
+    if (alias == "nvidia_cuda") {
+        return "cuda";
+    }
+    if (alias == "trt") {
+        return "tensorrt";
+    }
+    if (alias == "intel_openvino") {
+        return "openvino";
+    }
+    if (alias == "dml") {
+        return "directml";
+    }
+    if (alias == "amd_migraphx") {
+        return "migraphx";
+    }
+    if (alias == "qualcomm_qnn") {
+        return "qnn";
+    }
+    if (alias == "arm_compute") {
+        return "acl";
+    }
+    if (alias == "arm_nn") {
+        return "armnn";
+    }
+    if (alias == "rockchip") {
+        return "rknpu";
+    }
+    if (alias == "vitis_ai" || alias == "xilinx_vitis_ai") {
+        return "vitisai";
+    }
+    if (alias == "huawei_cann") {
+        return "cann";
+    }
+    return alias;
+}
+
+bool provider_available(const std::vector<std::string>& providers, const std::string& ort_name) {
+    return std::find(providers.begin(), providers.end(), ort_name) != providers.end();
+}
+
+std::string available_provider_list(const std::vector<std::string>& providers) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < providers.size(); ++i) {
+        if (i > 0) {
+            oss << ", ";
+        }
+        oss << providers[i];
+    }
+    return oss.str();
+}
+
+std::unordered_map<std::string, std::string> qnn_provider_options() {
+    std::unordered_map<std::string, std::string> options;
+    const char* backend_path = std::getenv("NEURIPLO_ORT_QNN_BACKEND_PATH");
+    options.emplace("backend_path",
+                    backend_path != nullptr && std::string(backend_path).size() > 0 ? backend_path : "libQnnHtp.so");
+    return options;
+}
+
+void append_provider(Ort::SessionOptions& session_options, const std::string& provider_alias) {
+    if (provider_alias == "cuda") {
+        OrtCUDAProviderOptions cuda_options;
+        session_options.AppendExecutionProvider_CUDA(cuda_options);
+        return;
+    }
+
+#ifdef ORT_ENABLE_TENSORRT_EP
+    if (provider_alias == "tensorrt") {
+        OrtTensorRTProviderOptions tensorrt_options;
+        session_options.AppendExecutionProvider_TensorRT(tensorrt_options);
+        return;
+    }
+#endif
+
+#ifdef ORT_ENABLE_OPENVINO_EP
+    if (provider_alias == "openvino") {
+        OrtOpenVINOProviderOptions openvino_options;
+        session_options.AppendExecutionProvider_OpenVINO(openvino_options);
+        return;
+    }
+#endif
+
+#ifdef ORT_ENABLE_MIGRAPHX_EP
+    if (provider_alias == "migraphx") {
+        OrtMIGraphXProviderOptions migraphx_options;
+        session_options.AppendExecutionProvider_MIGraphX(migraphx_options);
+        return;
+    }
+#endif
+
+#ifdef ORT_ENABLE_QNN_EP
+    if (provider_alias == "qnn") {
+        session_options.AppendExecutionProvider("QNN", qnn_provider_options());
+        return;
+    }
+#endif
+
+#ifdef ORT_ENABLE_XNNPACK_EP
+    if (provider_alias == "xnnpack") {
+        session_options.AppendExecutionProvider("XNNPACK");
+        return;
+    }
+#endif
+
+#ifdef ORT_ENABLE_CANN_EP
+    if (provider_alias == "cann") {
+        // OrtCANNProviderOptions is an opaque type owned by ORT; it has no public
+        // struct layout, so it must be created and released through the C API.
+        const OrtApi& ort_api = Ort::GetApi();
+        OrtCANNProviderOptions* cann_options = nullptr;
+        Ort::ThrowOnError(ort_api.CreateCANNProviderOptions(&cann_options));
+        try {
+            session_options.AppendExecutionProvider_CANN(*cann_options);
+        } catch (...) {
+            ort_api.ReleaseCANNProviderOptions(cann_options);
+            throw;
+        }
+        ort_api.ReleaseCANNProviderOptions(cann_options);
+        return;
+    }
+#endif
+
+#ifdef ORT_ENABLE_VITISAI_EP
+    if (provider_alias == "vitisai") {
+        session_options.AppendExecutionProvider_VitisAI();
+        return;
+    }
+#endif
+
+    throw std::runtime_error("ONNX Runtime provider is not build-enabled in neuriplo: " + provider_alias);
+}
+
+void configure_explicit_providers(Ort::SessionOptions& session_options, const std::vector<std::string>& requested) {
+    const auto available = Ort::GetAvailableProviders();
+    LOG(INFO) << "Available ONNX Runtime providers:";
+    for (const auto& provider : available) {
+        LOG(INFO) << provider;
+    }
+
+    const bool allows_cpu = std::find(requested.begin(), requested.end(), "cpu") != requested.end();
+    if (!allows_cpu) {
+        session_options.AddConfigEntry("session.disable_cpu_ep_fallback", "1");
+        LOG(INFO) << "ONNX Runtime CPU EP fallback disabled; add 'cpu' to NEURIPLO_ORT_EP to allow fallback";
+    }
+
+    for (const auto& provider_alias : requested) {
+        const auto ort_name = ORTInfer::providerAliasToOrtName(provider_alias);
+        if (ort_name.empty()) {
+            throw std::runtime_error("Unsupported ONNX Runtime provider alias: " + provider_alias);
+        }
+
+        if (provider_alias == "cpu") {
+            LOG(INFO) << "Using ONNX Runtime CPUExecutionProvider";
+            continue;
+        }
+
+        if (!ORTInfer::isProviderBuildEnabled(provider_alias)) {
+            throw std::runtime_error("ONNX Runtime provider '" + provider_alias +
+                                     "' is not enabled in this neuriplo build");
+        }
+
+        if (!provider_available(available, ort_name)) {
+            throw std::runtime_error(
+                "Requested ONNX Runtime provider '" + ort_name +
+                "' is not available in this ORT build. Available providers: " + available_provider_list(available));
+        }
+
+        LOG(INFO) << "Using ONNX Runtime provider: " << ort_name;
+        append_provider(session_options, provider_alias);
+    }
+}
+
+} // namespace
 
 ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                    const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
     env_ = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "Onnx Runtime Inference");
     Ort::SessionOptions session_options;
+    const char* ep_env = std::getenv("NEURIPLO_ORT_EP");
 
-    if (use_gpu) {
+    if (ep_env != nullptr && std::string(ep_env).size() > 0) {
+        configure_explicit_providers(session_options, parseExecutionProviderList(ep_env));
+    } else if (use_gpu) {
         std::vector<std::string> providers = Ort::GetAvailableProviders();
         LOG(INFO) << "Available providers:";
         for (const auto& p : providers) {
@@ -31,7 +237,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         if (!is_found) {
             for (const auto& p : providers) {
                 if (p.find("ROCM") != std::string::npos) {
-                    LOG(INFO) << "Using ROCm GPU";
+                    LOG(WARNING) << "Using deprecated ONNX Runtime ROCm provider for legacy compatibility";
                     OrtROCMProviderOptions rocm_options;
                     session_options.AppendExecutionProvider_ROCM(rocm_options);
                     is_found = true;
@@ -152,6 +358,127 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
         inference_metadata_.addOutput(name, shapes, batch_size);
     }
+}
+
+std::vector<std::string> ORTInfer::parseExecutionProviderList(const std::string& provider_list) {
+    std::vector<std::string> providers;
+    std::stringstream stream(provider_list);
+    std::string item;
+
+    while (std::getline(stream, item, ',')) {
+        const auto provider = canonical_provider_alias(item);
+        if (!provider.empty()) {
+            providers.push_back(provider);
+        }
+    }
+
+    if (providers.empty()) {
+        throw std::runtime_error("NEURIPLO_ORT_EP did not contain any provider names");
+    }
+
+    return providers;
+}
+
+std::string ORTInfer::providerAliasToOrtName(const std::string& provider_alias) {
+    const auto alias = canonical_provider_alias(provider_alias);
+    if (alias == "cpu") {
+        return "CPUExecutionProvider";
+    }
+    if (alias == "cuda") {
+        return "CUDAExecutionProvider";
+    }
+    if (alias == "tensorrt") {
+        return "TensorrtExecutionProvider";
+    }
+    if (alias == "openvino") {
+        return "OpenVINOExecutionProvider";
+    }
+    if (alias == "directml") {
+        return "DmlExecutionProvider";
+    }
+    if (alias == "migraphx") {
+        return "MIGraphXExecutionProvider";
+    }
+    if (alias == "qnn") {
+        return "QNNExecutionProvider";
+    }
+    if (alias == "nnapi") {
+        return "NnapiExecutionProvider";
+    }
+    if (alias == "coreml") {
+        return "CoreMLExecutionProvider";
+    }
+    if (alias == "xnnpack") {
+        return "XnnpackExecutionProvider";
+    }
+    if (alias == "acl") {
+        return "ACLExecutionProvider";
+    }
+    if (alias == "armnn") {
+        return "ArmNNExecutionProvider";
+    }
+    if (alias == "rknpu") {
+        return "RknpuExecutionProvider";
+    }
+    if (alias == "vitisai") {
+        return "VitisAIExecutionProvider";
+    }
+    if (alias == "cann") {
+        return "CANNExecutionProvider";
+    }
+    if (alias == "azure") {
+        return "AzureExecutionProvider";
+    }
+    if (alias == "tvm") {
+        return "TvmExecutionProvider";
+    }
+    return "";
+}
+
+bool ORTInfer::isProviderBuildEnabled(const std::string& provider_alias) {
+    const auto alias = canonical_provider_alias(provider_alias);
+    if (alias == "cpu") {
+        return true;
+    }
+    if (alias == "cuda") {
+        return true;
+    }
+#ifdef ORT_ENABLE_TENSORRT_EP
+    if (alias == "tensorrt") {
+        return true;
+    }
+#endif
+#ifdef ORT_ENABLE_OPENVINO_EP
+    if (alias == "openvino") {
+        return true;
+    }
+#endif
+#ifdef ORT_ENABLE_MIGRAPHX_EP
+    if (alias == "migraphx") {
+        return true;
+    }
+#endif
+#ifdef ORT_ENABLE_QNN_EP
+    if (alias == "qnn") {
+        return true;
+    }
+#endif
+#ifdef ORT_ENABLE_XNNPACK_EP
+    if (alias == "xnnpack") {
+        return true;
+    }
+#endif
+#ifdef ORT_ENABLE_CANN_EP
+    if (alias == "cann") {
+        return true;
+    }
+#endif
+#ifdef ORT_ENABLE_VITISAI_EP
+    if (alias == "vitisai") {
+        return true;
+    }
+#endif
+    return false;
 }
 
 std::string ORTInfer::getDataTypeString(ONNXTensorElementDataType type) {
