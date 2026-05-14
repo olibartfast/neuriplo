@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- ExecuTorch delegate selection for `xnnpack` and `portable`, including matching
+  `.pte` export flow and delegate documentation
 - ExecuTorch v1.2.0 backend for PyTorch edge inference
 - llama.cpp multimodal VLM support via libmtmd
 - MIGraphX AMD ROCm graph inference backend
