@@ -42,9 +42,18 @@ size_t num_elements(const std::vector<int64_t>& dims) {
 ExecuTorchInfer::ExecuTorchInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                                  const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes}, module_(model_path) {
+    LOG(INFO) << "ExecuTorch backend configured with delegate: " << NEURIPLO_EXECUTORCH_DELEGATE;
+
+    // The delegate is selected when the .pte is exported and is consumed by
+    // whichever backend library neuriplo was linked against. XNNPACK is an
+    // optimized CPU delegate, so no configuration reports a GPU device here;
+    // hardware-accelerated delegates (QNN, Vulkan, ...) are not built into this
+    // neuriplo configuration.
+    gpu_available_ = false;
     if (use_gpu) {
-        LOG(WARNING) << "ExecuTorch backend in neuriplo does not select hardware delegates yet; using default runtime";
-        gpu_available_ = false;
+        LOG(WARNING) << "ExecuTorch backend: hardware-accelerated delegates are not built into this "
+                        "neuriplo configuration; using the linked '"
+                     << NEURIPLO_EXECUTORCH_DELEGATE << "' delegate";
     }
 
     const auto method_meta = module_.method_meta("forward");

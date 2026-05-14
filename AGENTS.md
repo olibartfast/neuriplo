@@ -4,6 +4,7 @@
 - Use `REPO_META.yaml` as the local source of truth for build/test entrypoints, owned paths, and allowed automated change classes.
 - `develop` is the integration branch for normal work.
 - `master` is release-only.
+- All new feature work — every new branch AND every new git worktree — MUST be created from `develop`, never from `master`. `master` lags behind `develop` and only receives release PRs; branching a feature off `master` produces a tree missing the latest backends and integration work. When a worktree tool defaults to the repo's main branch (`master`), reset it onto `develop` before starting work.
 - Prioritize correctness, backend compatibility, dependency safety, device placement assumptions, fallback behavior, and performance regressions.
 - Best practice: commit intentional, scoped changes before branch handoff.
 - Best practice: push the working branch before starting branch-closure or integration steps.

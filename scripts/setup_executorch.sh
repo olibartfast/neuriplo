@@ -24,7 +24,9 @@ fi
 SRC_DIR="/tmp/executorch"
 
 # ── Already installed? ────────────────────────────────────────────────────────
-if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ]; then
+# Require the XNNPACK backend lib too: a core-only install from an older run
+# would fail to link the EXECUTORCH backend, so treat it as not installed.
+if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ]; then
     echo "✓ ExecuTorch ${EXECUTORCH_VERSION} already installed at ${INSTALL_DIR}"
     exit 0
 fi
@@ -83,6 +85,7 @@ cmake -S . -B cmake-out \
     -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
     -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
     -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
+    -DEXECUTORCH_BUILD_XNNPACK=ON \
     -DEXECUTORCH_ENABLE_LOGGING=ON \
     -DEXECUTORCH_BUILD_TESTS=OFF \
     -DEXECUTORCH_BUILD_EXAMPLES=OFF \

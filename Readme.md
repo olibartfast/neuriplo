@@ -71,6 +71,8 @@ Supported `<BACKEND_NAME>` values:
 
 Backend-specific setup notes, model format constraints, Docker workflows, and
 GGUF backend details live in [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
+ExecuTorch delegate selection is covered in
+[docs/EXECUTORCH_DELEGATES.md](docs/EXECUTORCH_DELEGATES.md).
 
 
 ### Manual Build Instructions
