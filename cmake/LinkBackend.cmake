@@ -49,4 +49,50 @@ elseif(DEFAULT_BACKEND STREQUAL "TVM")
     target_compile_options(${PROJECT_NAME} PRIVATE 
         $<$<COMPILE_LANGUAGE:CXX>:-Wno-macro-redefined>
         $<$<COMPILE_LANGUAGE:CXX>:-w>)
+elseif(DEFAULT_BACKEND STREQUAL "CACTUS")
+    target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${CACTUS_DIR}/include)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/cactus/src)
+    target_link_directories(${PROJECT_NAME} PRIVATE ${CACTUS_DIR}/lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${CACTUS_DIR}/lib/libcactus.so)
+elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${INFER_ROOT}/migraphx/src)
+    target_link_libraries(${PROJECT_NAME} PRIVATE migraphx::c)
+elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+    target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LLAMACPP_DIR}/include)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/llamacpp/src)
+    target_link_directories(${PROJECT_NAME} PRIVATE ${LLAMACPP_DIR}/lib)
+    # libllama.so has transitive SONAME deps on libggml.so and libggml-base.so;
+    # link all present ggml libs so the linker can resolve them.
+    find_library(LLAMACPP_GGML_LIB     NAMES ggml     PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    find_library(LLAMACPP_GGML_BASE_LIB NAMES ggml-base PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    find_library(LLAMACPP_GGML_CPU_LIB  NAMES ggml-cpu  PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    find_library(LLAMACPP_MTMD_LIB      NAMES mtmd      PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH)
+    set(_GGML_LIBS "")
+    foreach(_lib IN ITEMS LLAMACPP_GGML_LIB LLAMACPP_GGML_BASE_LIB LLAMACPP_GGML_CPU_LIB)
+        if(${_lib})
+            list(APPEND _GGML_LIBS "${${_lib}}")
+        endif()
+    endforeach()
+    if(NOT _GGML_LIBS)
+        message(FATAL_ERROR "No ggml libraries found in ${LLAMACPP_DIR}/lib")
+    endif()
+    if(NOT LLAMACPP_MTMD_LIB)
+        message(FATAL_ERROR "libmtmd not found in ${LLAMACPP_DIR}/lib — rebuild llama.cpp with BUILD_SHARED_LIBS=ON")
+    endif()
+    target_link_libraries(${PROJECT_NAME} PRIVATE llama mtmd ${_GGML_LIBS})
+    # rpath-link lets the linker resolve SONAME transitive deps (libggml.so.0, libggml-base.so.0)
+    # that libllama.so pulls in; rpath embeds the search path in the final binary.
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "-Wl,-rpath-link,${LLAMACPP_DIR}/lib"
+        "-Wl,-rpath,${LLAMACPP_DIR}/lib")
+elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+    target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/executorch/src)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        executorch
+        extension_module_static
+        extension_tensor
+        portable_ops_lib
+        portable_kernels
+    )
 endif()

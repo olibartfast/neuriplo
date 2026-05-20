@@ -5,8 +5,8 @@
 
 ## Overview
 
-* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks. 
-* It supports multiple frameworks and libraries such as OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM and GGML.
+* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks.
+* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, and ExecuTorch.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Vision Inference Project](https://github.com/olibartfast/vision-inference)
 
@@ -24,6 +24,10 @@
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 * GGML - Efficient tensor library for machine learning
 * TVM - Open deep learning compiler stack
+* MIGraphX - AMD ROCm graph inference engine
+* Cactus - GGUF-native text generation backend
+* llama.cpp - GGUF-native LLM and multimodal backend
+* ExecuTorch - PyTorch edge inference runtime
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -47,6 +51,10 @@ Supported `<BACKEND_NAME>` values:
 * `OPENVINO`
 * `GGML`
 * `TVM`
+* `MIGRAPHX`
+* `CACTUS`
+* `LLAMACPP`
+* `EXECUTORCH`
 
 #### Test All Backends
 ```bash
@@ -58,6 +66,13 @@ Supported `<BACKEND_NAME>` values:
 ```bash
 ./scripts/test_backends.sh --backend <BACKEND_NAME>
 ```
+
+### Backend-Specific Workflows
+
+Backend-specific setup notes, model format constraints, Docker workflows, and
+GGUF backend details live in [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
+ExecuTorch delegate selection is covered in
+[docs/EXECUTORCH_DELEGATES.md](docs/EXECUTORCH_DELEGATES.md).
 
 
 ### Manual Build Instructions
@@ -140,36 +155,21 @@ Neuriplo uses a centralized configuration system that makes it easy to add new b
 
 ### Adding a New Backend
 
-To add a new backend (e.g., NCNN), you need to edit **three files**:
+See [Adding an Inference Backend](docs/ADDING_BACKEND.md) for the complete
+workflow.
 
-1. **Add to `versions.env`**:
-   ```bash
-   NCNN_VERSION=1.0.34
-   ```
+At a high level, a new backend needs:
 
-2. **Add to `cmake/versions.cmake`**:
-   ```cmake
-   # Add cache variable after read_versions_from_env()
-   set(NCNN_VERSION "${NCNN_VERSION}" CACHE STRING "NCNN version")
-   
-   # Add to BACKEND_VERSION_MAPPING
-   set(BACKEND_VERSION_MAPPING
-       ...
-       "NCNN:NCNN_VERSION"
-   )
-   ```
+1. A `backends/<backend>/src` implementation deriving from `InferenceInterface`.
+2. Backend tests under `backends/<backend>/test`.
+3. A backend CMake module such as `cmake/NCNN.cmake`.
+4. CMake registration in `cmake/BackendRegistry.cmake`.
+5. Link and dependency-validation rules for the backend's library layout.
+6. Factory registration in `include/InferenceBackendSetup.hpp` and `src/InferenceBackendSetup.cpp`.
+7. Script and docs updates when setup, testing, model format, or runtime behavior changes.
 
-3. **Add to relevant scripts** (e.g., `scripts/test_backends.sh`):
-   ```bash
-   # Add to BACKENDS array
-   BACKENDS=(...  "NCNN")
-   
-   # Add to mapping arrays
-   BACKEND_DIRS=(... ["NCNN"]="ncnn")
-   BACKEND_TEST_EXES=(... ["NCNN"]="NCNNInferTest")
-   ```
-
-That's it! The validation system will automatically verify consistency, and all scripts will recognize the new backend.
+The CMake registry centralizes supported backend IDs, selected-backend module
+lookup, test directory lookup, and backend version-variable mapping.
 
 ### Validation
 
@@ -185,4 +185,4 @@ cmake ..
 For detailed documentation, see the [docs/](docs/) directory:
 
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
-- **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
+- **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist

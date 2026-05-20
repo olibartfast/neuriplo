@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, 'feature/**']
   pull_request:
-    branches: [develop]
+    branches: [develop, 'feature/**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,40 +13,229 @@ concurrency:
 jobs:
 
   # =============================================================
-  # Base image — warms the GHA Docker layer cache so all CPU
-  # backend matrix jobs can reuse the common system packages.
+  # Whole-tree checks (no backend SDK needed)
   # =============================================================
-  build-base:
-    name: Build base image
+
+  format-check:
+    name: Format Check
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Check formatting
+        run: |
+          find src include backends -name '*.cpp' -o -name '*.hpp' | \
+            xargs clang-format-18 --dry-run --Werror
 
-      - name: Build and cache base image
-        uses: docker/build-push-action@v5
+  backend-docs-check:
+    name: Backend Docs Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check generated sections are up to date
+        run: |
+          pip install pyyaml --quiet
+          python3 scripts/gen_backend_docs.py --check
+
+  cppcheck:
+    name: Cppcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=warning --std=c++17 --error-exitcode=1 \
+            --suppress=missingIncludeSystem \
+            --suppress=unmatchedSuppression \
+            -I include -I backends/src \
+            src/ backends/
+
+  # =============================================================
+  # Per-backend lint checks (run inside the backend Docker image)
+  # =============================================================
+
+  clang-tidy:
+    name: "Clang-Tidy / ${{ matrix.backend }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
+          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime }
+          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch }
+          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow }
+          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
+          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
+          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
+          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
+          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
         with:
-          context: .
-          file: docker/Dockerfile.base
-          push: false
-          load: false
-          cache-from: type=gha,scope=neuriplo-base
-          cache-to: type=gha,scope=neuriplo-base,mode=max
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file ${{ matrix.dockerfile }} \
+              --target builder \
+              --tag neuriplo-lint:${{ matrix.backend }} \
+              --load \
+              --cache-from type=gha,scope=docker-${{ matrix.backend }} \
+              ${{ github.event_name == 'push' && format('--cache-to type=gha,mode=max,scope=docker-{0}', matrix.backend) || '' }} \
+              .
+
+      - name: Run clang-tidy
+        run: |
+          docker run --rm neuriplo-lint:${{ matrix.backend }} bash -c '
+            apt-get update && apt-get install -y clang-tidy-18 >/dev/null 2>&1
+            cmake -B/app/build -S/app \
+              -DDEFAULT_BACKEND=${{ matrix.backend }} \
+              ${{ matrix.cmake_args || '' }} \
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null 2>&1
+            python3 -c "
+          import json, subprocess, sys
+          db = json.load(open(\"/app/build/compile_commands.json\"))
+          files = [e[\"file\"] for e in db]
+          rc = subprocess.run([\"clang-tidy-18\", \"-p\", \"/app/build\"] + files).returncode
+          sys.exit(rc)
+            "
+          '
+
+  build-warnings:
+    name: "Werror / ${{ matrix.backend }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
+          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime }
+          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch }
+          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow }
+          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
+          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
+          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
+          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
+          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file ${{ matrix.dockerfile }} \
+              --target builder \
+              --tag neuriplo-lint:${{ matrix.backend }} \
+              --load \
+              --cache-from type=gha,scope=docker-${{ matrix.backend }} \
+              ${{ github.event_name == 'push' && format('--cache-to type=gha,mode=max,scope=docker-{0}', matrix.backend) || '' }} \
+              .
+
+      - name: Rebuild with -Werror
+        run: |
+          docker run --rm neuriplo-lint:${{ matrix.backend }} bash -c '
+            cmake -B/app/build -S/app \
+              -DDEFAULT_BACKEND=${{ matrix.backend }} \
+              ${{ matrix.cmake_args || '' }} \
+              -DWERROR=ON >/dev/null 2>&1
+            cmake --build /app/build --clean-first --parallel
+          '
+
+  sanitizers:
+    name: "Sanitizers / ${{ matrix.backend }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn,      test_exe: OCVDNNInferTest }
+          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime,   test_exe: ONNXRuntimeInferTest }
+          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch,        test_exe: LibtorchInferTest }
+          # LIBTENSORFLOW excluded: absl headers fail to compile in Debug+sanitizer mode
+          # OPENVINO excluded: TBB loads libtbbbind with RTLD_DEEPBIND, incompatible with ASan
+          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml,            test_exe: GGMLInferTest }
+          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm,             test_exe: TVMInferTest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file ${{ matrix.dockerfile }} \
+              --target builder \
+              --tag neuriplo-lint:${{ matrix.backend }} \
+              --load \
+              --cache-from type=gha,scope=docker-${{ matrix.backend }} \
+              ${{ github.event_name == 'push' && format('--cache-to type=gha,mode=max,scope=docker-{0}', matrix.backend) || '' }} \
+              .
+
+      - name: Rebuild with sanitizers and run tests
+        run: |
+          docker run --rm neuriplo-lint:${{ matrix.backend }} bash -c '
+            # Ensure OpenVINO runtime libs are discoverable (harmless for other backends)
+            export LD_LIBRARY_PATH=/opt/openvino/runtime/lib/intel64:${LD_LIBRARY_PATH:-}
+            cmake -B/app/build -S/app \
+              -DDEFAULT_BACKEND=${{ matrix.backend }} \
+              ${{ matrix.cmake_args || '' }} \
+              -DSANITIZERS=ON \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON >/dev/null 2>&1
+            cmake --build /app/build --clean-first --parallel
+            ctest --test-dir /app/build --output-on-failure
+          '
 
   # =============================================================
   # CPU Backend Tests
   # Runs on GitHub-hosted runners using Docker.
-  # Backends: OPENCV_DNN, GGML, OPENVINO, ONNX_RUNTIME
   # =============================================================
   build-and-test-cpu:
     name: "${{ matrix.backend }}"
-    runs-on: ubuntu-latest
-    needs: [build-base]
+    runs-on: ${{ matrix.runs_on || 'ubuntu-latest' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - backend: OPENCV_DNN
@@ -84,21 +273,42 @@ jobs:
             image: neuriplo-libtorch-cpu
             test_exe: LibtorchInferTest
 
+          - backend: CACTUS
+            dockerfile: docker/Dockerfile.cactus
+            image: neuriplo-cactus
+            test_exe: CactusInferTest
+            runs_on: ubuntu-24.04-arm
+          - backend: LLAMACPP
+            dockerfile: docker/Dockerfile.llamacpp
+            image: neuriplo-llamacpp
+            test_exe: LlamaCppInferTest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: nick-fields/retry@v3
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          tags: ${{ matrix.image }}:ci
-          load: true
-          cache-from: type=gha,scope=neuriplo-base
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file ${{ matrix.dockerfile }} \
+              --tag ${{ matrix.image }}:ci \
+              --load \
+              --cache-from type=gha,scope=docker-${{ matrix.backend }} \
+              ${{ github.event_name == 'push' && format('--cache-to type=gha,mode=max,scope=docker-{0}', matrix.backend) || '' }} \
+              .
 
       - name: Run tests
         run: |
@@ -127,52 +337,57 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: nick-fields/retry@v3
         with:
-          context: .
-          file: docker/Dockerfile.tensorrt
-          push: false
-          tags: neuriplo-tensorrt:ci
-          cache-from: type=gha,scope=neuriplo-tensorrt
-          cache-to: type=gha,scope=neuriplo-tensorrt,mode=max
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.tensorrt \
+              --tag neuriplo-tensorrt:ci \
+              --cache-from type=gha,scope=docker-TENSORRT \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-TENSORRT' || '' }} \
+              .
 
   # =============================================================
-  # GPU Backend Tests
-  # Requires a self-hosted GitHub Actions runner with an NVIDIA GPU.
-  #
-  # TODO: Set up a self-hosted GPU runner to enable these jobs.
-  #       Once the runner is registered, remove the `if: false` line below.
-  #
-  # SETUP GUIDE — Self-hosted runner with GPU support:
-  #
-  # Step 1 — Provision a Linux machine with an NVIDIA GPU.
-  #           Any Ubuntu 22.04+ machine with a CUDA-capable GPU will work.
-  #
-  # Step 2 — Install NVIDIA drivers:
-  #           sudo apt-get install -y nvidia-driver-<version>
-  #           Verify: nvidia-smi
-  #
-  # Step 3 — Install Docker:
-  #           curl -fsSL https://get.docker.com | sh
-  #           sudo usermod -aG docker $USER && newgrp docker
-  #
-  # Step 4 — Install NVIDIA Container Toolkit (enables --gpus flag in Docker):
-  #           curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  #             | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-ct-keyring.gpg
-  #           curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  #             | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-ct-keyring.gpg] https://#g' \
-  #             | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  #           sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-  #           sudo nvidia-ctk runtime configure --runtime=docker
-  #           sudo systemctl restart docker
-  #           Verify: docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
-  #
-  # Step 5 — Register the runner in this GitHub repo:
-  #           Go to: Settings > Actions > Runners > New self-hosted runner
-  #           Follow the instructions to download and configure the runner.
-  #           When asked for labels, add: self-hosted,gpu,linux
-  #
+  # ExecuTorch Build (build-only — tests use mock inference, but
+  # model export requires Python torch install done separately)
+  # =============================================================
+  build-executorch:
+    name: Build (EXECUTORCH)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 90
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.executorch \
+              --tag neuriplo-executorch:ci \
+              --cache-from type=gha,scope=docker-EXECUTORCH \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-EXECUTORCH' || '' }} \
+              .

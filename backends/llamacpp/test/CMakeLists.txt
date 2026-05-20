@@ -1,0 +1,41 @@
+set(TEST_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/LlamaCppInferTest.cpp
+)
+
+find_package(OpenCV REQUIRED)
+find_package(Glog REQUIRED)
+
+add_executable(LlamaCppInferTest ${TEST_SOURCES})
+
+target_include_directories(LlamaCppInferTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/backends/llamacpp/src
+    ${CMAKE_SOURCE_DIR}/backends/src
+    ${CMAKE_SOURCE_DIR}/include
+    ${OpenCV_INCLUDE_DIRS}
+    ${GLOG_INCLUDE_DIRS}
+    ${LLAMACPP_DIR}/include
+)
+
+target_link_directories(LlamaCppInferTest PRIVATE ${LLAMACPP_DIR}/lib)
+
+find_library(LLAMACPP_GGML_LIB NAMES ggml ggml-base
+    PATHS ${LLAMACPP_DIR}/lib NO_DEFAULT_PATH REQUIRED)
+
+target_link_libraries(LlamaCppInferTest PRIVATE
+    neuriplo
+    ${OpenCV_LIBS}
+    ${GLOG_LIBRARIES}
+    llama
+    ${LLAMACPP_GGML_LIB}
+    gtest
+    gtest_main
+    glog::glog
+)
+
+add_test(NAME LlamaCppInferTest COMMAND LlamaCppInferTest)
+
+file(COPY ${CMAKE_CURRENT_LIST_DIR}/generate_model.sh
+     DESTINATION ${CMAKE_CURRENT_BINARY_DIR}
+     FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
+configure_file(${CMAKE_CURRENT_LIST_DIR}/create_test_model.py
+               ${CMAKE_CURRENT_BINARY_DIR}/create_test_model.py COPYONLY)

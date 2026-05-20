@@ -47,8 +47,8 @@ RUN . /tmp/versions.env && \
 
 # Set OpenVINO environment variables
 ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
-ENV LD_LIBRARY_PATH=${OPENVINO_DIR}/lib:${LD_LIBRARY_PATH:-}
-ENV PYTHONPATH=${OPENVINO_DIR}/python:${PYTHONPATH:-}
+ENV LD_LIBRARY_PATH=${OPENVINO_DIR}/lib
+ENV PYTHONPATH=${OPENVINO_DIR}/python
 
 # Create a local Python virtual environment for OpenVINO tools
 RUN echo "Setting up OpenVINO Python tools..." && \
@@ -56,33 +56,8 @@ RUN echo "Setting up OpenVINO Python tools..." && \
     . "${OPENVINO_DIR}/python_env/bin/activate" && \
     pip install openvino-dev
 
-# Stage 3: Install Python dependencies for testing
-FROM openvino_install AS python_deps
-
-# Create and activate virtual environment for testing
-RUN python3 -m venv /opt/test_env
-ENV PATH=/opt/test_env/bin:$PATH
-
-# Install Python dependencies for model generation and testing
-RUN pip install --upgrade pip && \
-    pip install \
-    torch \
-    torchvision \
-    onnx \
-    onnxscript \
-    numpy \
-    opencv-python \
-    pytest \
-    pytest-cov \
-    pytest-mock \
-    pytest-benchmark \
-    pytest-xdist \
-    coverage \
-    pytest-html \
-    pytest-json-report
-
-# Stage 4: Build application
-FROM python_deps AS builder
+# Stage 3: Build application
+FROM openvino_install AS builder
 
 WORKDIR /app
 
@@ -97,8 +72,17 @@ RUN rm -rf build && \
     -DOPENVINO_DIR=${OPENVINO_DIR} \
     && cmake --build build --config Release -j$(nproc)
 
-# Stage 5: Generate test models
+# Stage 4: Generate test models
 FROM builder AS model_generator
+
+# Create virtual environment and install Python dependencies for model generation
+RUN python3 -m venv /opt/test_env
+ENV PATH=/opt/test_env/bin:$PATH
+
+RUN pip install --upgrade pip && \
+    pip install torch torchvision onnx onnxscript numpy opencv-python \
+    pytest pytest-cov pytest-mock pytest-benchmark pytest-xdist \
+    coverage pytest-html pytest-json-report
 
 # Copy model generation scripts to build directory
 RUN cp backends/openvino/test/export_torchvision_classifier.py build/backends/openvino/test/ && \
@@ -112,7 +96,7 @@ RUN . /opt/test_env/bin/activate && \
     . ${OPENVINO_DIR}/python_env/bin/activate && \
     LD_LIBRARY_PATH=${OPENVINO_DIR}/runtime/lib/intel64:${LD_LIBRARY_PATH:-} ./generate_openvino_ir.sh
 
-# Stage 6: Final runtime image for testing
+# Stage 5: Final runtime image for testing
 FROM openvino_install AS final
 
 # Create non-root user
@@ -133,7 +117,7 @@ WORKDIR /app
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${LD_LIBRARY_PATH:-}
+ENV LD_LIBRARY_PATH=/app/build/lib:${OPENVINO_DIR}/lib
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \

@@ -1,0 +1,188 @@
+# Single source of truth for backend metadata used to generate documentation.
+# Run `python3 scripts/gen_backend_docs.py` to regenerate all GEN: sections.
+#
+# Fields
+# -------
+# id            DEFAULT_BACKEND value (matches BackendRegistry.cmake)
+# name          Human-readable display name
+# version_var   Variable name in versions.env
+# setup_script  scripts/ filename, or null for system-package backends
+# setup_note    Short qualification shown in the scripts table
+# dir_var       CMake *_DIR variable, or null if not applicable
+# dir_default   Default path template shown in the CMake variables table
+# dockerfile    Path to the backend's Dockerfile
+# test_exe      GTest executable name
+# model_format  Test model file format(s)
+# model_source  How the test model is obtained (markdown, shown verbatim)
+# arch          Host architectures supported: x86_64, arm64, or both
+# gpu           true if a GPU is required at runtime
+
+backends:
+
+  - id: OPENCV_DNN
+    name: OpenCV DNN
+    version_var: OPENCV_VERSION
+    setup_script: null
+    setup_note: "system package — no script needed"
+    dir_var: null
+    dir_default: null
+    dockerfile: docker/Dockerfile.opencvdnn
+    test_exe: OCVDNNInferTest
+    model_format: "ONNX, Darknet"
+    model_source: "`scripts/setup_test_models.sh`"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: ONNX_RUNTIME
+    name: ONNX Runtime
+    version_var: ONNX_RUNTIME_VERSION
+    setup_script: setup_onnx_runtime.sh
+    setup_note: ""
+    dir_var: ONNX_RUNTIME_DIR
+    dir_default: "$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-<ver>"
+    dockerfile: docker/Dockerfile.onnx-runtime
+    test_exe: ONNXRuntimeInferTest
+    model_format: ONNX
+    model_source: "`scripts/model_downloader.py`"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: LIBTORCH
+    name: LibTorch
+    version_var: PYTORCH_VERSION
+    setup_script: setup_libtorch.sh
+    setup_note: ""
+    dir_var: LIBTORCH_DIR
+    dir_default: "$DEPENDENCY_ROOT/libtorch"
+    dockerfile: docker/Dockerfile.libtorch
+    test_exe: LibtorchInferTest
+    model_format: "TorchScript (.pt)"
+    model_source: "`backends/libtorch/test/generate_model.sh`"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: LIBTENSORFLOW
+    name: TensorFlow C++
+    version_var: TENSORFLOW_VERSION
+    setup_script: setup_libtensorflow.sh
+    setup_note: "alternative pip path via `setup_tensorflow_pip.sh`"
+    dir_var: TENSORFLOW_DIR
+    dir_default: "$DEPENDENCY_ROOT/tensorflow"
+    dockerfile: docker/Dockerfile.libtensorflow
+    test_exe: TensorFlowInferTest
+    model_format: SavedModel
+    model_source: "auto-generated at test runtime (Keras ResNet-50)"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: TENSORRT
+    name: TensorRT
+    version_var: TENSORRT_VERSION
+    setup_script: setup_tensorrt.sh
+    setup_note: "manual NVIDIA download required first"
+    dir_var: TENSORRT_DIR
+    dir_default: "$DEPENDENCY_ROOT/TensorRT-<ver>"
+    dockerfile: docker/Dockerfile.tensorrt
+    test_exe: TensorRTInferTest
+    model_format: "TensorRT engine (.engine)"
+    model_source: "converted from ONNX at test time"
+    arch: [x86_64]
+    gpu: true
+
+  - id: OPENVINO
+    name: OpenVINO
+    version_var: OPENVINO_VERSION
+    setup_script: setup_openvino.sh
+    setup_note: ""
+    dir_var: OPENVINO_DIR
+    dir_default: "$DEPENDENCY_ROOT/openvino_<ver>"
+    dockerfile: docker/Dockerfile.openvino
+    test_exe: OpenVINOInferTest
+    model_format: "IR (.xml / .bin)"
+    model_source: "`backends/openvino/test/generate_model.sh`"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: GGML
+    name: GGML
+    version_var: GGML_VERSION
+    setup_script: setup_ggml.sh
+    setup_note: ""
+    dir_var: GGML_DIR
+    dir_default: "$DEPENDENCY_ROOT/ggml"
+    dockerfile: docker/Dockerfile.ggml
+    test_exe: GGMLInferTest
+    model_format: "quantized GGML"
+    model_source: "`scripts/convert_to_ggml.sh`"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: TVM
+    name: Apache TVM
+    version_var: TVM_VERSION
+    setup_script: setup_tvm.sh
+    setup_note: "builds from source — see TVM_BUILD_GUIDE.md"
+    dir_var: TVM_DIR
+    dir_default: "$DEPENDENCY_ROOT/tvm"
+    dockerfile: docker/Dockerfile.tvm
+    test_exe: TVMInferTest
+    model_format: "compiled TVM module"
+    model_source: "`backends/tvm/test/generate_model.sh`"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: MIGRAPHX
+    name: MIGraphX
+    version_var: MIGRAPHX_VERSION
+    setup_script: setup_migraphx.sh
+    setup_note: "installs from ROCm apt repo — requires ROCm"
+    dir_var: MIGRAPHX_ROOT
+    dir_default: "/opt/rocm"
+    dockerfile: docker/Dockerfile.migrachx
+    test_exe: MIGraphXInferTest
+    model_format: "ONNX only"
+    model_source: "`backends/migraphx/test/generate_model.sh`"
+    arch: [x86_64]
+    gpu: true
+
+  - id: CACTUS
+    name: Cactus
+    version_var: CACTUS_VERSION
+    setup_script: setup_cactus.sh
+    setup_note: "**ARM64 only** — fails fast on x86_64"
+    dir_var: CACTUS_DIR
+    dir_default: "$DEPENDENCY_ROOT/cactus"
+    dockerfile: docker/Dockerfile.cactus
+    test_exe: CactusInferTest
+    model_format: GGUF
+    model_source: "downloaded by Dockerfile or mock fallback"
+    arch: [arm64]
+    gpu: false
+
+  - id: LLAMACPP
+    name: llama.cpp
+    version_var: LLAMACPP_VERSION
+    setup_script: setup_llamacpp.sh
+    setup_note: ""
+    dir_var: LLAMACPP_DIR
+    dir_default: "$DEPENDENCY_ROOT/llamacpp"
+    dockerfile: docker/Dockerfile.llamacpp
+    test_exe: LlamaCppInferTest
+    model_format: GGUF
+    model_source: "downloaded by Dockerfile or mock fallback"
+    arch: [x86_64, arm64]
+    gpu: false
+
+  - id: EXECUTORCH
+    name: ExecuTorch
+    version_var: EXECUTORCH_VERSION
+    setup_script: setup_executorch.sh
+    setup_note: "builds from source — do not delete cmake-out after install"
+    dir_var: EXECUTORCH_DIR
+    dir_default: "$HOME/dependencies/executorch"
+    dockerfile: docker/Dockerfile.executorch
+    test_exe: ExecuTorchInferTest
+    model_format: ".pte"
+    model_source: "`backends/executorch/test/export_executorch_classifier.py`"
+    arch: [x86_64, arm64]
+    gpu: false

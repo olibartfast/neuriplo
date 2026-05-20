@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -35,6 +35,9 @@ declare -A BACKEND_DIRS=(
     ["OPENVINO"]="openvino"
     ["GGML"]="ggml"
     ["TVM"]="tvm"
+    ["CACTUS"]="cactus"
+    ["MIGRAPHX"]="migraphx"
+    ["LLAMACPP"]="llamacpp"
 )
 
 # Test executable mapping
@@ -47,6 +50,9 @@ declare -A BACKEND_TEST_EXES=(
     ["OPENVINO"]="OpenVINOInferTest"
     ["GGML"]="GGMLInferTest"
     ["TVM"]="TVMInferTest"
+    ["CACTUS"]="CactusInferTest"
+    ["MIGRAPHX"]="MIGraphXInferTest"
+    ["LLAMACPP"]="LlamaCppInferTest"
 )
 
 # Helper functions
@@ -315,6 +321,45 @@ check_backend_availability() {
                 return 1
             fi
             ;;
+        "CACTUS")
+            local cactus_dir="${HOME}/dependencies/cactus"
+            local alt_cactus_dir="/usr/local/cactus"
+
+            if [ -d "$cactus_dir" ] && [ -f "$cactus_dir/include/cactus.h" ] && [ -f "$cactus_dir/lib/libcactus.so" ]; then
+                log_success "Cactus found in dependencies directory"
+                return 0
+            elif [ -d "$alt_cactus_dir" ] && [ -f "$alt_cactus_dir/include/cactus.h" ] && [ -f "$alt_cactus_dir/lib/libcactus.so" ]; then
+                log_success "Cactus found in system directory"
+                return 0
+            else
+                log_warning "Cactus not found"
+                return 1
+            fi
+            ;;
+        "LLAMACPP")
+            local llamacpp_dir="${HOME}/dependencies/llamacpp"
+            local alt_llamacpp_dir="/usr/local/llamacpp"
+
+            if [ -d "$llamacpp_dir" ] && [ -f "$llamacpp_dir/include/llama.h" ] && [ -f "$llamacpp_dir/lib/libllama.so" ]; then
+                log_success "llama.cpp found in dependencies directory"
+                return 0
+            elif [ -d "$alt_llamacpp_dir" ] && [ -f "$alt_llamacpp_dir/include/llama.h" ] && [ -f "$alt_llamacpp_dir/lib/libllama.so" ]; then
+                log_success "llama.cpp found in system directory"
+                return 0
+            else
+                log_warning "llama.cpp not found"
+                return 1
+            fi
+            ;;
+        "MIGRAPHX")
+            if [ -d "/opt/rocm" ] && [ -d "/opt/rocm/lib" ]; then
+                log_success "MIGraphX/ROCm runtime found at /opt/rocm"
+                return 0
+            else
+                log_warning "MIGraphX not found"
+                return 1
+            fi
+            ;;
         *)
             log_error "Unknown backend: $backend"
             return 1
@@ -442,6 +487,8 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DGGML_DIR="$HOME/dependencies/ggml" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "TVM" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTVM_DIR="$HOME/dependencies/tvm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "MIGRAPHX" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_PREFIX_PATH="/opt/rocm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi

@@ -36,7 +36,7 @@ RUN apt-get update && apt-get upgrade -y && \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Stage 2: Install LibTorch
+# Stage 2: Install LibTorch C++ SDK
 FROM base AS libtorch_install
 
 # Download and install LibTorch
@@ -48,46 +48,13 @@ RUN . /tmp/versions.env && \
     mv /tmp/libtorch ${LIBTORCH_DIR} && \
     rm libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip    
 
-# Create virtual environment for PyTorch
-RUN python3 -m venv /opt/pytorch_env
-ENV PATH=/opt/pytorch_env/bin:$PATH
-
-# Install PyTorch and torchvision for model generation
-RUN pip install --upgrade pip && \
-    pip install torch torchvision
-
-# Verify installation
-RUN python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
-
 # Set LibTorch environment variables
 ENV LIBTORCH_DIR=/opt/libtorch
-ENV LD_LIBRARY_PATH=${LIBTORCH_DIR}/lib:${LD_LIBRARY_PATH:-}
-ENV CMAKE_PREFIX_PATH=${LIBTORCH_DIR}:${CMAKE_PREFIX_PATH:-}
+ENV LD_LIBRARY_PATH=${LIBTORCH_DIR}/lib
+ENV CMAKE_PREFIX_PATH=${LIBTORCH_DIR}
 
-# Stage 3: Install Python dependencies for testing
-FROM libtorch_install AS python_deps
-
-# Create and activate virtual environment for testing
-RUN python3 -m venv /opt/test_env
-ENV PATH=/opt/test_env/bin:$PATH
-
-# Install Python dependencies for model generation and testing
-RUN pip install --upgrade pip && \
-    pip install \
-    onnx \
-    numpy \
-    opencv-python \
-    pytest \
-    pytest-cov \
-    pytest-mock \
-    pytest-benchmark \
-    pytest-xdist \
-    coverage \
-    pytest-html \
-    pytest-json-report
-
-# Stage 4: Build application
-FROM python_deps AS builder
+# Stage 3: Build application
+FROM libtorch_install AS builder
 
 WORKDIR /app
 
@@ -103,15 +70,26 @@ RUN rm -rf build && \
     -DLIBTORCH_DIR=${LIBTORCH_DIR} \
     && cmake --build build --config Release -j$(nproc)
 
-# Stage 5: Generate test models
+# Stage 4: Generate test models
 FROM builder AS model_generator
+
+# Create virtual environment and install PyTorch for model generation
+RUN python3 -m venv /opt/pytorch_env
+ENV PATH=/opt/pytorch_env/bin:$PATH
+
+RUN pip install --upgrade pip && \
+    pip install torch torchvision onnx numpy opencv-python \
+    pytest pytest-cov pytest-mock pytest-benchmark pytest-xdist \
+    coverage pytest-html pytest-json-report
+
+# Verify installation
+RUN python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
 
 # Generate LibTorch model using model_downloader.py
 WORKDIR /app/build/backends/libtorch/test
-RUN . /opt/pytorch_env/bin/activate && \
-    /opt/pytorch_env/bin/python /app/scripts/model_downloader.py LIBTORCH --output-dir . --keep-temp
+RUN /opt/pytorch_env/bin/python /app/scripts/model_downloader.py LIBTORCH --output-dir . --keep-temp
 
-# Stage 6: Final runtime image for testing
+# Stage 5: Final runtime image for testing
 FROM libtorch_install AS final
 
 # Create non-root user
@@ -130,7 +108,7 @@ WORKDIR /app/build/backends/libtorch/test
 USER testuser
 
 # Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${LIBTORCH_DIR}/lib:${LD_LIBRARY_PATH:-}
+ENV LD_LIBRARY_PATH=/app/build/lib:${LIBTORCH_DIR}/lib
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
