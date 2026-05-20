@@ -5,7 +5,8 @@
 # This file works with versions.env to maintain backend versions:
 #
 #   1. versions.env         → Defines version numbers (TVM_VERSION=0.18.0)  
-#   2. cmake/versions.cmake → Reads versions.env and validates consistency (this file)
+#   2. cmake/BackendRegistry.cmake → Defines supported backend metadata
+#   3. cmake/versions.cmake → Reads versions.env and validates consistency (this file)
 #
 # WORKFLOW:
 # ---------
@@ -21,8 +22,8 @@
 # 2. Add cache variable here (after read_versions_from_env()):
 #      set(NEW_BACKEND_VERSION "${NEW_BACKEND_VERSION}" CACHE STRING "New Backend version")
 #
-# 3. Add to BACKEND_VERSION_MAPPING in this file:
-#      Add "NEW_BACKEND:NEW_BACKEND_VERSION" to the mapping list
+# 3. Add VERSION_VAR to cmake/BackendRegistry.cmake:
+#      set(NEURIPLO_BACKEND_NEW_BACKEND_VERSION_VAR NEW_BACKEND_VERSION)
 #
 # ==============================================================================
 
@@ -66,6 +67,10 @@ set(OPENVINO_VERSION "${OPENVINO_VERSION}" CACHE STRING "OpenVINO version")
 set(TENSORFLOW_VERSION "${TENSORFLOW_VERSION}" CACHE STRING "TensorFlow version")
 set(GGML_VERSION "${GGML_VERSION}" CACHE STRING "GGML version")
 set(TVM_VERSION "${TVM_VERSION}" CACHE STRING "TVM version")
+set(MIGRAPHX_VERSION "${MIGRAPHX_VERSION}" CACHE STRING "MIGraphX version")
+set(CACTUS_VERSION "${CACTUS_VERSION}" CACHE STRING "Cactus version")
+set(LLAMACPP_VERSION "${LLAMACPP_VERSION}" CACHE STRING "llama.cpp version")
+set(EXECUTORCH_VERSION "${EXECUTORCH_VERSION}" CACHE STRING "ExecuTorch version")
 
 # CUDA Version (for GPU support)
 set(CUDA_VERSION "${CUDA_VERSION}" CACHE STRING "CUDA version for GPU support")
@@ -89,6 +94,9 @@ set(LIBTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/libtorch" CACHE PATH "LibTorch inst
 set(OPENVINO_DIR "${DEFAULT_DEPENDENCY_ROOT}/openvino_${OPENVINO_VERSION}" CACHE PATH "OpenVINO installation directory")
 set(GGML_DIR "${DEFAULT_DEPENDENCY_ROOT}/ggml" CACHE PATH "GGML installation directory")
 set(TVM_DIR "${DEFAULT_DEPENDENCY_ROOT}/tvm" CACHE PATH "TVM installation directory")
+set(CACTUS_DIR "${DEFAULT_DEPENDENCY_ROOT}/cactus" CACHE PATH "Cactus installation directory")
+set(LLAMACPP_DIR "${DEFAULT_DEPENDENCY_ROOT}/llamacpp" CACHE PATH "llama.cpp installation directory")
+set(EXECUTORCH_DIR "${DEFAULT_DEPENDENCY_ROOT}/executorch" CACHE PATH "ExecuTorch installation directory")
 
 # Version validation functions
 function(validate_version_found found_version required_version component_name)
@@ -126,17 +134,11 @@ function(validate_backend_versions)
     
     message(STATUS "=== Validating Backend-Version Consistency ===")
 
-    # Define backend to version variable mapping directly
-    set(BACKEND_VERSION_MAPPING
-        "OPENCV_DNN:OPENCV_VERSION"
-        "ONNX_RUNTIME:ONNX_RUNTIME_VERSION" 
-        "LIBTORCH:PYTORCH_VERSION"
-        "LIBTENSORFLOW:TENSORFLOW_VERSION"
-        "TENSORRT:TENSORRT_VERSION"
-        "OPENVINO:OPENVINO_VERSION"
-        "GGML:GGML_VERSION"
-        "TVM:TVM_VERSION"
-    )
+    set(BACKEND_VERSION_MAPPING)
+    foreach(BACKEND_NAME ${NEURIPLO_BACKEND_IDS})
+        neuriplo_get_backend_property("${BACKEND_NAME}" VERSION_VAR VERSION_VAR_NAME)
+        list(APPEND BACKEND_VERSION_MAPPING "${BACKEND_NAME}:${VERSION_VAR_NAME}")
+    endforeach()
 
     set(VALIDATION_FAILED FALSE)
     set(MISSING_VERSIONS "")
@@ -164,6 +166,14 @@ function(validate_backend_versions)
             set(VERSION_VAR "${GGML_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "TVM_VERSION")
             set(VERSION_VAR "${TVM_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "CACTUS_VERSION")
+            set(VERSION_VAR "${CACTUS_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "MIGRAPHX_VERSION")
+            set(VERSION_VAR "${MIGRAPHX_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "LLAMACPP_VERSION")
+            set(VERSION_VAR "${LLAMACPP_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "EXECUTORCH_VERSION")
+            set(VERSION_VAR "${EXECUTORCH_VERSION}")
         else()
             set(VERSION_VAR "")
         endif()
@@ -203,6 +213,10 @@ message(STATUS "OpenVINO: ${OPENVINO_VERSION}")
 message(STATUS "TensorFlow: ${TENSORFLOW_VERSION}")
 message(STATUS "GGML: ${GGML_VERSION}")
 message(STATUS "TVM: ${TVM_VERSION}")
+message(STATUS "MIGraphX: ${MIGRAPHX_VERSION}")
+message(STATUS "Cactus: ${CACTUS_VERSION}")
+message(STATUS "llama.cpp: ${LLAMACPP_VERSION}")
+message(STATUS "ExecuTorch: ${EXECUTORCH_VERSION}")
 message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "OpenCV: ${OPENCV_MIN_VERSION}")
 message(STATUS "Dependency Root: ${DEFAULT_DEPENDENCY_ROOT}") 

@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -19,6 +19,9 @@ declare -A BACKEND_DIRS=(
     ["OPENVINO"]="openvino"
     ["GGML"]="ggml"
     ["TVM"]="tvm"
+    ["MIGRAPHX"]="migraphx"
+    ["CACTUS"]="cactus"
+    ["LLAMACPP"]="llamacpp"
 )
 
 # Helper functions

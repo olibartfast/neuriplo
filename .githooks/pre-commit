@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Run act CI emulator before commit.
+# Skip with: SKIP_ACT=1 git commit ...
+
+set -euo pipefail
+
+[[ "${SKIP_ACT:-0}" == "1" ]] && exit 0
+
+ACT=$(command -v act 2>/dev/null || echo "")
+if [[ -z "$ACT" ]]; then
+    echo "[pre-commit] act not found in PATH — skipping CI check" >&2
+    exit 0
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    echo "[pre-commit] Docker not running — skipping act CI check" >&2
+    exit 0
+fi
+
+echo "[pre-commit] Running act CI (cppcheck job) ..."
+act push -j cppcheck --no-cache-server -q
+echo "[pre-commit] act cppcheck passed"

@@ -21,7 +21,14 @@ if(CMAKE_CUDA_COMPILER)
     set(CUDA_ARCH_FLAG "--expt-extended-lambda") # CUDA compiler option that enables support for C++11 lambdas in device code.
 else()
     # If CUDA is not available, set CPU flags
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    # Use a portable baseline per architecture to avoid illegal-instruction
+    # crashes when Docker layer cache crosses machines with different CPU
+    # capabilities (e.g. AVX-512 vs AVX2 on x86_64).
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a")
+    endif()
     set(CUDA_ARCH_FLAG "")
 endif()
 

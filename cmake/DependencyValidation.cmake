@@ -96,6 +96,18 @@ function(validate_openvino)
     endif()
 endfunction()
 
+# Function to validate MIGraphX
+function(validate_migraphx)
+    if(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
+        validate_dependency("MIGraphX root" "${MIGRAPHX_ROOT}")
+
+        list(APPEND CMAKE_PREFIX_PATH "${MIGRAPHX_ROOT}")
+        find_package(migraphx REQUIRED)
+
+        message(STATUS "✓ MIGraphX validation passed")
+    endif()
+endfunction()
+
 # Function to validate CUDA/ROCm (if GPU support is requested)
 function(validate_cuda)
     if(DEFAULT_BACKEND STREQUAL "TENSORRT" OR DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME" OR DEFAULT_BACKEND STREQUAL "GGML")
@@ -182,6 +194,14 @@ function(validate_all_dependencies)
         validate_ggml()
     elseif(DEFAULT_BACKEND STREQUAL "TVM")
         validate_tvm()
+    elseif(DEFAULT_BACKEND STREQUAL "CACTUS")
+        validate_cactus()
+    elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
+        validate_migraphx()
+    elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        validate_llamacpp()
+    elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+        validate_executorch()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -207,21 +227,11 @@ function(print_setup_instructions)
     message(STATUS "If inference backend dependencies are missing, run the following commands:")
     message(STATUS "")
     
-    if(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME")
-    elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend TENSORRT")
-    elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTORCH")
-    elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend LIBTENSORFLOW")
-    elseif(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+    if(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
         message(STATUS "  OpenCV DNN is included with OpenCV installation")
         message(STATUS "  Ensure OpenCV is installed with DNN module support")
-    elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend OPENVINO")
-    elseif(DEFAULT_BACKEND STREQUAL "GGML")
-        message(STATUS "  ./scripts/setup_dependencies.sh --backend GGML")
+    else()
+        message(STATUS "  ./scripts/setup_dependencies.sh --backend ${DEFAULT_BACKEND}")
     endif()
     
     message(STATUS "")
@@ -324,5 +334,73 @@ function(validate_tvm)
         endforeach()
         
         message(STATUS "✓ TVM validation passed")
+    endif()
+endfunction()
+
+# Function to validate llama.cpp
+function(validate_llamacpp)
+    if(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+        validate_dependency("llama.cpp" "${LLAMACPP_DIR}")
+
+        set(required_files
+            "${LLAMACPP_DIR}/include/llama.h"
+            "${LLAMACPP_DIR}/lib/libllama.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "llama.cpp installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+
+        # libggml.so was split into libggml-base.so + libggml-cpu.so in newer master;
+        # accept either form since we link by name (-lggml) not by path.
+        if(NOT EXISTS "${LLAMACPP_DIR}/lib/libggml.so" AND
+           NOT EXISTS "${LLAMACPP_DIR}/lib/libggml-base.so")
+            message(FATAL_ERROR "llama.cpp installation incomplete. Missing libggml.so or libggml-base.so in ${LLAMACPP_DIR}/lib")
+        endif()
+
+        message(STATUS "✓ llama.cpp validation passed")
+    endif()
+endfunction()
+
+# Function to validate ExecuTorch
+function(validate_executorch)
+    if(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+        validate_dependency("ExecuTorch" "${EXECUTORCH_DIR}")
+
+        set(required_files
+            "${EXECUTORCH_DIR}/include/executorch/runtime/core/error.h"
+            "${EXECUTORCH_DIR}/lib/libexecutorch.a"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "ExecuTorch installation incomplete. Missing: ${file}\nRun: ./scripts/setup_executorch.sh")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ ExecuTorch validation passed")
+    endif()
+endfunction()
+
+# Function to validate Cactus
+function(validate_cactus)
+    if(DEFAULT_BACKEND STREQUAL "CACTUS")
+        validate_dependency("Cactus" "${CACTUS_DIR}")
+
+        set(required_files
+            "${CACTUS_DIR}/include/cactus.h"
+            "${CACTUS_DIR}/include/graph/graph.h"
+            "${CACTUS_DIR}/lib/libcactus.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "Cactus installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ Cactus validation passed")
     endif()
 endfunction()

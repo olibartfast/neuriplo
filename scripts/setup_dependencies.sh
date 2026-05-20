@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
         -f|--force) FORCE=true; shift ;;
         -h|--help)
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -32,7 +32,7 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM|MIGRAPHX|CACTUS|LLAMACPP) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
@@ -96,6 +96,24 @@ setup_ggml() {
     DEPENDENCY_ROOT="${DEPENDENCY_ROOT}" FORCE="${FORCE}" ./scripts/setup_ggml.sh
 }
 
+# Setup MIGraphX
+setup_migraphx() {
+    echo "Setting up MIGraphX..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_migraphx.sh
+}
+
+# Setup Cactus
+setup_cactus() {
+    echo "Setting up Cactus..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_cactus.sh --install-dir "$DEPENDENCY_ROOT/cactus"
+}
+
+# Setup llama.cpp
+setup_llamacpp() {
+    echo "Setting up llama.cpp..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_llamacpp.sh --install-dir "$DEPENDENCY_ROOT/llamacpp"
+}
+
 # Setup TVM
 setup_tvm() {
     echo "Setting up TVM library..."
@@ -129,6 +147,10 @@ validate_installation() {
             [[ -f "$DEPENDENCY_ROOT/ggml/include/ggml.h" && -f "$DEPENDENCY_ROOT/ggml/lib/libggml.so" ]] || { echo "Error: GGML validation failed"; exit 1; } ;;
         TVM)
             [[ -f "$DEPENDENCY_ROOT/tvm/include/tvm/runtime/c_runtime_api.h" && -f "$DEPENDENCY_ROOT/tvm/build/libtvm_runtime.so" ]] || { echo "Error: TVM validation failed"; exit 1; } ;;
+        CACTUS)
+            [[ -f "$DEPENDENCY_ROOT/cactus/include/cactus.h" && -f "$DEPENDENCY_ROOT/cactus/lib/libcactus.so" ]] || { echo "Error: Cactus validation failed"; exit 1; } ;;
+        LLAMACPP)
+            [[ -f "$DEPENDENCY_ROOT/llamacpp/include/llama.h" && -f "$DEPENDENCY_ROOT/llamacpp/lib/libllama.so" && -f "$DEPENDENCY_ROOT/llamacpp/lib/libggml.so" ]] || { echo "Error: llama.cpp validation failed"; exit 1; } ;;
     esac
 }
 
@@ -145,7 +167,10 @@ export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
 export GGML_DIR="\$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="\$DEPENDENCY_ROOT/tvm"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$LD_LIBRARY_PATH"
+export CACTUS_DIR="\$DEPENDENCY_ROOT/cactus"
+export LLAMACPP_DIR="\$DEPENDENCY_ROOT/llamacpp"
+export MIGRAPHX_ROOT="/opt/rocm"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$CACTUS_DIR/lib:\$LLAMACPP_DIR/lib:\$MIGRAPHX_ROOT/lib:\$LD_LIBRARY_PATH"
 export PATH="\$OPENVINO_DIR/bin:\$TVM_DIR/bin:\$PATH"
 export PYTHONPATH="\$TVM_DIR/python:\$PYTHONPATH"
 EOF
@@ -162,6 +187,9 @@ case $BACKEND in
     LIBTENSORFLOW) setup_libtensorflow ;;
     GGML) setup_ggml ;;
     TVM) setup_tvm ;;
+    CACTUS) setup_cactus ;;
+    LLAMACPP) setup_llamacpp ;;
+    MIGRAPHX) setup_migraphx ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup
