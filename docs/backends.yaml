@@ -186,3 +186,17 @@ backends:
     model_source: "`backends/executorch/test/export_executorch_classifier.py`"
     arch: [x86_64, arm64]
     gpu: false
+
+  - id: LITERT
+    name: LiteRT
+    version_var: LITERT_VERSION
+    setup_script: setup_litert.sh
+    setup_note: "formerly TensorFlow Lite - builds from TensorFlow source"
+    dir_var: LITERT_DIR
+    dir_default: "$DEPENDENCY_ROOT/litert"
+    dockerfile: docker/Dockerfile.litert
+    test_exe: LiteRTInferTest
+    model_format: ".tflite"
+    model_source: "manual or app-provided `.tflite` model"
+    arch: [x86_64, arm64]
+    gpu: false

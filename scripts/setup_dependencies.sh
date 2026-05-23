@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
         -f|--force) FORCE=true; shift ;;
         -h|--help)
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP, EXECUTORCH, LITERT"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -32,7 +32,7 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM|MIGRAPHX|CACTUS|LLAMACPP) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM|MIGRAPHX|CACTUS|LLAMACPP|EXECUTORCH|LITERT) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
@@ -114,6 +114,12 @@ setup_llamacpp() {
     DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_llamacpp.sh --install-dir "$DEPENDENCY_ROOT/llamacpp"
 }
 
+# Setup LiteRT
+setup_litert() {
+    echo "Setting up LiteRT..."
+    DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_litert.sh
+}
+
 # Setup TVM
 setup_tvm() {
     echo "Setting up TVM library..."
@@ -151,6 +157,8 @@ validate_installation() {
             [[ -f "$DEPENDENCY_ROOT/cactus/include/cactus.h" && -f "$DEPENDENCY_ROOT/cactus/lib/libcactus.so" ]] || { echo "Error: Cactus validation failed"; exit 1; } ;;
         LLAMACPP)
             [[ -f "$DEPENDENCY_ROOT/llamacpp/include/llama.h" && -f "$DEPENDENCY_ROOT/llamacpp/lib/libllama.so" && -f "$DEPENDENCY_ROOT/llamacpp/lib/libggml.so" ]] || { echo "Error: llama.cpp validation failed"; exit 1; } ;;
+        LITERT)
+            [[ -f "$DEPENDENCY_ROOT/litert/include/tensorflow/lite/interpreter.h" && -f "$DEPENDENCY_ROOT/litert/include/tensorflow/lite/model.h" && -f "$DEPENDENCY_ROOT/litert/lib/libtensorflowlite.so" ]] || { echo "Error: LiteRT validation failed"; exit 1; } ;;
     esac
 }
 
@@ -165,12 +173,13 @@ export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-$TENSORRT_VERSION"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
 export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
+export LITERT_DIR="$DEPENDENCY_ROOT/litert"
 export GGML_DIR="\$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="\$DEPENDENCY_ROOT/tvm"
 export CACTUS_DIR="\$DEPENDENCY_ROOT/cactus"
 export LLAMACPP_DIR="\$DEPENDENCY_ROOT/llamacpp"
 export MIGRAPHX_ROOT="/opt/rocm"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$CACTUS_DIR/lib:\$LLAMACPP_DIR/lib:\$MIGRAPHX_ROOT/lib:\$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$LITERT_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$CACTUS_DIR/lib:\$LLAMACPP_DIR/lib:\$MIGRAPHX_ROOT/lib:\$LD_LIBRARY_PATH"
 export PATH="\$OPENVINO_DIR/bin:\$TVM_DIR/bin:\$PATH"
 export PYTHONPATH="\$TVM_DIR/python:\$PYTHONPATH"
 EOF
@@ -190,6 +199,8 @@ case $BACKEND in
     CACTUS) setup_cactus ;;
     LLAMACPP) setup_llamacpp ;;
     MIGRAPHX) setup_migraphx ;;
+    EXECUTORCH) DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_executorch.sh --install-dir "$DEPENDENCY_ROOT/executorch" ;;
+    LITERT) setup_litert ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup

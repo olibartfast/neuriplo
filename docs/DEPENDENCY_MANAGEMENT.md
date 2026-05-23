@@ -21,6 +21,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `CACTUS` | Cactus | `v1.14` | ARM64 only | no |
 | `LLAMACPP` | llama.cpp | `b9085` | x86_64, ARM64 | no |
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
+| `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -156,6 +157,7 @@ Per-backend install-path overrides:
 | `CACTUS_DIR` | `$DEPENDENCY_ROOT/cactus` |
 | `LLAMACPP_DIR` | `$DEPENDENCY_ROOT/llamacpp` |
 | `EXECUTORCH_DIR` | `$HOME/dependencies/executorch` |
+| `LITERT_DIR` | `$DEPENDENCY_ROOT/litert` |
 <!-- /GEN:cmake-dir-variables -->
 
 Per-backend version overrides (default from `versions.env`):
@@ -175,6 +177,7 @@ Per-backend version overrides (default from `versions.env`):
 | `CACTUS_VERSION` | `v1.14` |
 | `LLAMACPP_VERSION` | `b9085` |
 | `EXECUTORCH_VERSION` | `v1.2.0` |
+| `LITERT_VERSION` | `2.19.0` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
@@ -196,6 +199,7 @@ export MIGRAPHX_ROOT="/opt/rocm"
 export CACTUS_DIR="$DEPENDENCY_ROOT/cactus"
 export LLAMACPP_DIR="$DEPENDENCY_ROOT/llamacpp"
 export EXECUTORCH_DIR="$HOME/dependencies/executorch"
+export LITERT_DIR="$DEPENDENCY_ROOT/litert"
 export LD_LIBRARY_PATH="\
 $ONNX_RUNTIME_DIR/lib:\
 $LIBTORCH_DIR/lib:\
@@ -208,6 +212,7 @@ $MIGRAPHX_ROOT/lib:\
 $CACTUS_DIR/lib:\
 $LLAMACPP_DIR/lib:\
 $EXECUTORCH_DIR/lib:\
+$LITERT_DIR/lib:\
 $LD_LIBRARY_PATH"
 ```
 <!-- /GEN:env-variables -->
@@ -393,6 +398,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | Cactus | GGUF | downloaded by Dockerfile or mock fallback |
 | llama.cpp | GGUF | downloaded by Dockerfile or mock fallback |
 | ExecuTorch | .pte | `backends/executorch/test/export_executorch_classifier.py` |
+| LiteRT | .tflite | manual or app-provided `.tflite` model |
 <!-- /GEN:test-models-table -->
 
 ## Contributing
@@ -423,6 +429,7 @@ time.
 | `setup_cactus.sh` | Cactus — **ARM64 only** — fails fast on x86_64 |
 | `setup_llamacpp.sh` | llama.cpp |
 | `setup_executorch.sh` | ExecuTorch — builds from source — do not delete cmake-out after install |
+| `setup_litert.sh` | LiteRT — formerly TensorFlow Lite - builds from TensorFlow source |
 | `build_cactus.sh` | Build the Cactus Docker image (ARM64 only) |
 <!-- /GEN:setup-scripts-table -->
 

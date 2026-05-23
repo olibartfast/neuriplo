@@ -202,6 +202,8 @@ function(validate_all_dependencies)
         validate_llamacpp()
     elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
         validate_executorch()
+    elseif(DEFAULT_BACKEND STREQUAL "LITERT")
+        validate_litert()
     else()
         message(FATAL_ERROR "Unknown backend: ${DEFAULT_BACKEND}")
     endif()
@@ -381,6 +383,29 @@ function(validate_executorch)
         endforeach()
 
         message(STATUS "✓ ExecuTorch validation passed")
+    endif()
+endfunction()
+
+# Function to validate LiteRT
+function(validate_litert)
+    if(DEFAULT_BACKEND STREQUAL "LITERT")
+        validate_dependency("LiteRT" "${LITERT_DIR}")
+
+        set(required_files
+            "${LITERT_DIR}/include/tensorflow/lite/interpreter.h"
+            "${LITERT_DIR}/include/tensorflow/lite/model.h"
+            "${LITERT_DIR}/lib/libtensorflowlite.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "LiteRT installation incomplete. Missing: ${file}")
+            endif()
+        endforeach()
+
+        set(LITERT_LIBRARY "${LITERT_DIR}/lib/libtensorflowlite.so" CACHE FILEPATH "LiteRT shared library")
+
+        message(STATUS "✓ LiteRT validation passed")
     endif()
 endfunction()
 

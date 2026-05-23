@@ -21,6 +21,10 @@
 #include "MIGraphXInfer.hpp"
 #elif USE_LLAMACPP
 #include "LlamaCppInfer.hpp"
+#elif USE_EXECUTORCH
+#include "ExecuTorchInfer.hpp"
+#elif USE_LITERT
+#include "LiteRTInfer.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface>
