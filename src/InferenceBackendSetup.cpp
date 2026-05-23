@@ -23,6 +23,10 @@ std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& mo
     return std::make_unique<MIGraphXInfer>(model_path, use_gpu, batch_size, input_sizes);
 #elif USE_LLAMACPP
     return std::make_unique<LlamaCppInfer>(model_path, use_gpu, batch_size, input_sizes);
+#elif USE_EXECUTORCH
+    return std::make_unique<ExecuTorchInfer>(model_path, use_gpu, batch_size, input_sizes);
+#elif USE_LITERT
+    return std::make_unique<LiteRTInfer>(model_path, use_gpu, batch_size, input_sizes);
 #endif
     return nullptr;
 }

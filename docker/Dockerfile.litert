@@ -1,0 +1,37 @@
+# docker build --rm -t neuriplo:litert -f docker/Dockerfile.litert .
+# docker run --rm neuriplo:litert
+
+FROM ubuntu:24.04 AS litert-deps
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DEPENDENCY_ROOT=/opt/dependencies
+ENV LITERT_DIR=/opt/litert
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    cmake \
+    git \
+    libgoogle-glog-dev \
+    libgtest-dev \
+    libopencv-dev \
+    python3 \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY versions.env /app/versions.env
+COPY scripts/setup_litert.sh /app/scripts/setup_litert.sh
+RUN /app/scripts/setup_litert.sh
+
+FROM litert-deps AS builder
+COPY . /app
+RUN rm -rf /app/build
+
+RUN cmake -S /app -B /app/build \
+    -DDEFAULT_BACKEND=LITERT \
+    -DLITERT_DIR=${LITERT_DIR} \
+    -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+    && cmake --build /app/build --parallel
+
+CMD ["/app/build/backends/litert/test/LiteRTInferTest"]

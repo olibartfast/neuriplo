@@ -6,7 +6,7 @@
 ## Overview
 
 * Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks.
-* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, and ExecuTorch.
+* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, ExecuTorch, and LiteRT.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Vision Inference Project](https://github.com/olibartfast/vision-inference)
 
@@ -28,6 +28,7 @@
 * Cactus - GGUF-native text generation backend
 * llama.cpp - GGUF-native LLM and multimodal backend
 * ExecuTorch - PyTorch edge inference runtime
+* LiteRT - Google AI Edge runtime, formerly TensorFlow Lite
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -55,6 +56,7 @@ Supported `<BACKEND_NAME>` values:
 * `CACTUS`
 * `LLAMACPP`
 * `EXECUTORCH`
+* `LITERT`
 
 #### Test All Backends
 ```bash

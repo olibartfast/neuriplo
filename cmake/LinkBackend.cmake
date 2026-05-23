@@ -95,4 +95,9 @@ elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
         portable_ops_lib
         portable_kernels
     )
+elseif(DEFAULT_BACKEND STREQUAL "LITERT")
+    target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LITERT_DIR}/include)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/litert/src)
+    target_link_directories(${PROJECT_NAME} PRIVATE ${LITERT_DIR}/lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${LITERT_LINK_LIBRARIES})
 endif()
