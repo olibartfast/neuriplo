@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP" "EXECUTORCH" "LITERT")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -38,6 +38,8 @@ declare -A BACKEND_DIRS=(
     ["CACTUS"]="cactus"
     ["MIGRAPHX"]="migraphx"
     ["LLAMACPP"]="llamacpp"
+    ["EXECUTORCH"]="executorch"
+    ["LITERT"]="litert"
 )
 
 # Test executable mapping
@@ -53,6 +55,8 @@ declare -A BACKEND_TEST_EXES=(
     ["CACTUS"]="CactusInferTest"
     ["MIGRAPHX"]="MIGraphXInferTest"
     ["LLAMACPP"]="LlamaCppInferTest"
+    ["EXECUTORCH"]="ExecuTorchInferTest"
+    ["LITERT"]="LiteRTInferTest"
 )
 
 # Helper functions
@@ -360,6 +364,32 @@ check_backend_availability() {
                 return 1
             fi
             ;;
+        "EXECUTORCH")
+            local executorch_dir="${HOME}/dependencies/executorch"
+            local alt_executorch_dir="/usr/local/executorch"
+
+            if [ -d "$executorch_dir" ] && [ -f "$executorch_dir/lib/libexecutorch.a" ]; then
+                log_success "ExecuTorch found in dependencies directory"
+                return 0
+            elif [ -d "$alt_executorch_dir" ] && [ -f "$alt_executorch_dir/lib/libexecutorch.a" ]; then
+                log_success "ExecuTorch found in system directory"
+                return 0
+            else
+                log_warning "ExecuTorch not found"
+                return 1
+            fi
+            ;;
+        "LITERT")
+            local litert_dir="${HOME}/dependencies/litert"
+
+            if [ -d "$litert_dir" ] && [ -f "$litert_dir/include/tensorflow/lite/interpreter.h" ] && [ -f "$litert_dir/lib/libtensorflowlite.so" ]; then
+                log_success "LiteRT found in dependencies directory"
+                return 0
+            else
+                log_warning "LiteRT not found"
+                return 1
+            fi
+            ;;
         *)
             log_error "Unknown backend: $backend"
             return 1
@@ -489,6 +519,10 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DTVM_DIR="$HOME/dependencies/tvm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "MIGRAPHX" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_PREFIX_PATH="/opt/rocm" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "EXECUTORCH" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DEXECUTORCH_DIR="$HOME/dependencies/executorch" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "LITERT" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DLITERT_DIR="$HOME/dependencies/litert" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi

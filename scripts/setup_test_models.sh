@@ -91,9 +91,21 @@ EOF
             backend_name=$(basename "$(dirname "$backend_dir")")
             log_info "Setting up models for $backend_name backend..."
             
-            # Copy base files
-            cp resnet18.onnx "$backend_dir/" 2>/dev/null || true
-            cp model_path.txt "$backend_dir/" 2>/dev/null || true
+            case $backend_name in
+                "litert")
+                    # LiteRT requires a .tflite FlatBuffer. Do not point it at the
+                    # shared ONNX fixture; the test skips when no .tflite is present.
+                    if [ -f "$backend_dir/resnet18.tflite" ]; then
+                        echo "resnet18.tflite" > "$backend_dir/model_path.txt"
+                    else
+                        : > "$backend_dir/model_path.txt"
+                    fi
+                    ;;
+                *)
+                    cp resnet18.onnx "$backend_dir/" 2>/dev/null || true
+                    cp model_path.txt "$backend_dir/" 2>/dev/null || true
+                    ;;
+            esac
             
             # Make generation scripts executable
             chmod +x "$backend_dir"/*.sh 2>/dev/null || true
@@ -200,6 +212,15 @@ verify_models() {
                         ((valid_models++))
                     else
                         log_warning "$backend_name: Model missing"
+                    fi
+                    ((total_models++))
+                    ;;
+                "litert")
+                    if [ -f "resnet18.tflite" ]; then
+                        log_success "$backend_name: LiteRT FlatBuffer found"
+                        ((valid_models++))
+                    else
+                        log_warning "$backend_name: .tflite model missing; LiteRT test will skip"
                     fi
                     ((total_models++))
                     ;;

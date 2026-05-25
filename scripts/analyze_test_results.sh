@@ -21,7 +21,7 @@ TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 REPORTS_DIR="$PROJECT_ROOT/reports"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP" "EXECUTORCH" "LITERT")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -36,6 +36,8 @@ declare -A BACKEND_DIRS=(
     ["MIGRAPHX"]="migraphx"
     ["CACTUS"]="cactus"
     ["LLAMACPP"]="llamacpp"
+    ["EXECUTORCH"]="executorch"
+    ["LITERT"]="litert"
 )
 
 # Helper functions
