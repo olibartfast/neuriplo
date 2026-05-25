@@ -59,6 +59,13 @@ if(DEFAULT_BACKEND STREQUAL "TENSORRT")
     )
 endif()
 
+if(DEFAULT_BACKEND STREQUAL "LITERT")
+    add_compile_options(
+        -Wno-error=unused-parameter
+        -Wno-error=pedantic
+    )
+endif()
+
 message("CMake CXX Flags Debug: ${CMAKE_CXX_FLAGS_DEBUG}")
 message("CMake CXX Flags: ${CMAKE_CXX_FLAGS}")
 message("CMake CUDA Flags: ${CMAKE_CUDA_FLAGS}")

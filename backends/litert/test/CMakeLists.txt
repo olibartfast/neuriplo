@@ -10,9 +10,12 @@ target_include_directories(LiteRTInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/litert/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${LITERT_DIR}/include
     ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
+)
+
+target_include_directories(LiteRTInferTest SYSTEM PRIVATE
+    ${LITERT_DIR}/include
 )
 
 target_link_libraries(LiteRTInferTest PRIVATE
