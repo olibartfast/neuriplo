@@ -47,6 +47,8 @@ Main testing script that builds and tests each backend individually.
 - `MIGRAPHX` - AMD ROCm MIGraphX runtime
 - `CACTUS` - Cactus GGUF runtime
 - `LLAMACPP` - llama.cpp GGUF runtime
+- `EXECUTORCH` - ExecuTorch edge runtime
+- `LITERT` - LiteRT / TensorFlow Lite FlatBuffer runtime
 
 **Examples:**
 ```bash
@@ -151,6 +153,16 @@ Each backend includes specialized tests:
 - Tokenization and generation path coverage
 - Mock fallback when no real model is available
 
+**ExecuTorch (`ExecuTorchInferTest`)**
+- `.pte` program loading
+- Delegate selection coverage
+- Mock fallback when no real model is available
+
+**LiteRT (`LiteRTInferTest`)**
+- `.tflite` FlatBuffer loading
+- Interpreter metadata inspection
+- Skips when no real `.tflite` model is available
+
 ## Test Models
 
 Neuriplo currently uses two test-model families:
@@ -165,6 +177,8 @@ Neuriplo currently uses two test-model families:
 - `resnet18.engine` - TensorRT engine (TensorRT)
 - `resnet18.xml/.bin` - OpenVINO IR (OpenVINO)
 - `*.gguf` - GGUF test model for Cactus and llama.cpp backends
+- `*.pte` - ExecuTorch program (ExecuTorch)
+- `*.tflite` - LiteRT FlatBuffer model (LiteRT)
 
 ## Test Results
 

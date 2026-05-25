@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- LiteRT backend integration for `.tflite` FlatBuffer models, including CMake
+  registration, setup script, Docker/CI coverage, and GTest smoke coverage.
+
+### Changed
+- Backend test orchestration, reports, validation scripts, and dependency docs
+  now include ExecuTorch and LiteRT in the supported backend matrix.
+
 ## [0.3.0] - 2026-05-21
 
 ### Added
