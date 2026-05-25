@@ -338,7 +338,7 @@ jobs:
   # Tests are skipped — they require a real GPU (see build-and-test-gpu).
   # =============================================================
   build-tensorrt:
-    name: Build (TENSORRT)
+    name: TENSORRT build-only
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -371,7 +371,7 @@ jobs:
   # model export requires Python torch install done separately)
   # =============================================================
   build-executorch:
-    name: Build (EXECUTORCH)
+    name: EXECUTORCH build-only
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
