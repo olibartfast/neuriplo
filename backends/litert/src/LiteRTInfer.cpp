@@ -52,6 +52,33 @@ size_t element_count_from_shape(const std::vector<int64_t>& shape) {
     });
 }
 
+bool is_nhwc_model_input(const TfLiteTensor* tensor) {
+    if (tensor == nullptr || tensor->dims == nullptr || tensor->dims->size != 4) {
+        return false;
+    }
+    const int c_dim = tensor->dims->data[3];
+    const int h_dim = tensor->dims->data[1];
+    return (c_dim == 1 || c_dim == 3) && h_dim > 3;
+}
+
+void transpose_nchw_to_nhwc(const std::vector<uint8_t>& src, std::vector<uint8_t>& dst, int batch, int channels,
+                            int height, int width) {
+    const auto* src_ptr = reinterpret_cast<const float*>(src.data());
+    auto* dst_ptr = reinterpret_cast<float*>(dst.data());
+
+    for (int b = 0; b < batch; ++b) {
+        for (int c = 0; c < channels; ++c) {
+            for (int h = 0; h < height; ++h) {
+                for (int w = 0; w < width; ++w) {
+                    const int nchw_idx = ((b * channels + c) * height + h) * width + w;
+                    const int nhwc_idx = ((b * height + h) * width + w) * channels + c;
+                    dst_ptr[nhwc_idx] = src_ptr[nchw_idx];
+                }
+            }
+        }
+    }
+}
+
 } // namespace
 
 LiteRTInfer::LiteRTInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
@@ -99,12 +126,24 @@ LiteRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
         if (input == nullptr) {
             throw InferenceExecutionException("LiteRT input tensor is null at index " + std::to_string(i));
         }
-        if (input_tensors[i].size() != input->bytes) {
-            throw InferenceExecutionException("LiteRT input tensor byte size mismatch at index " + std::to_string(i) +
-                                              ": expected " + std::to_string(input->bytes) + ", got " +
-                                              std::to_string(input_tensors[i].size()));
+
+        if (is_nhwc_model_input(input)) {
+            const int batch = input->dims->data[0];
+            const int height = input->dims->data[1];
+            const int width = input->dims->data[2];
+            const int channels = input->dims->data[3];
+
+            std::vector<uint8_t> nhwc_buffer(input->bytes);
+            transpose_nchw_to_nhwc(input_tensors[i], nhwc_buffer, batch, channels, height, width);
+            std::memcpy(input->data.raw, nhwc_buffer.data(), input->bytes);
+        } else {
+            if (input_tensors[i].size() != input->bytes) {
+                throw InferenceExecutionException("LiteRT input tensor byte size mismatch at index " +
+                                                  std::to_string(i) + ": expected " + std::to_string(input->bytes) +
+                                                  ", got " + std::to_string(input_tensors[i].size()));
+            }
+            std::memcpy(input->data.raw, input_tensors[i].data(), input->bytes);
         }
-        std::memcpy(input->data.raw, input_tensors[i].data(), input->bytes);
     }
 
     start_timer();
