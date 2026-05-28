@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-28
+
 ### Added
 - LiteRT backend integration for `.tflite` FlatBuffer models, including CMake
   registration, setup script, Docker/CI coverage, and GTest smoke coverage.
@@ -13,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Backend test orchestration, reports, validation scripts, and dependency docs
   now include ExecuTorch and LiteRT in the supported backend matrix.
+
+### Fixed
+- LiteRT backend now transposes NCHW input data to NHWC before model inference,
+  matching the pattern used by the TensorFlow backend. Without this, vision
+  models silently produce garbage because channel and spatial dimensions are
+  swapped but byte counts match.
 
 ## [0.3.0] - 2026-05-21
 
