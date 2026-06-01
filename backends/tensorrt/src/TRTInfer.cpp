@@ -9,7 +9,8 @@
         auto ret = (status);                                                                                           \
         if (ret != cudaSuccess) {                                                                                      \
             LOG(ERROR) << "CUDA error: " << cudaGetErrorString(ret);                                                   \
-            std::exit(1);                                                                                              \
+            state_ = BackendState::Failed;                                                                             \
+            throw InferenceException(std::string("CUDA error: ") + cudaGetErrorString(ret));                           \
         }                                                                                                              \
     } while (0)
 
@@ -170,7 +171,8 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
             break;
         default:
             LOG(ERROR) << "Unsupported data type for tensor " << tensor_name;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw ModelLoadException("Unsupported data type for tensor " + tensor_name);
         }
         CHECK_CUDA(cudaMalloc(&buffers_[i], binding_size));
     }
@@ -230,7 +232,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
             break; // Added support for UINT8
         default:
             LOG(ERROR) << "Unsupported input data type for tensor " << tensor_name;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported input data type for tensor " + tensor_name);
         }
 
         size_t expected_bytes = vol * element_size;
@@ -255,20 +258,25 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
     for (size_t i = 0; i < num_inputs_; ++i) {
         if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(), buffers_[i])) {
             LOG(ERROR) << "Failed to set input tensor address for tensor: " << input_tensor_names_[i];
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Failed to set input tensor address for tensor: " +
+                                              input_tensor_names_[i]);
         }
     }
 
     for (size_t i = 0; i < num_outputs_; ++i) {
         if (!context_->setOutputTensorAddress(output_tensor_names_[i].c_str(), buffers_[i + num_inputs_])) {
             LOG(ERROR) << "Failed to set output tensor address for tensor: " << output_tensor_names_[i];
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Failed to set output tensor address for tensor: " +
+                                              output_tensor_names_[i]);
         }
     }
 
     if (!context_->enqueueV3(stream)) {
         LOG(ERROR) << "Inference failed!";
-        std::exit(1);
+        state_ = BackendState::Failed;
+        throw InferenceExecutionException("TensorRT enqueueV3 inference call failed");
     }
 
     // Extract outputs and their shapes
@@ -330,7 +338,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         default:
             LOG(ERROR) << "Unsupported output data type for tensor " << tensor_name;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported output data type for tensor " + tensor_name);
         }
 
         outputs.emplace_back(std::move(tensor_data));
