@@ -14,10 +14,10 @@
 // Decorator that memoizes inference results in a bounded LRU cache.
 //
 // Wraps any InferenceInterface and keys cached outputs on a hash of the raw
-// input bytes plus the per-tensor sizes. On a cache hit the wrapped backend is
-// not invoked and a copy of the previously computed tuple is returned; on a
-// miss the call is forwarded, the result stored, and the least-recently-used
-// entry evicted once the capacity is exceeded.
+// input bytes plus the per-tensor sizes. On a cache hit the stored input bytes
+// are compared before returning a cached result; hash collisions fall through
+// to a real inference. On a miss the call is forwarded, the result stored, and
+// the least-recently-used entry evicted once the capacity is exceeded.
 //
 // DETERMINISM: this decorator assumes that identical inputs always yield
 // identical outputs. It is strictly opt-in (only present when explicitly
@@ -35,9 +35,14 @@ class CachingBackend : public BackendDecorator {
 
         auto it = entries_.find(key);
         if (it != entries_.end()) {
-            // Cache hit: promote to most-recently-used and return a copy.
-            lru_order_.splice(lru_order_.begin(), lru_order_, it->second.order_it);
-            return it->second.value;
+            if (inputs_equal(it->second.inputs, input_tensors)) {
+                // Cache hit: promote to most-recently-used and return a copy.
+                lru_order_.splice(lru_order_.begin(), lru_order_, it->second.order_it);
+                return it->second.value;
+            }
+            // Hash collision: drop the stale entry and treat as a miss.
+            lru_order_.erase(it->second.order_it);
+            entries_.erase(it);
         }
 
         // Cache miss: forward to the wrapped backend before mutating state so an
@@ -45,7 +50,7 @@ class CachingBackend : public BackendDecorator {
         auto result = BackendDecorator::get_infer_results(input_tensors);
 
         lru_order_.push_front(key);
-        entries_.emplace(key, Entry{lru_order_.begin(), result});
+        entries_.emplace(key, Entry{lru_order_.begin(), input_tensors, result});
 
         if (entries_.size() > capacity_) {
             const size_t evict_key = lru_order_.back();
@@ -72,8 +77,22 @@ class CachingBackend : public BackendDecorator {
 
     struct Entry {
         std::list<size_t>::iterator order_it;
+        std::vector<std::vector<uint8_t>> inputs;
         ResultTuple value;
     };
+
+    static bool inputs_equal(const std::vector<std::vector<uint8_t>>& lhs,
+                             const std::vector<std::vector<uint8_t>>& rhs) noexcept {
+        if (lhs.size() != rhs.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < lhs.size(); ++i) {
+            if (lhs[i] != rhs[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     static void hash_combine(size_t& seed, size_t value) noexcept {
         // Boost-style mixing constant to spread bits across combined hashes.
