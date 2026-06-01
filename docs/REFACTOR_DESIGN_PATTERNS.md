@@ -1,6 +1,8 @@
 # Refactoring Plan — Design-Pattern-Driven Backend Architecture
 
-Status: proposal / not started
+Status: implemented (Waves 0–4 + S6.1 wiring + S5.2 std::exit removal). S5.1
+(load/construct split) intentionally deferred — the eager-load facade in
+`setup_inference_engine` already preserves "constructed == ready" semantics.
 Owner: backend orchestration
 Scope: `backends/`, `include/`, `src/`, `cmake/`, `docs/`
 

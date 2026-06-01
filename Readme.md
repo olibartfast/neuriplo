@@ -121,6 +121,31 @@ target_include_directories(your_project PRIVATE path_to/neuriplo/include)
 
 Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
 
+## Architecture
+
+Neuriplo's backend layer is organized around five design patterns, all built on
+the single `InferenceInterface` contract that `setup_inference_engine` returns:
+
+- **Adapter** — each `*Infer` class wraps a vendor SDK behind `InferenceInterface`.
+- **Bridge** — `ModelRunner` orchestrates lifecycle and delegates to any backend
+  without knowing the concrete type.
+- **Abstract Factory** — each backend ships an `IBackendRuntimeFactory`
+  (`*RuntimeFactory`) that produces a coherent `{backend, allocator, converter}`
+  family. `setup_inference_engine` builds through the factory selected at compile
+  time by `-DDEFAULT_BACKEND`.
+- **Decorator** — `ProfilingBackend` / `LoggingBackend` / `CachingBackend` /
+  `QuantizedBackend` add cross-cutting behavior. They are opt-in; enable the
+  profiling/logging chain at runtime with `NEURIPLO_ENABLE_PROFILING=1` and
+  `NEURIPLO_ENABLE_LOGGING=1` (default off, so the production path is unchanged).
+- **State** — `BackendState{Uninitialized, Loading, Ready, Failed}` makes the
+  lifecycle explicit. Load failures set `Failed` and throw `ModelLoadException`,
+  which the facade translates to a `nullptr` return (no `std::exit`).
+
+The public contract is unchanged: `setup_inference_engine(model_path, use_gpu,
+batch_size, input_sizes)` still returns `std::unique_ptr<InferenceInterface>`.
+See [docs/REFACTOR_DESIGN_PATTERNS.md](docs/REFACTOR_DESIGN_PATTERNS.md) for the
+full design.
+
 ## Backend Configuration System
 
 Neuriplo uses a centralized configuration system that makes it easy to add new backends. The system consists of:
@@ -186,5 +211,6 @@ cmake ..
 
 For detailed documentation, see the [docs/](docs/) directory:
 
+- **[Architecture / Design Patterns](docs/REFACTOR_DESIGN_PATTERNS.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
