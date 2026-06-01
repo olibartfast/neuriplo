@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+// Adapter: exposes the ONNX Runtime engine through the common InferenceInterface contract.
 class ORTInfer : public InferenceInterface {
   public:
     std::string print_shape(const std::vector<std::int64_t>& v);

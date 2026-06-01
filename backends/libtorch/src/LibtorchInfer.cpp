@@ -211,6 +211,8 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
             continue;
         }
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>

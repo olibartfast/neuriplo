@@ -180,6 +180,8 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
             inference_metadata_.addOutput(name, shape_vec, batch_size); // Pass the converted shape_vec
         }
+
+        state_ = BackendState::Ready;
     } catch (const ov::Exception& e) {
         LOG(ERROR) << "Failed to load or process the OpenVINO model: " << e.what();
         std::exit(1);

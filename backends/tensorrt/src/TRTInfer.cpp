@@ -19,6 +19,7 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     LOG(INFO) << "Initializing TensorRT for model " << model_path;
     initializeBuffers(model_path, input_sizes);
     populateInferenceMetadata(input_sizes);
+    state_ = BackendState::Ready;
 }
 
 TRTInfer::~TRTInfer() {
