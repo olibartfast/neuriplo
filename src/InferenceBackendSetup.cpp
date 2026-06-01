@@ -27,6 +27,8 @@ std::unique_ptr<IBackendRuntimeFactory> make_runtime_factory() {
     return std::make_unique<OVRuntimeFactory>();
 #elif USE_GGML
     return std::make_unique<GGMLRuntimeFactory>();
+#elif USE_TVM
+    return std::make_unique<TVMRuntimeFactory>();
 #elif USE_CACTUS
     return std::make_unique<CactusRuntimeFactory>();
 #elif USE_MIGRAPHX
