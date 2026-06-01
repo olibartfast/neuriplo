@@ -12,6 +12,7 @@
 - When committing documentation-only changes, include `[skip ci]` in the commit message.
 - Keep `Readme.md` as a general-purpose project entrypoint. Put backend-specific setup, model-format, Docker, build, and troubleshooting details in the appropriate docs section, such as `docs/DEPENDENCY_MANAGEMENT.md` or a backend-specific guide, and link from the README only when the link is broadly useful.
 - When debugging CI failures, build errors, or test failures, consult `docs/TROUBLESHOOTING.md` for known patterns and hard-won lessons before starting from scratch.
-- Before pushing any code changes, run `clang-format --dry-run --Werror` on all `.cpp`/`.hpp` files. The pre-push hook in `.githooks/pre-push` does this automatically — activate it once per clone with: `git config core.hooksPath .githooks`
+- Code quality: see `docs/CODE_QUALITY.md`. Fast local gate: `./scripts/quality/run.sh`. One-time hook setup: `./scripts/quality/setup_hooks.sh` (installs pre-commit into `.githooks/`). ASan+UBSan: `./scripts/quality/sanitizers.sh` or `-DSANITIZERS=ON` with Debug build.
+- Before pushing any code changes, run `./scripts/quality/format.sh --check` (or `pre-commit run --all-files` after hook setup). Pre-push hooks also run full-tree cppcheck and backend-docs sync.
 - When changing `versions.env` or `docs/backends.yaml`, always run `python3 scripts/gen_backend_docs.py` before committing to keep auto-generated `GEN:` sections in `docs/DEPENDENCY_MANAGEMENT.md` in sync. The pre-push hook also enforces this.
 - Before pushing Dockerfile or workflow changes, validate locally with `act`: `act push --job <job-id> --dryrun` to inspect resolved steps, then `act push --job <job-id> --verbose` for a full run. See `docs/LOCAL_CI.md` for setup and per-job examples.
