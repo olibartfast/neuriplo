@@ -7,6 +7,7 @@
 #include <fstream>
 #include <vector>
 
+// Adapter: exposes the TensorRT runtime through the common InferenceInterface contract.
 class TRTInfer : public InferenceInterface {
   protected:
     std::shared_ptr<nvinfer1::ICudaEngine> engine_;

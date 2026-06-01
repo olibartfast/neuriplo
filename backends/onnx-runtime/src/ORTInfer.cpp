@@ -259,7 +259,8 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         session_ = Ort::Session(env_, model_path.c_str(), session_options);
     } catch (const Ort::Exception& ex) {
         LOG(ERROR) << "Failed to load the ONNX model: " << ex.what();
-        std::exit(1);
+        state_ = BackendState::Failed;
+        throw ModelLoadException(std::string("ONNX model load failed: ") + ex.what());
     }
 
     Ort::AllocatorWithDefaultOptions allocator;
@@ -358,6 +359,8 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
         inference_metadata_.addOutput(name, shapes, batch_size);
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::vector<std::string> ORTInfer::parseExecutionProviderList(const std::string& provider_list) {
@@ -614,7 +617,9 @@ ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
             break;
         default:
             LOG(ERROR) << "Unsupported input data type for ORT: " << onnx_type;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported input data type for ORT: " +
+                                              std::to_string(static_cast<int>(onnx_type)));
         }
     }
 
@@ -665,7 +670,8 @@ ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         default:
             LOG(ERROR) << "Unsupported tensor type: " << onnx_type;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported output tensor type for ORT: " + std::to_string(onnx_type));
         }
 
         output_tensors.emplace_back(std::move(tensor_data));

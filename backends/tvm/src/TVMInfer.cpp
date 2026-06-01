@@ -81,8 +81,11 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         }
     } catch (const std::exception& e) {
         LOG(ERROR) << "Failed to load TVM model: " << e.what();
+        state_ = BackendState::Failed;
         throw ModelLoadException(e.what());
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>

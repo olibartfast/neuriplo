@@ -27,6 +27,8 @@ CactusInfer::CactusInfer(const std::string& model_path, bool use_gpu, size_t bat
     }
 
     inference_metadata_.addOutput("completion", {-1}, batch_size);
+
+    state_ = BackendState::Ready;
 }
 
 CactusInfer::~CactusInfer() {

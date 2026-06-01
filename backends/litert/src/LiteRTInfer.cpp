@@ -112,6 +112,8 @@ LiteRTInfer::LiteRTInfer(const std::string& model_path, bool use_gpu, size_t bat
     }
 
     refreshMetadata();
+
+    state_ = BackendState::Ready;
 }
 
 LiteRTInfer::~LiteRTInfer() = default;

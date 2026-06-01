@@ -5,6 +5,7 @@
 #include <mtmd-helper.h>
 #include <mtmd.h>
 
+// Adapter: exposes the llama.cpp runtime through the common InferenceInterface contract.
 class LlamaCppInfer : public InferenceInterface {
   private:
     llama_model* model_;
