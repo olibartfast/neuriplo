@@ -1,30 +1,35 @@
 #pragma once
 #include "InferenceInterface.hpp"
 #include "common.hpp"
+// Each backend ships a concrete Abstract Factory (IBackendRuntimeFactory) that
+// owns construction of its adapter. The factory header transitively includes
+// the corresponding *Infer adapter, so only the factory needs to be pulled in.
 #ifdef USE_ONNX_RUNTIME
-#include "ORTInfer.hpp"
+#include "ORTRuntimeFactory.hpp"
 #elif USE_LIBTORCH
-#include "LibtorchInfer.hpp"
+#include "LibtorchRuntimeFactory.hpp"
 #elif USE_LIBTENSORFLOW
-#include "TFDetectionAPI.hpp"
+#include "TFRuntimeFactory.hpp"
 #elif USE_OPENCV_DNN
-#include "OCVDNNInfer.hpp"
+#include "OCVDNNRuntimeFactory.hpp"
 #elif USE_TENSORRT
-#include "TRTInfer.hpp"
+#include "TRTRuntimeFactory.hpp"
 #elif USE_OPENVINO
-#include "OVInfer.hpp"
+#include "OVRuntimeFactory.hpp"
 #elif USE_GGML
-#include "GGMLInfer.hpp"
+#include "GGMLRuntimeFactory.hpp"
+#elif USE_TVM
+#include "TVMRuntimeFactory.hpp"
 #elif USE_CACTUS
-#include "CactusInfer.hpp"
+#include "CactusRuntimeFactory.hpp"
 #elif USE_MIGRAPHX
-#include "MIGraphXInfer.hpp"
+#include "MIGraphXRuntimeFactory.hpp"
 #elif USE_LLAMACPP
-#include "LlamaCppInfer.hpp"
+#include "LlamaCppRuntimeFactory.hpp"
 #elif USE_EXECUTORCH
-#include "ExecuTorchInfer.hpp"
+#include "ExecuTorchRuntimeFactory.hpp"
 #elif USE_LITERT
-#include "LiteRTInfer.hpp"
+#include "LiteRTRuntimeFactory.hpp"
 #endif
 
 std::unique_ptr<InferenceInterface>

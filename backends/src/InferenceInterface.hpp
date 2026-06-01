@@ -6,6 +6,7 @@
 #include <variant>
 using TensorElement = std::variant<float, int32_t, int64_t, uint8_t>;
 
+#include "BackendState.hpp"
 #include "InferenceMetadata.hpp"
 
 // Custom exceptions for better error handling
@@ -40,6 +41,12 @@ class InferenceInterface {
     // Model information
     virtual InferenceMetadata get_inference_metadata();
 
+    // Lifecycle (State pattern). Default behavior preserves the current
+    // "constructed == ready" semantics: backends that load in their constructor
+    // can leave these defaults untouched; load() is a no-op that marks Ready.
+    virtual BackendState state() const noexcept { return state_; }
+    virtual void load() { state_ = BackendState::Ready; }
+
     // Utility methods
     virtual bool is_gpu_available() const noexcept { return gpu_available_; }
     virtual size_t get_batch_size() const noexcept { return batch_size_; }
@@ -55,6 +62,7 @@ class InferenceInterface {
 
   protected:
     InferenceMetadata inference_metadata_;
+    BackendState state_{BackendState::Uninitialized};
     std::string model_path_;
     bool gpu_available_;
     size_t batch_size_;
