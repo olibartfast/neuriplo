@@ -10,6 +10,10 @@ void ModelRunner::load() {
     if (backend_->state() == BackendState::Ready) {
         return;
     }
+    if (backend_->state() == BackendState::Failed) {
+        throw ModelLoadException(
+            "backend is in Failed state; reconstruct the backend or transition Failed -> Loading before reload");
+    }
     backend_->load();
     if (backend_->state() != BackendState::Ready) {
         throw ModelLoadException(
@@ -19,6 +23,10 @@ void ModelRunner::load() {
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
 ModelRunner::run(const std::vector<std::vector<uint8_t>>& input_tensors) {
+    if (backend_->state() == BackendState::Failed) {
+        throw InferenceExecutionException(
+            "backend is in Failed state; reconstruct the backend or transition Failed -> Loading before retry");
+    }
     if (backend_->state() != BackendState::Ready) {
         load();
     }

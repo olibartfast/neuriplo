@@ -138,6 +138,24 @@ TEST(ModelRunnerTest, LoadThrowsWhenBackendNeverBecomesReady) {
     EXPECT_THROW(runner.load(), ModelLoadException);
 }
 
+TEST(ModelRunnerTest, LoadThrowsWhenBackendAlreadyFailed) {
+    auto fake = std::make_unique<FakeBackend>();
+    fake->load_should_fail_ = true;
+    ModelRunner runner(std::move(fake));
+    EXPECT_THROW(runner.load(), ModelLoadException);
+    EXPECT_EQ(runner.state(), BackendState::Failed);
+    EXPECT_THROW(runner.load(), ModelLoadException);
+}
+
+TEST(ModelRunnerTest, RunThrowsWhenBackendFailed) {
+    auto fake = std::make_unique<FakeBackend>();
+    fake->load_should_fail_ = true;
+    ModelRunner runner(std::move(fake));
+    EXPECT_THROW(runner.load(), ModelLoadException);
+    EXPECT_EQ(runner.state(), BackendState::Failed);
+    EXPECT_THROW(runner.run(make_input()), InferenceExecutionException);
+}
+
 // ---------------------------------------------------------------------------
 // Decorator base
 // ---------------------------------------------------------------------------
