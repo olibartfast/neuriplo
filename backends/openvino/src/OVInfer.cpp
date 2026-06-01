@@ -184,7 +184,8 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
         state_ = BackendState::Ready;
     } catch (const ov::Exception& e) {
         LOG(ERROR) << "Failed to load or process the OpenVINO model: " << e.what();
-        std::exit(1);
+        state_ = BackendState::Failed;
+        throw ModelLoadException(std::string("OpenVINO model load failed: ") + e.what());
     }
 }
 
