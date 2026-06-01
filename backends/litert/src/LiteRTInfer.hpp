@@ -10,6 +10,7 @@
 #include <tensorflow/lite/interpreter.h>
 #include <tensorflow/lite/model.h>
 
+// Adapter: exposes the LiteRT (TensorFlow Lite) runtime through the common InferenceInterface contract.
 class LiteRTInfer : public InferenceInterface {
   public:
     LiteRTInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

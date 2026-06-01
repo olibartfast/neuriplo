@@ -358,6 +358,8 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
         inference_metadata_.addOutput(name, shapes, batch_size);
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::vector<std::string> ORTInfer::parseExecutionProviderList(const std::string& provider_list) {

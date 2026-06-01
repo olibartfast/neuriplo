@@ -4,6 +4,7 @@
 #include <glog/logging.h>
 #include <migraphx/migraphx.hpp>
 
+// Adapter: exposes the AMD MIGraphX runtime through the common InferenceInterface contract.
 class MIGraphXInfer : public InferenceInterface {
   public:
     MIGraphXInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

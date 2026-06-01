@@ -81,6 +81,8 @@ LlamaCppInfer::LlamaCppInfer(const std::string& model_path, bool use_gpu, size_t
         inference_metadata_.addInput("prompt" + std::to_string(i + 1), shape, batch_size);
     }
     inference_metadata_.addOutput("completion", {-1}, batch_size);
+
+    state_ = BackendState::Ready;
 }
 
 LlamaCppInfer::~LlamaCppInfer() {

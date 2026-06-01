@@ -4,6 +4,7 @@
 #include <executorch/extension/module/module.h>
 #include <executorch/extension/tensor/tensor.h>
 
+// Adapter: exposes the ExecuTorch runtime through the common InferenceInterface contract.
 class ExecuTorchInfer : public InferenceInterface {
   public:
     ExecuTorchInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

@@ -46,6 +46,8 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
         std::vector<int64_t> shape{-1, -1, -1};
         inference_metadata_.addOutput(outName, shape, batch_size);
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>

@@ -3,6 +3,7 @@
 
 #include <cactus.h>
 
+// Adapter: exposes the Cactus GGUF text-generation runtime through the common InferenceInterface contract.
 class CactusInfer : public InferenceInterface {
   private:
     cactus_model_t model_;

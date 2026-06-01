@@ -66,6 +66,8 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path, bool use_gpu, size
         }
         inference_metadata_.addOutput(output_name, output_shape, batch_size);
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
