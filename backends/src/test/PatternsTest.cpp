@@ -7,6 +7,9 @@
 
 #include "BackendDecorator.hpp"
 #include "BackendState.hpp"
+#include "HostTensorConverter.hpp"
+#include "IAllocator.hpp"
+#include "ITensorConverter.hpp"
 #include "InferenceInterface.hpp"
 #include "ModelRunner.hpp"
 #include "decorators/CachingBackend.hpp"
@@ -15,6 +18,7 @@
 #include "decorators/QuantizedBackend.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
@@ -253,6 +257,63 @@ TEST(QuantizedBackendTest, EnabledDequantizesIntegersOnly) {
     // int32 7 -> 2 * (7 - 1) = 12.0; float 2.0 left untouched.
     EXPECT_FLOAT_EQ(std::get<float>(outputs[0][0]), 12.0f);
     EXPECT_FLOAT_EQ(std::get<float>(outputs[0][1]), 2.0f);
+}
+
+// ---------------------------------------------------------------------------
+// Abstract Factory products: HostAllocator
+// ---------------------------------------------------------------------------
+
+TEST(HostAllocatorTest, AllocatesUsableMemory) {
+    HostAllocator alloc;
+    EXPECT_STREQ(alloc.name(), "HostAllocator");
+
+    void* p = alloc.allocate(64);
+    ASSERT_NE(p, nullptr);
+    std::memset(p, 0, 64); // must be writable
+    alloc.deallocate(p);
+}
+
+// ---------------------------------------------------------------------------
+// Abstract Factory products: HostTensorConverter
+// ---------------------------------------------------------------------------
+
+TEST(HostTensorConverterTest, ToTypedDecodesFloatBytes) {
+    HostTensorConverter conv;
+    EXPECT_STREQ(conv.name(), "HostTensorConverter");
+
+    const float values[2] = {1.5f, -2.25f};
+    std::vector<uint8_t> raw(sizeof(values));
+    std::memcpy(raw.data(), values, sizeof(values));
+
+    auto out = conv.to_typed(raw, TensorDataType::Float32);
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_FLOAT_EQ(std::get<float>(out[0]), 1.5f);
+    EXPECT_FLOAT_EQ(std::get<float>(out[1]), -2.25f);
+}
+
+TEST(HostTensorConverterTest, FromBackendDecodesInt64) {
+    HostTensorConverter conv;
+    const int64_t values[3] = {7, -1, 1000};
+    auto out = conv.from_backend(values, 3, TensorDataType::Int64);
+    ASSERT_EQ(out.size(), 3u);
+    EXPECT_EQ(std::get<int64_t>(out[0]), 7);
+    EXPECT_EQ(std::get<int64_t>(out[1]), -1);
+    EXPECT_EQ(std::get<int64_t>(out[2]), 1000);
+}
+
+TEST(HostTensorConverterTest, WidensInt8ToInt32) {
+    HostTensorConverter conv;
+    const int8_t values[2] = {-5, 5};
+    auto out = conv.from_backend(values, 2, TensorDataType::Int8);
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_EQ(std::get<int32_t>(out[0]), -5);
+    EXPECT_EQ(std::get<int32_t>(out[1]), 5);
+}
+
+TEST(HostTensorConverterTest, HandlesEmptyAndNull) {
+    HostTensorConverter conv;
+    EXPECT_TRUE(conv.to_typed({}, TensorDataType::Float32).empty());
+    EXPECT_TRUE(conv.from_backend(nullptr, 4, TensorDataType::Int32).empty());
 }
 
 int main(int argc, char** argv) {
