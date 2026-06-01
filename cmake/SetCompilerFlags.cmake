@@ -5,12 +5,14 @@ if(WERROR)
     message(STATUS "Strict warnings: -Wall -Wextra -Wpedantic -Werror enabled")
 endif()
 
-# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
+# Enable ASan + UBSan (opt-in via -DSANITIZERS=ON). Use Debug builds and run tests with:
+#   ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ctest ...
+# Local helper: ./scripts/quality/sanitizers.sh
 option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 if(SANITIZERS)
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=address,undefined)
-    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled (use Debug + ctest)")
 endif()
 
 if(CMAKE_CUDA_COMPILER)

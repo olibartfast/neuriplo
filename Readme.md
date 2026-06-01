@@ -10,17 +10,17 @@
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Vision Inference Project](https://github.com/olibartfast/vision-inference)
 
-## Dependencies 
+## Dependencies
 - C++17
 - OpenCV
 - glog
 
 ### Supported Backends (Inside [versions.env](versions.env) file, versions tested in this project):
 * OpenCV DNN module
-* ONNX Runtime 
-* Pytorch (Libtorch) 
-* TensorRT 
-* OpenVINO 
+* ONNX Runtime
+* Pytorch (Libtorch)
+* TensorRT
+* OpenVINO
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 * GGML - Efficient tensor library for machine learning
 * TVM - Open deep learning compiler stack
@@ -207,10 +207,23 @@ The system automatically validates that every backend has a corresponding versio
 cmake ..
 ```
 
+## Code quality
+
+Local checks (format, cppcheck, ASan/UBSan, clang-tidy) and git hook setup:
+
+```bash
+./scripts/quality/setup_hooks.sh   # pre-commit + pre-push hooks
+./scripts/quality/run.sh           # format + cppcheck
+./scripts/quality/sanitizers.sh    # ASan + UBSan build and ctest
+```
+
+See **[Code Quality](docs/CODE_QUALITY.md)** for details.
+
 ## Documentation
 
 For detailed documentation, see the [docs/](docs/) directory:
 
+- **[Code Quality](docs/CODE_QUALITY.md)** - Formatting, static analysis, sanitizers, pre-commit hooks
 - **[Architecture / Design Patterns](docs/REFACTOR_DESIGN_PATTERNS.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
