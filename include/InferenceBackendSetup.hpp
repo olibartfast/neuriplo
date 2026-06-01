@@ -18,6 +18,8 @@
 #include "OVRuntimeFactory.hpp"
 #elif USE_GGML
 #include "GGMLRuntimeFactory.hpp"
+#elif USE_TVM
+#include "TVMRuntimeFactory.hpp"
 #elif USE_CACTUS
 #include "CactusRuntimeFactory.hpp"
 #elif USE_MIGRAPHX
