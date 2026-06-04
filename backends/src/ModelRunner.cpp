@@ -7,27 +7,31 @@ ModelRunner::ModelRunner(std::unique_ptr<InferenceInterface> backend) : backend_
 }
 
 void ModelRunner::load() {
-    if (backend_->state() == BackendState::Ready) {
+    const auto current_state = backend_->state();
+    if (current_state == BackendState::Ready) {
         return;
     }
-    if (backend_->state() == BackendState::Failed) {
+    if (current_state == BackendState::Failed) {
         throw ModelLoadException(
             "backend is in Failed state; reconstruct the backend or transition Failed -> Loading before reload");
     }
+
     backend_->load();
-    if (backend_->state() != BackendState::Ready) {
-        throw ModelLoadException(
-            "backend is not Ready after load() (state: " + std::string(to_string(backend_->state())) + ")");
+    const auto loaded_state = backend_->state();
+    if (loaded_state != BackendState::Ready) {
+        throw ModelLoadException("backend is not Ready after load() (state: " + std::string(to_string(loaded_state)) +
+                                 ")");
     }
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
 ModelRunner::run(const std::vector<std::vector<uint8_t>>& input_tensors) {
-    if (backend_->state() == BackendState::Failed) {
+    const auto current_state = backend_->state();
+    if (current_state == BackendState::Failed) {
         throw InferenceExecutionException(
             "backend is in Failed state; reconstruct the backend or transition Failed -> Loading before retry");
     }
-    if (backend_->state() != BackendState::Ready) {
+    if (current_state != BackendState::Ready) {
         load();
     }
     return backend_->get_infer_results(input_tensors);
