@@ -6,6 +6,7 @@
 // no-new-dependency constraint.
 
 #include "BackendDecorator.hpp"
+#include "BackendRuntimeRegistry.hpp"
 #include "BackendState.hpp"
 #include "HostTensorConverter.hpp"
 #include "IAllocator.hpp"
@@ -93,6 +94,29 @@ TEST(BackendStateTest, ToStringCoversEveryState) {
     EXPECT_STREQ(to_string(BackendState::Loading), "Loading");
     EXPECT_STREQ(to_string(BackendState::Ready), "Ready");
     EXPECT_STREQ(to_string(BackendState::Failed), "Failed");
+}
+
+// ---------------------------------------------------------------------------
+// Runtime backend registry
+// ---------------------------------------------------------------------------
+
+TEST(BackendRuntimeRegistryTest, ExposesCompiledBackendMetadata) {
+    const BackendRuntimeRegistration* registration = get_compiled_backend_registration();
+    ASSERT_NE(registration, nullptr);
+    ASSERT_NE(registration->id, nullptr);
+    EXPECT_STREQ(registration->id, NEURIPLO_DEFAULT_BACKEND);
+    EXPECT_STREQ(compiled_backend_id(), NEURIPLO_DEFAULT_BACKEND);
+    ASSERT_NE(registration->display_name, nullptr);
+    EXPECT_STRNE(registration->display_name, "");
+    ASSERT_NE(registration->create_factory, nullptr);
+}
+
+TEST(BackendRuntimeRegistryTest, CreatesFactoryAndRuntimeProducts) {
+    auto factory = create_compiled_backend_factory();
+    ASSERT_NE(factory, nullptr);
+    EXPECT_STRNE(factory->name(), "");
+    EXPECT_NE(factory->create_allocator(), nullptr);
+    EXPECT_NE(factory->create_converter(), nullptr);
 }
 
 // ---------------------------------------------------------------------------
