@@ -11,6 +11,10 @@ find_package(Glog REQUIRED)
 
 add_executable(PatternsTest ${PATTERNS_TEST_SOURCES})
 
+target_compile_definitions(PatternsTest PRIVATE
+    NEURIPLO_DEFAULT_BACKEND="${DEFAULT_BACKEND}"
+)
+
 target_include_directories(PatternsTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include

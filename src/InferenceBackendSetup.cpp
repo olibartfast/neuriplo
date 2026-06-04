@@ -1,5 +1,6 @@
 #include "InferenceBackendSetup.hpp"
 
+#include "BackendRuntimeRegistry.hpp"
 #include "decorators/LoggingBackend.hpp"
 #include "decorators/ProfilingBackend.hpp"
 
@@ -9,40 +10,6 @@
 #include <string>
 
 namespace {
-
-// Selects the concrete Abstract Factory for the backend compiled into this
-// translation unit. Only one branch is live (single-backend compile model).
-std::unique_ptr<IBackendRuntimeFactory> make_runtime_factory() {
-#ifdef USE_ONNX_RUNTIME
-    return std::make_unique<ORTRuntimeFactory>();
-#elif USE_LIBTORCH
-    return std::make_unique<LibtorchRuntimeFactory>();
-#elif USE_LIBTENSORFLOW
-    return std::make_unique<TFRuntimeFactory>();
-#elif USE_OPENCV_DNN
-    return std::make_unique<OCVDNNRuntimeFactory>();
-#elif USE_TENSORRT
-    return std::make_unique<TRTRuntimeFactory>();
-#elif USE_OPENVINO
-    return std::make_unique<OVRuntimeFactory>();
-#elif USE_GGML
-    return std::make_unique<GGMLRuntimeFactory>();
-#elif USE_TVM
-    return std::make_unique<TVMRuntimeFactory>();
-#elif USE_CACTUS
-    return std::make_unique<CactusRuntimeFactory>();
-#elif USE_MIGRAPHX
-    return std::make_unique<MIGraphXRuntimeFactory>();
-#elif USE_LLAMACPP
-    return std::make_unique<LlamaCppRuntimeFactory>();
-#elif USE_EXECUTORCH
-    return std::make_unique<ExecuTorchRuntimeFactory>();
-#elif USE_LITERT
-    return std::make_unique<LiteRTRuntimeFactory>();
-#else
-    return nullptr;
-#endif
-}
 
 // Opt-in only: defaults to false so the production path is byte-identical to
 // before unless the operator explicitly enables instrumentation.
@@ -72,17 +39,13 @@ std::unique_ptr<InferenceInterface> apply_optional_decorators(std::unique_ptr<In
 std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& model_path, bool use_gpu,
                                                            size_t batch_size,
                                                            const std::vector<std::vector<int64_t>>& input_sizes) {
-    auto factory = make_runtime_factory();
+    const BackendRuntimeRegistration* registration = get_compiled_backend_registration();
+    auto factory = create_compiled_backend_factory();
     if (!factory) {
         return nullptr;
     }
 
-    // Preserve TensorRT's historical device-placement quirk: the engine is
-    // always built for GPU regardless of the caller's use_gpu argument.
-    bool effective_use_gpu = use_gpu;
-#ifdef USE_TENSORRT
-    effective_use_gpu = true;
-#endif
+    bool effective_use_gpu = registration && registration->force_gpu ? true : use_gpu;
 
     try {
         auto backend = factory->create_backend(model_path, effective_use_gpu, batch_size, input_sizes);
