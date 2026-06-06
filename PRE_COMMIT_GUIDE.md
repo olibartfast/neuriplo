@@ -1,106 +1,82 @@
-# Pre-commit Configuration Guide
+# Pre-commit and Git Hooks
 
-This project uses [pre-commit](https://pre-commit.com/) to manage and maintain multi-language pre-commit hooks. These hooks help identify simple issues before submission to code review.
+This project uses [pre-commit](https://pre-commit.com/) for fast checks on commit and stricter checks on push. See [docs/CODE_QUALITY.md](docs/CODE_QUALITY.md) for the full toolchain (clang-format, cppcheck, clang-tidy, ASan/UBSan).
 
-## 1. Prerequisites
-
-Ensure you have Python and `pip` installed on your system.
+## Recommended setup
 
 ```bash
-python3 --version
-pip3 --version
+./scripts/quality/setup_hooks.sh
+source .venv/bin/activate   # pre-commit CLI lives in the project venv
 ```
 
-## 2. Installation
+This will:
 
-We recommend installing `pre-commit` in a virtual environment to avoid conflicts with system packages.
+1. Create `.venv` and install `pre-commit` from `requirements-dev.txt`
+2. Install hook templates into `.githooks/`
+3. Set `git config core.hooksPath .githooks`
+4. Register commit and pre-push hooks
 
-### Setting up a Virtual Environment
+## What runs when
+
+### On `git commit`
+
+- Trim trailing whitespace, fix EOF newlines
+- Validate YAML and large files
+- **clang-format** — auto-formats staged `*.cpp` / `*.hpp` under `src/`, `include/`, `backends/`
+- **cppcheck** — static analysis on staged C++ files
+
+If a hook modifies files, re-stage and commit again.
+
+### On `git push`
+
+- **clang-format** full-tree check (`--dry-run --Werror`, CI parity)
+- **cppcheck** full tree (`src/`, `backends/`)
+- **Backend docs** — `scripts/gen_backend_docs.py --check`
+
+## Manual usage
 
 ```bash
-# Create a virtual environment named .venv
-python3 -m venv .venv
-
-# Activate the virtual environment
-# On Linux/macOS:
-source .venv/bin/activate
-# On Windows:
-# .venv\Scripts\activate
+pre-commit run --all-files              # all commit-stage hooks
+pre-commit run --hook-stage pre-push    # push-stage hooks without pushing
+./scripts/quality/run.sh                # format + cppcheck without git
+./scripts/quality/run.sh --fix          # format in place
 ```
 
-### Installing pre-commit
-
-With the virtual environment activated:
-
-```bash
-pip install pre-commit
-```
-
-## 3. Configuration
-
-The configuration is managed in the `.pre-commit-config.yaml` file at the root of the repository.
-
-Example configuration:
-
-```yaml
-repos:
--   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
-    hooks:
-    -   id: trailing-whitespace
-    -   id: end-of-file-fixer
-    -   id: check-yaml
-    -   id: check-added-large-files
-```
-
-## 4. Setting up the Git Hook
-
-To set up the git hook scripts, run:
-
-```bash
-pre-commit install
-```
-
-You should see: `pre-commit installed at .git/hooks/pre-commit`.
-
-Now, `pre-commit` will run automatically on `git commit`!
-
-## 5. Usage
-
-### Automatic Usage
-When you run `git commit`, pre-commit will check the staged files.
-- If all hooks pass, the commit proceeds.
-- If a hook fails (e.g., it fixes trailing whitespace), the commit is aborted. You will need to stage the changes made by the hook (`git add <file>`) and commit again.
-
-### Manual Usage
-To run the hooks against all files in the repository (useful when setting up for the first time):
-
-```bash
-pre-commit run --all-files
-```
-
-To run against specific files:
-
-```bash
-pre-commit run --files path/to/file1 path/to/file2
-```
-
-## 6. Updating Hooks
-
-To update the versions of the hooks in your config file to the latest stable versions:
+## Updating hook versions
 
 ```bash
 pre-commit autoupdate
 ```
 
-## 7. Troubleshooting
-
-### Skipping Hooks
-In rare cases where you need to bypass the hooks (e.g., committing a file that intentionally breaks a rule), you can use the `--no-verify` flag:
+## Skipping hooks
 
 ```bash
-git commit -m "wip" --no-verify
+git commit --no-verify
+git push --no-verify
+SKIP=cppcheck-full-tree git push    # skip one hook (pre-commit SKIP env)
 ```
 
-### "Command not found"
-If you see `command not found: pre-commit` when committing, ensure you have activated your virtual environment or that `pre-commit` is in your system PATH.
+## Troubleshooting
+
+### `command not found: pre-commit`
+
+```bash
+pip install -r requirements-dev.txt
+# ensure ~/.local/bin is on PATH
+```
+
+### clang-format version mismatch
+
+CI uses `clang-format-18`. Install `clang-format-18` locally; `scripts/quality/format.sh` prefers it automatically.
+
+### cppcheck not installed
+
+```bash
+sudo apt install cppcheck
+```
+
+### Hooks not running
+
+Confirm: `git config core.hooksPath` → `.githooks` and `ls -la .githooks/pre-commit` is executable.
+
+Re-run `./scripts/quality/setup_hooks.sh` if hooks were overwritten or missing.

@@ -81,6 +81,8 @@ ExecuTorchInfer::ExecuTorchInfer(const std::string& model_path, bool use_gpu, si
 
         inference_metadata_.addOutput("output_" + std::to_string(i), to_int64_dims(output_meta->sizes()), batch_size_);
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::vector<int64_t> ExecuTorchInfer::resolve_shape(const std::vector<int64_t>& metadata_shape,

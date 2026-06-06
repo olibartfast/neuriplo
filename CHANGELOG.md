@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-07
+
+### Added
+- Design-pattern-driven backend architecture: Abstract Factory per backend
+  (`IBackendRuntimeFactory` plus a `*RuntimeFactory` for each of the 13 backends),
+  a `BackendRuntimeRegistry` for runtime factory lookup, and a `ModelRunner` bridge
+  over `InferenceInterface`.
+- Backend decorators (`CachingBackend`, `LoggingBackend`, `ProfilingBackend`,
+  `QuantizedBackend`) layered on a shared `BackendDecorator` base.
+- Explicit backend lifecycle/state model (`BackendState`) wired across all backends,
+  with lifecycle hooks added to `InferenceInterface`.
+- Tensor-conversion abstractions (`ITensorConverter`, `HostTensorConverter`,
+  `IAllocator`) and a dedicated patterns test suite (`PatternsTest.cpp`).
+- Local code-quality tooling: clang-format, clang-tidy, cppcheck, and sanitizer
+  scripts under `scripts/quality/`, pre-commit/pre-push git hooks, and
+  `docs/CODE_QUALITY.md` plus `docs/REFACTOR_DESIGN_PATTERNS.md`.
+
+### Changed
+- `setup_inference_engine` now constructs backends through the Abstract Factory
+  while preserving its existing signature and `unique_ptr<InferenceInterface>`
+  return type (cross-repo contract with neuriplo-infer unchanged).
+- Documentation now references the renamed sibling repositories
+  (`vision-inference` → `neuriplo-infer`, `vision-core` → `neuriplo-tasks`) in
+  `Readme.md` and `docs/REFACTOR_DESIGN_PATTERNS.md`.
+
+### Fixed
+- Backend load failures now set a `Failed` state and throw `ModelLoadException`
+  instead of calling `std::exit(1)`, making failures observable to callers.
+- Registered `TVMRuntimeFactory` in `setup_inference_engine` and corrected
+  `ModelRunner` Failed-state handling and decorator cache keys.
+
 ## [0.4.0] - 2026-05-28
 
 ### Added
@@ -78,7 +109,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/olibartfast/neuriplo/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/olibartfast/neuriplo/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/olibartfast/neuriplo/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/olibartfast/neuriplo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/olibartfast/neuriplo/releases/tag/v0.1.0

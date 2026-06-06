@@ -30,7 +30,8 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         module_ = torch::jit::load(model_path, device_);
     } catch (const c10::Error& e) {
         LOG(ERROR) << "Failed to load the LibTorch model: " << e.what();
-        std::exit(1);
+        state_ = BackendState::Failed;
+        throw ModelLoadException(std::string("LibTorch model load failed: ") + e.what());
     }
 
     // Process inputs
@@ -211,6 +212,8 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
             continue;
         }
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
@@ -258,7 +261,7 @@ LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
     std::vector<std::vector<int64_t>> shape_vectors;
 
     // Helper function to process a single tensor
-    auto process_tensor = [](const torch::Tensor& tensor) {
+    auto process_tensor = [this](const torch::Tensor& tensor) {
         std::vector<TensorElement> tensor_data;
         tensor_data.reserve(tensor.numel());
 
@@ -280,7 +283,9 @@ LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
         }
         default:
             LOG(ERROR) << "Unsupported tensor type: " << data_type;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported output tensor type for LibTorch: " +
+                                              std::to_string(static_cast<int>(data_type)));
         }
         return tensor_data;
     };
@@ -320,7 +325,8 @@ LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
         shape_vectors.push_back(tensor.sizes().vec());
     } else {
         LOG(ERROR) << "Unsupported output type: neither tensor, tuple, nor list";
-        std::exit(1);
+        state_ = BackendState::Failed;
+        throw InferenceExecutionException("LibTorch output is neither tensor, tuple, nor list");
     }
 
     return std::make_tuple(output_vectors, shape_vectors);
