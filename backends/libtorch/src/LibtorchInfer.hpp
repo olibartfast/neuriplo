@@ -4,6 +4,7 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 
+// Adapter: exposes the LibTorch (PyTorch C++) runtime through the common InferenceInterface contract.
 class LibtorchInfer : public InferenceInterface {
   public:
     LibtorchInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

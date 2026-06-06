@@ -3,9 +3,12 @@
 #include "InferenceInterface.hpp"
 
 #include <chrono>
+#include <cstdint>
+#include <cstring>
 #include <gmock/gmock.h>
 #include <opencv2/opencv.hpp>
 #include <random>
+#include <thread>
 
 /**
  * Mock implementation of InferenceInterface for unit testing.
@@ -21,12 +24,19 @@ class MockInferenceInterface : public InferenceInterface {
         memory_usage_mb_ = 50; // Mock memory usage
     }
 
-    // Mock the main inference method
+    // Mock the main inference method. The signature MUST match the real
+    // InferenceInterface contract (vector of raw byte tensors), otherwise this
+    // class stays abstract and silently fails to override the pure virtual.
     MOCK_METHOD((std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>),
-                get_infer_results, (const cv::Mat& input_blob), (override));
+                get_infer_results, (const std::vector<std::vector<uint8_t>>& input_tensors), (override));
 
     // Mock inference retrieval
     MOCK_METHOD(InferenceMetadata, get_inference_metadata, (), (override));
+
+    // Mock lifecycle (State pattern). Defaults emulate the legacy
+    // "constructed == ready" semantics so existing component tests keep working.
+    MOCK_METHOD(BackendState, state, (), (const, noexcept, override));
+    MOCK_METHOD(void, load, (), (override));
 
     // Mock performance methods
     MOCK_METHOD(double, get_last_inference_time_ms, (), (const, override));
@@ -37,13 +47,20 @@ class MockInferenceInterface : public InferenceInterface {
     // Helper method to set up common mock expectations
     void SetupDefaultExpectations() {
         // Default behavior for get_infer_results
-        ON_CALL(*this, get_infer_results(testing::_)).WillByDefault(testing::Invoke([this](const cv::Mat& input_blob) {
-            start_timer();
-            auto result = CreateMockInferenceResult();
-            end_timer();
-            total_inferences_++;
-            return result;
-        }));
+        ON_CALL(*this, get_infer_results(testing::_))
+            .WillByDefault(testing::Invoke([this](const std::vector<std::vector<uint8_t>>& input_tensors) {
+                (void)input_tensors;
+                start_timer();
+                auto result = CreateMockInferenceResult();
+                end_timer();
+                total_inferences_++;
+                return result;
+            }));
+
+        // Default lifecycle: behave as a backend that loaded in its constructor.
+        state_ = BackendState::Ready;
+        ON_CALL(*this, state()).WillByDefault(testing::ReturnPointee(&state_));
+        ON_CALL(*this, load()).WillByDefault(testing::Invoke([this]() { state_ = BackendState::Ready; }));
 
         // Default behavior for get_inference_metadata
         ON_CALL(*this, get_inference_metadata()).WillByDefault(testing::Return(CreateMockInferenceMetadata()));
@@ -101,18 +118,22 @@ class MockInferenceInterface : public InferenceInterface {
         using ::testing::Return;
 
         // Simulate variable performance
-        ON_CALL(*this, get_infer_results(_)).WillByDefault(Invoke([this](const cv::Mat& input_blob) {
-            start_timer();
+        ON_CALL(*this, get_infer_results(_))
+            .WillByDefault(Invoke([this](const std::vector<std::vector<uint8_t>>& input_tensors) {
+                start_timer();
 
-            // Simulate processing time based on input size
-            size_t total_pixels = input_blob.total();
-            std::this_thread::sleep_for(std::chrono::microseconds(total_pixels / 100));
+                // Simulate processing time based on total input byte count.
+                size_t total_bytes = 0;
+                for (const auto& tensor : input_tensors) {
+                    total_bytes += tensor.size();
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(total_bytes / 100));
 
-            auto result = CreateMockInferenceResult();
-            end_timer();
-            total_inferences_++;
-            return result;
-        }));
+                auto result = CreateMockInferenceResult();
+                end_timer();
+                total_inferences_++;
+                return result;
+            }));
     }
 
     void SetupMemoryLeakTestExpectations() {
@@ -120,10 +141,12 @@ class MockInferenceInterface : public InferenceInterface {
         using ::testing::Invoke;
 
         // Simulate memory usage growth
-        ON_CALL(*this, get_infer_results(_)).WillByDefault(Invoke([this](const cv::Mat& input_blob) {
-            memory_usage_mb_ += 1; // Simulate memory growth
-            return CreateMockInferenceResult();
-        }));
+        ON_CALL(*this, get_infer_results(_))
+            .WillByDefault(Invoke([this](const std::vector<std::vector<uint8_t>>& input_tensors) {
+                (void)input_tensors;
+                memory_usage_mb_ += 1; // Simulate memory growth
+                return CreateMockInferenceResult();
+            }));
     }
 
     void SetupErrorScenarios() {
@@ -169,6 +192,9 @@ class AtomicBackendTest : public ::testing::Test {
         // Create standard test input
         test_input_ = cv::Mat::zeros(224, 224, CV_32FC3);
         cv::dnn::blobFromImage(test_input_, test_blob_, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
+
+        // Byte-tensor view of the blob, matching the real get_infer_results signature.
+        test_input_tensors_ = MatToTensors(test_blob_);
     }
 
     void TearDown() override {
@@ -179,6 +205,17 @@ class AtomicBackendTest : public ::testing::Test {
     // Common test utilities
     cv::Mat test_input_;
     cv::Mat test_blob_;
+    std::vector<std::vector<uint8_t>> test_input_tensors_;
+
+    // Flatten a cv::Mat blob into the raw byte-tensor form the real
+    // InferenceInterface::get_infer_results expects.
+    static std::vector<std::vector<uint8_t>> MatToTensors(const cv::Mat& blob) {
+        std::vector<uint8_t> bytes(blob.total() * blob.elemSize());
+        if (!bytes.empty()) {
+            std::memcpy(bytes.data(), blob.data, bytes.size());
+        }
+        return {std::move(bytes)};
+    }
 
     // Validate basic inference result structure
     void ValidateInferenceResult(

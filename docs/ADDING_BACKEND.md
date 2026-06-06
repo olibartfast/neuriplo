@@ -9,11 +9,18 @@ compiled into the `neuriplo` library.
 
 Every backend should:
 
-- Derive from `InferenceInterface`.
+- Derive from `InferenceInterface` (the Adapter role: wrap a vendor SDK behind
+  the common contract).
 - Implement `get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors)`.
 - Populate `inference_metadata_` with input and output shapes.
 - Preserve the constructor shape used by `setup_inference_engine`:
   `Backend(model_path, use_gpu, batch_size, input_sizes)`.
+- Drive the lifecycle State: set `state_ = BackendState::Ready` after a
+  successful load, and `state_ = BackendState::Failed` on any load/inference
+  error. **Never call `std::exit`** — throw `ModelLoadException` for load
+  failures and `InferenceExecutionException` for runtime failures. The
+  `setup_inference_engine` facade catches `InferenceException` and returns
+  `nullptr`, which is the failure contract downstream consumers handle.
 - Validate unsupported input counts, model formats, device modes, and batch sizes
   with clear exceptions instead of silent fallback.
 - Track inference timing through the shared helper methods when practical.
@@ -24,6 +31,7 @@ For a backend named `NCNN`, add:
 
 - `backends/ncnn/src/NCNNInfer.hpp`
 - `backends/ncnn/src/NCNNInfer.cpp`
+- `backends/ncnn/src/NCNNRuntimeFactory.hpp` (Abstract Factory for this backend)
 - `backends/ncnn/test/CMakeLists.txt`
 - `backends/ncnn/test/NCNNInferTest.cpp`
 - `cmake/NCNN.cmake`
@@ -122,23 +130,53 @@ Add matrix support to `scripts/test_backends.sh`:
 - `BACKEND_TEST_EXES`
 - `check_backend_availability`
 
+## Abstract Factory
+
+Each backend ships a concrete `IBackendRuntimeFactory` that owns construction of
+its adapter together with the matching allocator and tensor converter. Create
+`backends/ncnn/src/NCNNRuntimeFactory.hpp`:
+
+```cpp
+#pragma once
+#include "HostTensorConverter.hpp"
+#include "IAllocator.hpp"
+#include "IBackendRuntimeFactory.hpp"
+#include "ITensorConverter.hpp"
+#include "NCNNInfer.hpp"
+
+class NCNNRuntimeFactory : public IBackendRuntimeFactory {
+  public:
+    std::unique_ptr<InferenceInterface> create_backend(const std::string& model_path, bool use_gpu, size_t batch_size,
+                                                       const std::vector<std::vector<int64_t>>& input_sizes) override {
+        return std::make_unique<NCNNInfer>(model_path, use_gpu, batch_size, input_sizes);
+    }
+    std::unique_ptr<IAllocator> create_allocator() override { return std::make_unique<HostAllocator>(); }
+    std::unique_ptr<ITensorConverter> create_converter() override { return std::make_unique<HostTensorConverter>(); }
+    const char* name() const noexcept override { return "NCNNRuntimeFactory"; }
+};
+```
+
 ## Factory Registration
 
-Register the backend in the factory include and constructor dispatch:
+`setup_inference_engine` selects the factory by `#ifdef`, so register the backend
+in two places. Add the include in `include/InferenceBackendSetup.hpp`:
 
 ```cpp
 #elif USE_NCNN
-#include "NCNNInfer.hpp"
+#include "NCNNRuntimeFactory.hpp"
 ```
 
-in `include/InferenceBackendSetup.hpp`, and:
+and the factory dispatch in `make_runtime_factory()` in
+`src/InferenceBackendSetup.cpp`:
 
 ```cpp
 #elif USE_NCNN
-    return std::make_unique<NCNNInfer>(model_path, use_gpu, batch_size, input_sizes);
+    return std::make_unique<NCNNRuntimeFactory>();
 ```
 
-in `src/InferenceBackendSetup.cpp`.
+The shared facade then handles eager `load()`, the `Failed`-state /
+`ModelLoadException` -> `nullptr` translation, and the opt-in decorator chain —
+no per-backend wiring is required for any of that.
 
 ## Verification
 

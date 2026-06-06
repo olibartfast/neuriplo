@@ -6,6 +6,7 @@
 
 #include <sstream>
 
+// Adapter: exposes the OpenVINO runtime through the common InferenceInterface contract.
 class OVInfer : public InferenceInterface {
   public:
     OVInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
