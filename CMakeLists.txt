@@ -8,6 +8,8 @@ string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" PROJECT_SEMVER "${PROJECT_VERSION
 
 project(neuriplo VERSION ${PROJECT_SEMVER})
 
+include(cmake/CompileSpeed.cmake)
+
 set(CMAKE_CXX_STANDARD 17)
 
 # Include centralized backend metadata before version/dependency checks.
