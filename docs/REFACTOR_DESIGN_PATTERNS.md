@@ -39,7 +39,7 @@ From `REPO_META.yaml` and `AGENTS.md`:
   caveat in Wave 3).
 - **Cross-repo contract:** `setup_inference_engine(model_path, use_gpu, batch_size,
   input_sizes) -> std::unique_ptr<InferenceInterface>` is consumed by
-  `vision-inference`. Its signature and return type **must keep working** after the
+  `neuriplo-infer`. Its signature and return type **must keep working** after the
   refactor. This is the single most important compatibility rule — and it is
   automatically satisfied because `InferenceInterface` stays the public type.
 - **Compile-time single-backend model:** only the `DEFAULT_BACKEND` is compiled
@@ -111,7 +111,7 @@ From `REPO_META.yaml` and `AGENTS.md`:
   `InferenceInterface` (no new base type to thread through).
 - The `std::exit(1)` failure path in `ORTInfer` (and similar) becomes a
   `Failed` state + thrown `ModelLoadException`. Because `ModelLoadException`
-  already exists, confirm `vision-inference` tolerates it; otherwise gate behind
+  already exists, confirm `neuriplo-infer` tolerates it; otherwise gate behind
   the facade returning `nullptr` as today.
 
 ---
@@ -311,7 +311,7 @@ mechanism.
 
 ### S5.2 — Replace `std::exit(1)` with `Failed` + exception  · deps: S5.1
 - Edit `ORTInfer` (and any other backend using `std::exit`) to set `Failed` and
-  throw `ModelLoadException`. Verify `vision-inference` tolerance first; if not,
+  throw `ModelLoadException`. Verify `neuriplo-infer` tolerance first; if not,
   keep the facade translating to `nullptr` return.
 - Accept: load failure is observable via `state()==Failed`; no process exit.
 
@@ -362,7 +362,7 @@ ctest --test-dir build --output-on-failure
 
 Behavioral parity bar:
 - `NEURIPLO_BACKEND_IDS` unchanged; `-DDEFAULT_BACKEND` unchanged.
-- `setup_inference_engine` signature/return unchanged; `vision-inference` builds.
+- `setup_inference_engine` signature/return unchanged; `neuriplo-infer` builds.
 - ORT EP selection + CUDA→ROCm fallback + TRT GPU override identical.
 - No new entries in `versions.env`; no new linked libraries.
 
@@ -372,7 +372,7 @@ Behavioral parity bar:
 
 | Risk | Mitigation |
 |---|---|
-| Breaking cross-repo `setup_inference_engine` contract | Return type stays `unique_ptr<InferenceInterface>`; facade preserves "constructed = ready"; CI-build `vision-inference` against the branch. |
+| Breaking cross-repo `setup_inference_engine` contract | Return type stays `unique_ptr<InferenceInterface>`; facade preserves "constructed = ready"; CI-build `neuriplo-infer` against the branch. |
 | Accidental device-placement change (ORT/TRT) | Byte-for-byte preserve selection blocks; dedicated guard tests in S2.2/S2.5. |
 | `QuantizedBackend` crossing `inference-logic-change` line | Opt-in only, exact passthrough default, mandatory human review. |
 | Compile-time single-backend model vs runtime factory mismatch | Document that factory family is `#ifdef`-selected; no runtime registry added. |
