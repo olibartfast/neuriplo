@@ -39,8 +39,9 @@ if(USE_LIBTORCH)
     # Add LibTorch-specific flags, including ${TORCH_CXX_FLAGS}
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 else()
-    # If LibTorch is not enabled, set common optimization flags
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ffast-math")
+    # Keep aggressive optimization on release profiles only.
+    string(APPEND CMAKE_CXX_FLAGS_RELEASE " -O3 -ffast-math")
+    string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -O2")
 endif()
 
 # Set debug flags
