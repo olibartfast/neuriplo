@@ -9,12 +9,15 @@ class OCVDNNInfer : public InferenceInterface {
     std::string outLayerType_;
     std::vector<std::string> outNames_;
 
+    std::vector<cv::Mat> run_forward(const std::vector<std::vector<uint8_t>>& input_tensors);
+
   public:
     OCVDNNInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
                 const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
 
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
+    std::vector<RawOutputTensor> get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
     bool isCudaBuildEnabled() {
         std::string buildInfo = cv::getBuildInformation();
