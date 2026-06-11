@@ -34,21 +34,45 @@ std::unique_ptr<InferenceInterface> apply_optional_decorators(std::unique_ptr<In
     return backend;
 }
 
+std::string registered_backend_ids() {
+    std::string ids;
+    for (const BackendRuntimeRegistration& registration : get_registered_backends()) {
+        if (!ids.empty()) {
+            ids += ", ";
+        }
+        ids += registration.id;
+    }
+    return ids;
+}
+
 } // namespace
 
-std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& model_path, bool use_gpu,
-                                                           size_t batch_size,
-                                                           const std::vector<std::vector<int64_t>>& input_sizes) {
-    const BackendRuntimeRegistration* registration = get_compiled_backend_registration();
-    auto factory = create_compiled_backend_factory();
+std::unique_ptr<InferenceInterface> setup_inference_engine(const EngineOptions& options) {
+    const BackendRuntimeRegistration* registration = nullptr;
+    if (options.backend_id.empty()) {
+        registration = get_compiled_backend_registration();
+    } else {
+        registration = find_backend_registration(options.backend_id);
+        if (!registration) {
+            LOG(ERROR) << "setup_inference_engine: backend '" << options.backend_id
+                       << "' is not compiled into this build; available backends: " << registered_backend_ids();
+            return nullptr;
+        }
+    }
+
+    if (!registration || !registration->create_factory) {
+        return nullptr;
+    }
+    auto factory = registration->create_factory();
     if (!factory) {
         return nullptr;
     }
 
-    bool effective_use_gpu = registration && registration->force_gpu ? true : use_gpu;
+    bool effective_use_gpu = registration->force_gpu ? true : options.use_gpu;
 
     try {
-        auto backend = factory->create_backend(model_path, effective_use_gpu, batch_size, input_sizes);
+        auto backend =
+            factory->create_backend(options.model_path, effective_use_gpu, options.batch_size, options.input_sizes);
         if (!backend) {
             return nullptr;
         }
@@ -61,7 +85,7 @@ std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& mo
         // confirms the Ready state.
         backend->load();
         if (backend->state() == BackendState::Failed) {
-            LOG(ERROR) << "setup_inference_engine: backend failed to load model '" << model_path << "'";
+            LOG(ERROR) << "setup_inference_engine: backend failed to load model '" << options.model_path << "'";
             return nullptr;
         }
 
@@ -71,5 +95,21 @@ std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& mo
         // consumers already handle, instead of terminating the process.
         LOG(ERROR) << "setup_inference_engine: " << e.what();
         return nullptr;
+    } catch (const std::exception& e) {
+        // Vendor SDKs throw their own exception types on load failure (e.g.
+        // cv::Exception for an unreadable model file); honor the same contract.
+        LOG(ERROR) << "setup_inference_engine: " << e.what();
+        return nullptr;
     }
+}
+
+std::unique_ptr<InferenceInterface> setup_inference_engine(const std::string& model_path, bool use_gpu,
+                                                           size_t batch_size,
+                                                           const std::vector<std::vector<int64_t>>& input_sizes) {
+    EngineOptions options;
+    options.model_path = model_path;
+    options.use_gpu = use_gpu;
+    options.batch_size = batch_size;
+    options.input_sizes = input_sizes;
+    return setup_inference_engine(options);
 }

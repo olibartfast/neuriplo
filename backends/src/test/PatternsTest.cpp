@@ -11,6 +11,7 @@
 #include "HostTensorConverter.hpp"
 #include "IAllocator.hpp"
 #include "ITensorConverter.hpp"
+#include "InferenceBackendSetup.hpp"
 #include "InferenceInterface.hpp"
 #include "ModelRunner.hpp"
 #include "decorators/CachingBackend.hpp"
@@ -117,6 +118,59 @@ TEST(BackendRuntimeRegistryTest, CreatesFactoryAndRuntimeProducts) {
     EXPECT_STRNE(factory->name(), "");
     EXPECT_NE(factory->create_allocator(), nullptr);
     EXPECT_NE(factory->create_converter(), nullptr);
+}
+
+TEST(BackendRuntimeRegistryTest, ListsEveryCompiledBackend) {
+    const auto& registrations = get_registered_backends();
+    ASSERT_FALSE(registrations.empty());
+    bool found_default = false;
+    for (const auto& registration : registrations) {
+        ASSERT_NE(registration.id, nullptr);
+        ASSERT_NE(registration.create_factory, nullptr);
+        if (std::string_view(registration.id) == NEURIPLO_DEFAULT_BACKEND) {
+            found_default = true;
+        }
+    }
+    EXPECT_TRUE(found_default);
+}
+
+TEST(BackendRuntimeRegistryTest, EveryRegisteredFactoryProducesRuntimeProducts) {
+    // With several backends compiled in, all of them must be instantiable in
+    // the same process (factories, allocators, converters need no model file).
+    for (const auto& registration : get_registered_backends()) {
+        auto factory = registration.create_factory();
+        ASSERT_NE(factory, nullptr) << registration.id;
+        EXPECT_NE(factory->create_allocator(), nullptr) << registration.id;
+        EXPECT_NE(factory->create_converter(), nullptr) << registration.id;
+    }
+}
+
+TEST(BackendRuntimeRegistryTest, FindsRegistrationById) {
+    const BackendRuntimeRegistration* registration = find_backend_registration(NEURIPLO_DEFAULT_BACKEND);
+    ASSERT_NE(registration, nullptr);
+    EXPECT_STREQ(registration->id, NEURIPLO_DEFAULT_BACKEND);
+    EXPECT_EQ(find_backend_registration("NOT_A_BACKEND"), nullptr);
+}
+
+TEST(EngineOptionsSetupTest, UnknownBackendIdReturnsNull) {
+    EngineOptions options;
+    options.model_path = "/nonexistent/model";
+    options.backend_id = "NOT_A_BACKEND";
+    EXPECT_EQ(setup_inference_engine(options), nullptr);
+}
+
+TEST(EngineOptionsSetupTest, ExplicitDefaultIdMatchesEmptyIdDispatch) {
+    // Both ids resolve to the same registration; neither can load a missing
+    // model, so both honor the nullptr error contract through the same path.
+    EngineOptions explicit_id;
+    explicit_id.model_path = "/nonexistent/model";
+    explicit_id.backend_id = NEURIPLO_DEFAULT_BACKEND;
+
+    EngineOptions empty_id;
+    empty_id.model_path = "/nonexistent/model";
+
+    EXPECT_EQ(setup_inference_engine(explicit_id), nullptr);
+    EXPECT_EQ(setup_inference_engine(empty_id), nullptr);
 }
 
 // ---------------------------------------------------------------------------
