@@ -9,6 +9,11 @@ set(NEURIPLO_PLUGIN_BACKENDS "" CACHE STRING
 
 set(NEURIPLO_PLUGIN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/plugins")
 
+# neuriplo may be built standalone or via add_subdirectory (e.g. from
+# neuriplo-kserve-runtime), so resolve sources against this repo's root
+# rather than CMAKE_SOURCE_DIR.
+set(NEURIPLO_PLUGIN_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
+
 function(neuriplo_add_backend_plugin backend)
     neuriplo_is_supported_backend("${backend}" plugin_backend_supported)
     if(NOT plugin_backend_supported)
@@ -26,22 +31,22 @@ function(neuriplo_add_backend_plugin backend)
     set(target "neuriplo_backend_${backend_lower}")
 
     set(entry_file "${CMAKE_BINARY_DIR}/plugin_entries/${backend_lower}_entry.cpp")
-    configure_file("${CMAKE_SOURCE_DIR}/cmake/plugin_entry.cpp.in" "${entry_file}" @ONLY)
+    configure_file("${NEURIPLO_PLUGIN_REPO_ROOT}/cmake/plugin_entry.cpp.in" "${entry_file}" @ONLY)
 
-    file(GLOB backend_sources "${CMAKE_SOURCE_DIR}/${backend_source_dir}/*.cpp")
+    file(GLOB backend_sources "${NEURIPLO_PLUGIN_REPO_ROOT}/${backend_source_dir}/*.cpp")
 
     add_library(${target} MODULE
         ${entry_file}
         ${backend_sources}
-        ${CMAKE_SOURCE_DIR}/backends/src/InferenceInterface.cpp
-        ${CMAKE_SOURCE_DIR}/backends/src/InferenceMetadata.cpp
+        ${NEURIPLO_PLUGIN_REPO_ROOT}/backends/src/InferenceInterface.cpp
+        ${NEURIPLO_PLUGIN_REPO_ROOT}/backends/src/InferenceMetadata.cpp
     )
 
     target_include_directories(${target} PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/backends/src
-        ${CMAKE_SOURCE_DIR}/backends/src/plugin
-        ${CMAKE_SOURCE_DIR}/${backend_source_dir}
+        ${NEURIPLO_PLUGIN_REPO_ROOT}/include
+        ${NEURIPLO_PLUGIN_REPO_ROOT}/backends/src
+        ${NEURIPLO_PLUGIN_REPO_ROOT}/backends/src/plugin
+        ${NEURIPLO_PLUGIN_REPO_ROOT}/${backend_source_dir}
         ${OpenCV_INCLUDE_DIRS}
         ${GLOG_INCLUDE_DIRS}
     )
@@ -60,7 +65,7 @@ function(neuriplo_add_backend_plugin backend)
         PREFIX "lib"
     )
     target_link_options(${target} PRIVATE
-        "-Wl,--version-script=${CMAKE_SOURCE_DIR}/cmake/plugin_export.map"
+        "-Wl,--version-script=${NEURIPLO_PLUGIN_REPO_ROOT}/cmake/plugin_export.map"
         "-Wl,--exclude-libs,ALL"
     )
 

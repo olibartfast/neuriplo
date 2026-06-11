@@ -34,7 +34,7 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
     outNames_ = net_.getUnconnectedOutLayersNames();
 
     if (input_sizes.empty()) {
-        throw("With OpenCV DNN backend, input sizes must be specified");
+        throw std::runtime_error("With OpenCV DNN backend, input sizes must be specified");
     }
 
     for (size_t i = 0; i < input_sizes.size(); i++) {
