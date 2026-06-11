@@ -171,6 +171,41 @@ TEST(PluginLoaderTest, ServesIdentityModelThroughPlugin) {
     }
 }
 
+TEST(PluginLoaderTest, RawOutputsMatchVariantOutputsThroughPlugin) {
+    EngineOptions options;
+    options.model_path = write_identity_model();
+    options.backend_id = "ONNX_RUNTIME";
+    options.plugin_dir = plugin_dir();
+
+    auto engine = setup_inference_engine(options);
+    ASSERT_NE(engine, nullptr);
+
+    constexpr size_t element_count = 1 * 3 * 4 * 4;
+    std::vector<float> values(element_count);
+    for (size_t i = 0; i < element_count; ++i) {
+        values[i] = static_cast<float>(i) * 0.5F;
+    }
+    std::vector<uint8_t> input_bytes(element_count * sizeof(float));
+    std::memcpy(input_bytes.data(), values.data(), input_bytes.size());
+
+    const auto raw = engine->get_infer_results_raw({input_bytes});
+    ASSERT_EQ(raw.size(), 1u);
+    EXPECT_EQ(raw[0].dtype, TensorDtype::FP32);
+    EXPECT_EQ(raw[0].shape, (std::vector<int64_t>{1, 3, 4, 4}));
+    ASSERT_EQ(raw[0].element_count(), element_count);
+
+    // Identity model: raw bytes must round-trip the input exactly.
+    EXPECT_EQ(std::memcmp(raw[0].bytes.data(), input_bytes.data(), input_bytes.size()), 0);
+
+    auto [outputs, shapes] = engine->get_infer_results({input_bytes});
+    ASSERT_EQ(outputs.size(), 1u);
+    ASSERT_EQ(outputs[0].size(), element_count);
+    const auto* raw_floats = reinterpret_cast<const float*>(raw[0].bytes.data());
+    for (size_t i = 0; i < element_count; ++i) {
+        EXPECT_FLOAT_EQ(std::get<float>(outputs[0][i]), raw_floats[i]) << "element " << i;
+    }
+}
+
 TEST(PluginLoaderTest, UnknownBackendStillFailsCleanly) {
     EngineOptions options;
     options.model_path = "/nonexistent/model";
