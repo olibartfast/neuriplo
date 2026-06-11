@@ -36,6 +36,10 @@ GGMLInfer::GGMLInfer(const std::string& model_path, bool use_gpu, size_t batch_s
         state_ = BackendState::Ready;
 
     } catch (const std::exception& e) {
+        if (backend_) {
+            ggml_backend_free(backend_);
+            backend_ = nullptr;
+        }
         if (ctx_) {
             ggml_free(ctx_);
             ctx_ = nullptr;
