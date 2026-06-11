@@ -412,6 +412,79 @@ TEST(HostTensorConverterTest, HandlesEmptyAndNull) {
     EXPECT_TRUE(conv.from_backend(nullptr, 4, TensorDataType::Int32).empty());
 }
 
+// ---------------------------------------------------------------------------
+// Raw output API (get_infer_results_raw)
+// ---------------------------------------------------------------------------
+
+// Homogeneous outputs (one FP32 tensor, one INT64 tensor) so the default
+// variant-flattening adapter has well-defined dtypes to produce.
+class HomogeneousFakeBackend : public InferenceInterface {
+  public:
+    HomogeneousFakeBackend() : InferenceInterface("fake_model", false, 1, {}) { state_ = BackendState::Ready; }
+
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+    get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override {
+        (void)input_tensors;
+        ++call_count_;
+        std::vector<std::vector<TensorElement>> outputs;
+        outputs.push_back({1.5f, -2.0f, 3.25f});
+        outputs.push_back({static_cast<int64_t>(10), static_cast<int64_t>(-20)});
+        std::vector<std::vector<int64_t>> shapes;
+        shapes.push_back({3});
+        shapes.push_back({2});
+        return std::make_tuple(outputs, shapes);
+    }
+
+    int call_count_ = 0;
+};
+
+TEST(RawOutputApiTest, DefaultAdapterFlattensVariantsToTypedBytes) {
+    HomogeneousFakeBackend backend;
+    const auto raw = backend.get_infer_results_raw(make_input());
+
+    ASSERT_EQ(raw.size(), 2u);
+
+    EXPECT_EQ(raw[0].dtype, TensorDtype::FP32);
+    EXPECT_EQ(raw[0].shape, (std::vector<int64_t>{3}));
+    ASSERT_EQ(raw[0].element_count(), 3u);
+    float floats[3];
+    std::memcpy(floats, raw[0].bytes.data(), sizeof(floats));
+    EXPECT_FLOAT_EQ(floats[0], 1.5f);
+    EXPECT_FLOAT_EQ(floats[1], -2.0f);
+    EXPECT_FLOAT_EQ(floats[2], 3.25f);
+
+    EXPECT_EQ(raw[1].dtype, TensorDtype::INT64);
+    EXPECT_EQ(raw[1].shape, (std::vector<int64_t>{2}));
+    ASSERT_EQ(raw[1].element_count(), 2u);
+    int64_t ints[2];
+    std::memcpy(ints, raw[1].bytes.data(), sizeof(ints));
+    EXPECT_EQ(ints[0], 10);
+    EXPECT_EQ(ints[1], -20);
+}
+
+TEST(RawOutputApiTest, DefaultAdapterRejectsMixedElementTypes) {
+    // FakeBackend's canned output mixes int32 and float in one tensor.
+    FakeBackend backend;
+    backend.load();
+    EXPECT_THROW(backend.get_infer_results_raw(make_input()), InferenceExecutionException);
+}
+
+TEST(RawOutputApiTest, RawPathKeepsDecoratorAugmentations) {
+    auto fake = std::make_unique<HomogeneousFakeBackend>();
+    HomogeneousFakeBackend* inner = fake.get();
+    CachingBackend cached(std::move(fake));
+
+    const auto first = cached.get_infer_results_raw(make_input());
+    const auto second = cached.get_infer_results_raw(make_input());
+
+    // The raw default routes through the decorator's variant path, so the
+    // second call is a cache hit and the inner backend runs exactly once.
+    EXPECT_EQ(inner->call_count_, 1);
+    ASSERT_EQ(second.size(), first.size());
+    EXPECT_EQ(second[0].bytes, first[0].bytes);
+    EXPECT_EQ(second[1].bytes, first[1].bytes);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

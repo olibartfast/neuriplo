@@ -49,44 +49,13 @@ struct BackendHandle {
     }
 };
 
-// Converts one homogeneous TensorElement vector into a typed contiguous
-// buffer. Returns false when the tensor mixes element types.
-inline bool flatten_tensor(const std::vector<TensorElement>& elements, std::vector<uint8_t>& bytes,
-                           neuriplo_dtype_t& dtype) {
-    if (elements.empty()) {
-        dtype = NEURIPLO_DTYPE_FP32;
-        bytes.clear();
-        return true;
-    }
+// TensorDtype values mirror the ABI enum, so the conversion is a cast.
+static_assert(static_cast<int>(TensorDtype::FP32) == NEURIPLO_DTYPE_FP32, "dtype enums must mirror the ABI");
+static_assert(static_cast<int>(TensorDtype::INT32) == NEURIPLO_DTYPE_INT32, "dtype enums must mirror the ABI");
+static_assert(static_cast<int>(TensorDtype::INT64) == NEURIPLO_DTYPE_INT64, "dtype enums must mirror the ABI");
+static_assert(static_cast<int>(TensorDtype::UINT8) == NEURIPLO_DTYPE_UINT8, "dtype enums must mirror the ABI");
 
-    const size_t alternative = elements.front().index();
-    auto flatten = [&](auto sample, neuriplo_dtype_t tag) {
-        using Element = decltype(sample);
-        bytes.resize(elements.size() * sizeof(Element));
-        auto* typed = reinterpret_cast<Element*>(bytes.data());
-        for (size_t i = 0; i < elements.size(); ++i) {
-            if (elements[i].index() != alternative) {
-                return false;
-            }
-            typed[i] = std::get<Element>(elements[i]);
-        }
-        dtype = tag;
-        return true;
-    };
-
-    switch (alternative) {
-    case 0:
-        return flatten(float{}, NEURIPLO_DTYPE_FP32);
-    case 1:
-        return flatten(int32_t{}, NEURIPLO_DTYPE_INT32);
-    case 2:
-        return flatten(int64_t{}, NEURIPLO_DTYPE_INT64);
-    case 3:
-        return flatten(uint8_t{}, NEURIPLO_DTYPE_UINT8);
-    default:
-        return false;
-    }
-}
+inline neuriplo_dtype_t to_abi_dtype(TensorDtype dtype) { return static_cast<neuriplo_dtype_t>(dtype); }
 
 template <typename Factory>
 neuriplo_backend_t* plugin_create(const neuriplo_engine_options_t* options, const neuriplo_host_services_t* host,
@@ -197,7 +166,7 @@ inline int plugin_infer(neuriplo_backend_t* backend, const neuriplo_input_buffer
             input_tensors.emplace_back(inputs[i].data, inputs[i].data + inputs[i].size_bytes);
         }
 
-        auto [outputs, shapes] = handle->backend->get_infer_results(input_tensors);
+        std::vector<RawOutputTensor> outputs = handle->backend->get_infer_results_raw(input_tensors);
 
         handle->output_bytes.clear();
         handle->output_shapes.clear();
@@ -206,18 +175,12 @@ inline int plugin_infer(neuriplo_backend_t* backend, const neuriplo_input_buffer
         handle->output_shapes.reserve(outputs.size());
         handle->output_tensors.reserve(outputs.size());
 
-        for (size_t i = 0; i < outputs.size(); ++i) {
-            std::vector<uint8_t> bytes;
-            neuriplo_dtype_t dtype = NEURIPLO_DTYPE_FP32;
-            if (!flatten_tensor(outputs[i], bytes, dtype)) {
-                write_error(error, error_size, "output tensor mixes element types");
-                return 1;
-            }
-            handle->output_bytes.push_back(std::move(bytes));
-            handle->output_shapes.push_back(i < shapes.size() ? shapes[i] : std::vector<int64_t>{});
+        for (RawOutputTensor& output : outputs) {
+            handle->output_bytes.push_back(std::move(output.bytes));
+            handle->output_shapes.push_back(std::move(output.shape));
 
             neuriplo_output_tensor_t tensor{};
-            tensor.dtype = dtype;
+            tensor.dtype = to_abi_dtype(output.dtype);
             tensor.data = handle->output_bytes.back().data();
             tensor.size_bytes = handle->output_bytes.back().size();
             tensor.shape = handle->output_shapes.back().data();
