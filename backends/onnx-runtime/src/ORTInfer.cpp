@@ -514,14 +514,10 @@ size_t ORTInfer::getSizeByDim(const std::vector<int64_t>& dims) {
     return size;
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+std::vector<Ort::Value> ORTInfer::run_session(const std::vector<std::vector<uint8_t>>& input_tensors) {
 
     const auto& inputs = inference_metadata_.getInputs();
     const auto& outputs = inference_metadata_.getOutputs();
-
-    std::vector<std::vector<TensorElement>> output_tensors;
-    std::vector<std::vector<int64_t>> shapes;
 
     // Create Ort tensors from input data
     // We assume input_tensors[i] already contains the data in the correct layout (e.g. float/int bytes)
@@ -632,12 +628,20 @@ ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
     std::transform(outputs.begin(), outputs.end(), output_names_char.begin(),
                    [](const LayerInfo& layer) { return layer.name.c_str(); });
 
-    std::vector<Ort::Value> output_ort_tensors =
-        session_.Run(Ort::RunOptions{nullptr}, input_names_char.data(), in_ort_tensors.data(), in_ort_tensors.size(),
-                     output_names_char.data(), outputs.size());
+    return session_.Run(Ort::RunOptions{nullptr}, input_names_char.data(), in_ort_tensors.data(), in_ort_tensors.size(),
+                        output_names_char.data(), outputs.size());
+}
+
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+
+    std::vector<Ort::Value> output_ort_tensors = run_session(input_tensors);
+
+    std::vector<std::vector<TensorElement>> output_tensors;
+    std::vector<std::vector<int64_t>> shapes;
 
     // Process output tensors
-    assert(output_ort_tensors.size() == outputs.size());
+    assert(output_ort_tensors.size() == inference_metadata_.getOutputs().size());
 
     for (const Ort::Value& output_tensor : output_ort_tensors) {
         const auto& shape_ref = output_tensor.GetTensorTypeAndShapeInfo().GetShape();
@@ -679,4 +683,55 @@ ORTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
     }
 
     return std::make_tuple(output_tensors, shapes);
+}
+
+std::vector<RawOutputTensor> ORTInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
+
+    std::vector<Ort::Value> output_ort_tensors = run_session(input_tensors);
+
+    std::vector<RawOutputTensor> raw_outputs;
+    raw_outputs.reserve(output_ort_tensors.size());
+
+    for (const Ort::Value& output_tensor : output_ort_tensors) {
+        const auto& shape_ref = output_tensor.GetTensorTypeAndShapeInfo().GetShape();
+
+        size_t num_elements = 1;
+        for (int64_t dim : shape_ref) {
+            num_elements *= dim;
+        }
+
+        RawOutputTensor raw;
+        raw.shape.assign(shape_ref.begin(), shape_ref.end());
+
+        // Copy the typed output buffer once, as bytes; no per-element boxing.
+        auto copy_bytes = [&](const void* data, size_t element_size, TensorDtype dtype) {
+            raw.dtype = dtype;
+            const auto* bytes = static_cast<const uint8_t*>(data);
+            raw.bytes.assign(bytes, bytes + num_elements * element_size);
+        };
+
+        const int onnx_type = output_tensor.GetTensorTypeAndShapeInfo().GetElementType();
+        switch (onnx_type) {
+        case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+            copy_bytes(output_tensor.GetTensorData<float>(), sizeof(float), TensorDtype::FP32);
+            break;
+        case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+            copy_bytes(output_tensor.GetTensorData<int32_t>(), sizeof(int32_t), TensorDtype::INT32);
+            break;
+        case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+            copy_bytes(output_tensor.GetTensorData<int64_t>(), sizeof(int64_t), TensorDtype::INT64);
+            break;
+        case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+            copy_bytes(output_tensor.GetTensorData<uint8_t>(), sizeof(uint8_t), TensorDtype::UINT8);
+            break;
+        default:
+            LOG(ERROR) << "Unsupported tensor type: " << onnx_type;
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported output tensor type for ORT: " + std::to_string(onnx_type));
+        }
+
+        raw_outputs.push_back(std::move(raw));
+    }
+
+    return raw_outputs;
 }

@@ -131,8 +131,9 @@ class PluginBackendAdapter final : public InferenceInterface {
     PluginBackendAdapter(const PluginBackendAdapter&) = delete;
     PluginBackendAdapter& operator=(const PluginBackendAdapter&) = delete;
 
-    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-    get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override {
+    // Primary path: one ABI call, outputs copied once as typed bytes.
+    std::vector<RawOutputTensor>
+    get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) override {
         std::vector<neuriplo_input_buffer_t> buffers;
         buffers.reserve(input_tensors.size());
         for (const auto& tensor : input_tensors) {
@@ -154,15 +155,33 @@ class PluginBackendAdapter final : public InferenceInterface {
                                               " plugin: " + (error[0] != '\0' ? error : "inference failed"));
         }
 
-        std::vector<std::vector<TensorElement>> outputs;
-        std::vector<std::vector<int64_t>> shapes;
+        std::vector<RawOutputTensor> outputs;
         outputs.reserve(count);
-        shapes.reserve(count);
         for (size_t i = 0; i < count; ++i) {
-            outputs.push_back(to_elements(tensors[i]));
-            shapes.emplace_back(tensors[i].shape, tensors[i].shape + tensors[i].ndim);
+            RawOutputTensor output;
+            output.dtype = static_cast<TensorDtype>(tensors[i].dtype);
+            const auto* data = static_cast<const uint8_t*>(tensors[i].data);
+            output.bytes.assign(data, data + tensors[i].size_bytes);
+            output.shape.assign(tensors[i].shape, tensors[i].shape + tensors[i].ndim);
+            outputs.push_back(std::move(output));
         }
         descriptor_.api->release_outputs(handle_, tensors, count);
+        return outputs;
+    }
+
+    // Legacy variant view, derived from the raw path.
+    std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+    get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override {
+        std::vector<RawOutputTensor> raw_outputs = get_infer_results_raw(input_tensors);
+
+        std::vector<std::vector<TensorElement>> outputs;
+        std::vector<std::vector<int64_t>> shapes;
+        outputs.reserve(raw_outputs.size());
+        shapes.reserve(raw_outputs.size());
+        for (RawOutputTensor& raw : raw_outputs) {
+            outputs.push_back(to_elements(raw));
+            shapes.push_back(std::move(raw.shape));
+        }
         return std::make_tuple(std::move(outputs), std::move(shapes));
     }
 
@@ -184,28 +203,28 @@ class PluginBackendAdapter final : public InferenceInterface {
         }
     }
 
-    static std::vector<TensorElement> to_elements(const neuriplo_output_tensor_t& tensor) {
+    static std::vector<TensorElement> to_elements(const RawOutputTensor& tensor) {
         std::vector<TensorElement> elements;
         auto widen = [&](auto sample) {
             using Element = decltype(sample);
-            const auto* typed = reinterpret_cast<const Element*>(tensor.data);
-            const size_t count = tensor.size_bytes / sizeof(Element);
+            const auto* typed = reinterpret_cast<const Element*>(tensor.bytes.data());
+            const size_t count = tensor.bytes.size() / sizeof(Element);
             elements.reserve(count);
             for (size_t i = 0; i < count; ++i) {
                 elements.emplace_back(typed[i]);
             }
         };
         switch (tensor.dtype) {
-        case NEURIPLO_DTYPE_FP32:
+        case TensorDtype::FP32:
             widen(float{});
             break;
-        case NEURIPLO_DTYPE_INT32:
+        case TensorDtype::INT32:
             widen(int32_t{});
             break;
-        case NEURIPLO_DTYPE_INT64:
+        case TensorDtype::INT64:
             widen(int64_t{});
             break;
-        case NEURIPLO_DTYPE_UINT8:
+        case TensorDtype::UINT8:
             widen(uint8_t{});
             break;
         }

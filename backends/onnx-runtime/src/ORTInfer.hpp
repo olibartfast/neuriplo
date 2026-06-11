@@ -19,10 +19,12 @@ class ORTInfer : public InferenceInterface {
     static bool isProviderBuildEnabled(const std::string& provider_alias);
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
+    std::vector<RawOutputTensor> get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
   private:
     Ort::Env env_;
     Ort::Session session_{nullptr};
+    std::vector<Ort::Value> run_session(const std::vector<std::vector<uint8_t>>& input_tensors);
     static std::string getDataTypeString(ONNXTensorElementDataType type);
 
     template <typename T>
