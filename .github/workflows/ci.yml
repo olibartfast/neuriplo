@@ -226,6 +226,7 @@ jobs:
               -DCMAKE_BUILD_TYPE=Debug \
               -DBUILD_INFERENCE_ENGINE_TESTS=ON >/dev/null 2>&1
             cmake --build /app/build --clean-first --parallel
+            export LSAN_OPTIONS=suppressions=/app/scripts/quality/lsan-suppressions.txt:print_suppressions=0
             ctest --test-dir /app/build --output-on-failure
           '
 
