@@ -21,7 +21,7 @@ endfunction()
 
 # Function to validate ONNX Runtime
 function(validate_onnx_runtime)
-    if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("ONNX_RUNTIME" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("ONNX Runtime" "${ONNX_RUNTIME_DIR}")
         
         # Check for required files
@@ -42,7 +42,7 @@ endfunction()
 
 # Function to validate TensorRT
 function(validate_tensorrt)
-    if("TENSORRT" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("TENSORRT" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("TensorRT" "${TENSORRT_DIR}")
         
         # Check for required files
@@ -63,7 +63,7 @@ endfunction()
 
 # Function to validate LibTorch
 function(validate_libtorch)
-    if("LIBTORCH" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("LIBTORCH" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("LibTorch" "${LIBTORCH_DIR}")
         
         # Check for CMake configuration
@@ -77,7 +77,7 @@ endfunction()
 
 # Function to validate OpenVINO
 function(validate_openvino)
-    if("OPENVINO" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("OPENVINO" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("OpenVINO" "${OPENVINO_DIR}")
         
         # Check for required files
@@ -98,7 +98,7 @@ endfunction()
 
 # Function to validate MIGraphX
 function(validate_migraphx)
-    if("MIGRAPHX" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("MIGRAPHX" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("MIGraphX root" "${MIGRAPHX_ROOT}")
 
         list(APPEND CMAKE_PREFIX_PATH "${MIGRAPHX_ROOT}")
@@ -110,7 +110,7 @@ endfunction()
 
 # Function to validate CUDA/ROCm (if GPU support is requested)
 function(validate_cuda)
-    if("TENSORRT" IN_LIST NEURIPLO_ENABLED_BACKENDS OR "ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS OR "GGML" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("TENSORRT" IN_LIST NEURIPLO_REQUESTED_BACKENDS OR "ONNX_RUNTIME" IN_LIST NEURIPLO_REQUESTED_BACKENDS OR "GGML" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         find_package(CUDA QUIET)
         if(CUDA_FOUND)
             message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
@@ -177,7 +177,7 @@ function(validate_all_dependencies)
     
     validate_system_dependencies()
     
-    # Each validator self-guards on NEURIPLO_ENABLED_BACKENDS, so validating
+    # Each validator self-guards on NEURIPLO_REQUESTED_BACKENDS, so validating
     # every enabled backend is just calling them all.
     validate_opencv_dnn()
     validate_onnx_runtime()
@@ -214,7 +214,7 @@ function(print_setup_instructions)
     message(STATUS "If inference backend dependencies are missing, run the following commands:")
     message(STATUS "")
     
-    if("OPENCV_DNN" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("OPENCV_DNN" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         message(STATUS "  OpenCV DNN is included with OpenCV installation")
         message(STATUS "  Ensure OpenCV is installed with DNN module support")
     else()
@@ -229,7 +229,7 @@ endfunction()
 
 # Function to validate OpenCV DNN
 function(validate_opencv_dnn)
-    if("OPENCV_DNN" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("OPENCV_DNN" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         # OpenCV is already validated in validate_system_dependencies()
         # Just check that DNN module is available
         find_package(OpenCV REQUIRED)
@@ -245,7 +245,7 @@ endfunction()
 
 # Function to validate LibTensorFlow
 function(validate_libtensorflow)
-    if("LIBTENSORFLOW" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("LIBTENSORFLOW" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         # Add cmake modules path to find our custom FindTensorFlow.cmake
         list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
         
@@ -265,7 +265,7 @@ endfunction()
 
 # Function to validate GGML
 function(validate_ggml)
-    if("GGML" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("GGML" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("GGML" "${GGML_DIR}")
         
         # Check for required files
@@ -286,7 +286,7 @@ function(validate_ggml)
 endfunction()
 
 function(validate_tvm)
-    if("TVM" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("TVM" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("TVM" "${TVM_DIR}")
         
         # Check for required files - try multiple possible header paths for different TVM versions
@@ -326,7 +326,7 @@ endfunction()
 
 # Function to validate llama.cpp
 function(validate_llamacpp)
-    if("LLAMACPP" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("LLAMACPP" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("llama.cpp" "${LLAMACPP_DIR}")
 
         set(required_files
@@ -353,7 +353,7 @@ endfunction()
 
 # Function to validate ExecuTorch
 function(validate_executorch)
-    if("EXECUTORCH" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("EXECUTORCH" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("ExecuTorch" "${EXECUTORCH_DIR}")
 
         set(required_files
@@ -373,7 +373,7 @@ endfunction()
 
 # Function to validate LiteRT
 function(validate_litert)
-    if("LITERT" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("LITERT" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("LiteRT" "${LITERT_DIR}")
 
         set(required_files
@@ -396,7 +396,7 @@ endfunction()
 
 # Function to validate Cactus
 function(validate_cactus)
-    if("CACTUS" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    if("CACTUS" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
         validate_dependency("Cactus" "${CACTUS_DIR}")
 
         set(required_files

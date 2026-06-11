@@ -67,6 +67,18 @@ endforeach()
 neuriplo_check_backend_conflicts("${NEURIPLO_ENABLED_BACKENDS}")
 message(STATUS "Enabled backends: ${NEURIPLO_ENABLED_BACKENDS}")
 
+# Backends built as dlopen plugins (cmake/PluginBackends.cmake). Declared here
+# so dependency validation can cover plugin backends as well; plugins are
+# dependency-isolated at runtime (RTLD_LOCAL), so the conflict ban only applies
+# to the compiled-in set.
+set(NEURIPLO_PLUGIN_BACKENDS "" CACHE STRING
+    "Semicolon-separated backend ids to build as dlopen plugins")
+set(NEURIPLO_REQUESTED_BACKENDS ${NEURIPLO_ENABLED_BACKENDS} ${NEURIPLO_PLUGIN_BACKENDS})
+list(REMOVE_DUPLICATES NEURIPLO_REQUESTED_BACKENDS)
+if(NEURIPLO_PLUGIN_BACKENDS)
+    message(STATUS "Plugin backends: ${NEURIPLO_PLUGIN_BACKENDS}")
+endif()
+
 set(INFER_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/backends)
 
 # Validate dependencies before proceeding
@@ -78,6 +90,7 @@ set(SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/InferenceInterface.cpp
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/InferenceMetadata.cpp
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/ModelRunner.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/backends/src/plugin/PluginLoader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/InferenceBackendSetup.cpp)
 
 include(SelectBackend)
@@ -95,6 +108,7 @@ target_include_directories(neuriplo PRIVATE
 target_link_libraries(neuriplo PRIVATE
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
+    ${CMAKE_DL_LIBS}
 )
 
 # The registry resolves the default registration by id when several backends
@@ -102,6 +116,7 @@ target_link_libraries(neuriplo PRIVATE
 target_compile_definitions(neuriplo PRIVATE NEURIPLO_DEFAULT_BACKEND="${DEFAULT_BACKEND}")
 
 include(LinkBackend)
+include(PluginBackends)
 include(SetCompilerFlags)
 
 # Add GoogleTest
