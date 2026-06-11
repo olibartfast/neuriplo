@@ -166,3 +166,33 @@ ctx_params.n_ctx = 8192;
 a new VLM, inspect `llama_vocab_is_eog()` results and the model's vocabulary to confirm
 which token strings map to the correct IDs. Never assume `llama_chat_apply_template`
 handles multimodal turn structure correctly for complex instruct models.
+
+---
+
+## Docker Buildx bootstrap timeout (Docker Hub flake)
+
+**Symptom:** A CPU/lint/sanitizer Docker job fails at `Set up Docker Buildx` with:
+
+```
+ERROR: Error response from daemon: Get "https://registry-1.docker.io/v2/":
+net/http: request canceled while waiting for connection
+(Client.Timeout exceeded while awaiting headers)
+```
+
+The log shows Buildx bootstrapping and pulling `moby/buildkit:buildx-stable-1`.
+
+**Root cause:** Transient Docker Hub / network flake while bootstrapping the
+`docker-container` Buildx driver. Not a Dockerfile or backend bug — other jobs in the
+same run (e.g. `Sanitizers / ONNX_RUNTIME`) may succeed while one matrix cell fails.
+
+**Side effect:** `build-and-test-cpu` uses `fail-fast: true`, so one flaky Buildx failure
+cancels the remaining backend matrix jobs.
+
+**Fix:**
+- CI uses `.github/actions/setup-buildx-retry`: retries pull + bootstrap up to 3 times
+  with 30s backoff (same pattern as `nick-fields/retry` on `docker buildx build`).
+- Re-run failed jobs once the workflow run has **finished** (`gh run rerun … --failed`).
+  Rerun is rejected while the run is still `in_progress`.
+
+**Key insight:** **Retry Buildx setup, not just the image build.** The build step already
+had retry; the bootstrap pull did not.
