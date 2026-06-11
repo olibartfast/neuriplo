@@ -7,4 +7,6 @@ enable_testing()
 # of which backend is selected, since they only use the common interface.
 add_subdirectory("${CMAKE_SOURCE_DIR}/backends/src/test")
 
-neuriplo_add_backend_tests("${DEFAULT_BACKEND}")
+foreach(neuriplo_enabled_backend IN LISTS NEURIPLO_ENABLED_BACKENDS)
+    neuriplo_add_backend_tests("${neuriplo_enabled_backend}")
+endforeach()

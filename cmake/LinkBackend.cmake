@@ -1,29 +1,31 @@
-# Include framework-specific source files and libraries
-if (DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
+# Include directories and libraries for every enabled backend. Each branch is
+# scoped to one backend so any subset can be linked into the same target.
+function(neuriplo_link_backend backend)
+if (backend STREQUAL "OPENCV_DNN")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/opencv-dnn/src)
-elseif (DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
+elseif (backend STREQUAL "ONNX_RUNTIME")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${ONNX_RUNTIME_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/onnx-runtime/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/lib)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so)
-elseif (DEFAULT_BACKEND STREQUAL "LIBTORCH")
+elseif (backend STREQUAL "LIBTORCH")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/libtorch/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${TORCH_LIBRARIES})
     target_compile_definitions(${PROJECT_NAME} PRIVATE C10_USE_GLOG)
-elseif (DEFAULT_BACKEND STREQUAL "TENSORRT")
+elseif (backend STREQUAL "TENSORRT")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE /usr/local/cuda/include ${TENSORRT_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/tensorrt/src)
     target_link_directories(${PROJECT_NAME} PRIVATE  /usr/local/cuda/lib64 ${TENSORRT_DIR}/lib)
     target_link_libraries(${PROJECT_NAME} PRIVATE nvinfer nvonnxparser cudart)
-elseif(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW" )
+elseif(backend STREQUAL "LIBTENSORFLOW" )
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${TensorFlow_INCLUDE_DIR})
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/libtensorflow/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${TensorFlow_CC_LIBRARY} ${TensorFlow_FRAMEWORK_LIBRARY})
-elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
+elseif(backend STREQUAL "OPENVINO")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${InferenceEngine_INCLUDE_DIRS})
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/openvino/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE openvino::runtime )
-elseif(DEFAULT_BACKEND STREQUAL "GGML")
+elseif(backend STREQUAL "GGML")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${GGML_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/ggml/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${GGML_DIR}/lib)
@@ -32,7 +34,7 @@ elseif(DEFAULT_BACKEND STREQUAL "GGML")
         ${GGML_DIR}/lib/libggml-cpu.so
         ${GGML_DIR}/lib/libggml-blas.so
     )
-elseif(DEFAULT_BACKEND STREQUAL "TVM")
+elseif(backend STREQUAL "TVM")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE 
         ${TVM_DIR}/include 
         ${TVM_DIR}/3rdparty/dmlc-core/include
@@ -49,16 +51,16 @@ elseif(DEFAULT_BACKEND STREQUAL "TVM")
     target_compile_options(${PROJECT_NAME} PRIVATE 
         $<$<COMPILE_LANGUAGE:CXX>:-Wno-macro-redefined>
         $<$<COMPILE_LANGUAGE:CXX>:-w>)
-elseif(DEFAULT_BACKEND STREQUAL "CACTUS")
+elseif(backend STREQUAL "CACTUS")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${CACTUS_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/cactus/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${CACTUS_DIR}/lib)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${CACTUS_DIR}/lib/libcactus.so)
-elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
+elseif(backend STREQUAL "MIGRAPHX")
     target_include_directories(${PROJECT_NAME} PRIVATE
         ${INFER_ROOT}/migraphx/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE migraphx::c)
-elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
+elseif(backend STREQUAL "LLAMACPP")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LLAMACPP_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/llamacpp/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${LLAMACPP_DIR}/lib)
@@ -86,7 +88,7 @@ elseif(DEFAULT_BACKEND STREQUAL "LLAMACPP")
     target_link_options(${PROJECT_NAME} PRIVATE
         "-Wl,-rpath-link,${LLAMACPP_DIR}/lib"
         "-Wl,-rpath,${LLAMACPP_DIR}/lib")
-elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
+elseif(backend STREQUAL "EXECUTORCH")
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/executorch/src)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         executorch
@@ -95,9 +97,14 @@ elseif(DEFAULT_BACKEND STREQUAL "EXECUTORCH")
         portable_ops_lib
         portable_kernels
     )
-elseif(DEFAULT_BACKEND STREQUAL "LITERT")
+elseif(backend STREQUAL "LITERT")
     target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${LITERT_DIR}/include)
     target_include_directories(${PROJECT_NAME} PRIVATE ${INFER_ROOT}/litert/src)
     target_link_directories(${PROJECT_NAME} PRIVATE ${LITERT_DIR}/lib)
     target_link_libraries(${PROJECT_NAME} PRIVATE ${LITERT_LINK_LIBRARIES})
 endif()
+endfunction()
+
+foreach(neuriplo_enabled_backend IN LISTS NEURIPLO_ENABLED_BACKENDS)
+    neuriplo_link_backend("${neuriplo_enabled_backend}")
+endforeach()

@@ -71,6 +71,27 @@ set(NEURIPLO_BACKEND_LITERT_MODULE LiteRT)
 set(NEURIPLO_BACKEND_LITERT_TEST_DIR backends/litert/test)
 set(NEURIPLO_BACKEND_LITERT_VERSION_VAR LITERT_VERSION)
 
+# Backend pairs that must not be compiled into the same binary because they
+# ship conflicting shared dependencies (LLAMACPP and GGML both bundle libggml*
+# at different versions). Format: "A+B".
+set(NEURIPLO_BACKEND_CONFLICTS
+    "LLAMACPP+GGML"
+)
+
+function(neuriplo_check_backend_conflicts backends)
+    foreach(conflict IN LISTS NEURIPLO_BACKEND_CONFLICTS)
+        string(REPLACE "+" ";" conflict_pair "${conflict}")
+        list(GET conflict_pair 0 first)
+        list(GET conflict_pair 1 second)
+        if(first IN_LIST backends AND second IN_LIST backends)
+            message(FATAL_ERROR
+                "Backends ${first} and ${second} cannot be enabled together: "
+                "they ship conflicting shared dependencies. Pick one, or load "
+                "one of them as a plugin once plugin builds are available.")
+        endif()
+    endforeach()
+endfunction()
+
 function(neuriplo_get_supported_backends out_var)
     set(${out_var} ${NEURIPLO_BACKEND_IDS} PARENT_SCOPE)
 endfunction()

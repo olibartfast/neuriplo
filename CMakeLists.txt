@@ -49,6 +49,24 @@ endif()
 
 message(STATUS "Default backend: ${DEFAULT_BACKEND}")
 
+# Backends compiled into this build. DEFAULT_BACKEND stays the runtime default
+# and is always included, so single-backend callers are unaffected.
+set(NEURIPLO_BACKENDS "${DEFAULT_BACKEND}" CACHE STRING
+    "Semicolon-separated backend ids to compile into this build")
+set(NEURIPLO_ENABLED_BACKENDS ${NEURIPLO_BACKENDS})
+if(NOT DEFAULT_BACKEND IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    list(PREPEND NEURIPLO_ENABLED_BACKENDS "${DEFAULT_BACKEND}")
+endif()
+list(REMOVE_DUPLICATES NEURIPLO_ENABLED_BACKENDS)
+foreach(enabled_backend IN LISTS NEURIPLO_ENABLED_BACKENDS)
+    neuriplo_is_supported_backend("${enabled_backend}" enabled_backend_supported)
+    if(NOT enabled_backend_supported)
+        message(FATAL_ERROR "Unsupported backend in NEURIPLO_BACKENDS: ${enabled_backend}")
+    endif()
+endforeach()
+neuriplo_check_backend_conflicts("${NEURIPLO_ENABLED_BACKENDS}")
+message(STATUS "Enabled backends: ${NEURIPLO_ENABLED_BACKENDS}")
+
 set(INFER_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/backends)
 
 # Validate dependencies before proceeding
@@ -78,6 +96,10 @@ target_link_libraries(neuriplo PRIVATE
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
 )
+
+# The registry resolves the default registration by id when several backends
+# are compiled in; with one backend this matches the old single-entry behavior.
+target_compile_definitions(neuriplo PRIVATE NEURIPLO_DEFAULT_BACKEND="${DEFAULT_BACKEND}")
 
 include(LinkBackend)
 include(SetCompilerFlags)
