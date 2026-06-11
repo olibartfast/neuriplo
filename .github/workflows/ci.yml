@@ -87,7 +87,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -147,7 +148,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -197,7 +199,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -302,7 +305,7 @@ jobs:
           docker system prune -af
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -352,7 +355,7 @@ jobs:
           docker system prune -af
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -385,7 +388,7 @@ jobs:
           docker system prune -af
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
