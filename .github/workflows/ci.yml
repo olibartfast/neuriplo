@@ -83,9 +83,7 @@ jobs:
 
       - name: Free disk space
         if: ${{ !env.ACT }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune -af
+        uses: ./.github/actions/free-disk-space
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
@@ -144,9 +142,7 @@ jobs:
 
       - name: Free disk space
         if: ${{ !env.ACT }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune -af
+        uses: ./.github/actions/free-disk-space
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
@@ -195,9 +191,7 @@ jobs:
 
       - name: Free disk space
         if: ${{ !env.ACT }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune -af
+        uses: ./.github/actions/free-disk-space
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
@@ -300,9 +294,7 @@ jobs:
 
       - name: Free disk space
         if: ${{ !env.ACT }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune -af
+        uses: ./.github/actions/free-disk-space
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
@@ -350,9 +342,7 @@ jobs:
 
       - name: Free disk space
         if: ${{ !env.ACT }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune -af
+        uses: ./.github/actions/free-disk-space
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
@@ -383,9 +373,7 @@ jobs:
 
       - name: Free disk space
         if: ${{ !env.ACT }}
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune -af
+        uses: ./.github/actions/free-disk-space
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
