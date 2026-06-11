@@ -62,7 +62,8 @@ cmake -S . -B "$BUILD_DIR" \
 cmake --build "$BUILD_DIR" --parallel
 
 if [[ "$RUN_TESTS" -eq 1 ]]; then
-    ctest --test-dir "$BUILD_DIR" --output-on-failure
+    LSAN_OPTIONS="suppressions=$ROOT/scripts/quality/lsan-suppressions.txt:print_suppressions=0" \
+        ctest --test-dir "$BUILD_DIR" --output-on-failure
 fi
 
 echo "[sanitizers] Passed."

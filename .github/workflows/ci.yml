@@ -87,7 +87,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -147,7 +148,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -197,7 +199,8 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -226,6 +229,7 @@ jobs:
               -DCMAKE_BUILD_TYPE=Debug \
               -DBUILD_INFERENCE_ENGINE_TESTS=ON >/dev/null 2>&1
             cmake --build /app/build --clean-first --parallel
+            export LSAN_OPTIONS=suppressions=/app/scripts/quality/lsan-suppressions.txt:print_suppressions=0
             ctest --test-dir /app/build --output-on-failure
           '
 
@@ -301,7 +305,7 @@ jobs:
           docker system prune -af
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -351,7 +355,7 @@ jobs:
           docker system prune -af
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -384,7 +388,7 @@ jobs:
           docker system prune -af
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
