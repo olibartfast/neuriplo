@@ -85,6 +85,26 @@ size_t TRTInfer::getSizeByDim(const nvinfer1::Dims& dims) {
     return size;
 }
 
+TensorDataType TRTInfer::toTensorDataType(nvinfer1::DataType type) {
+    switch (type) {
+    case nvinfer1::DataType::kFLOAT:
+        return TensorDataType::Float32;
+    case nvinfer1::DataType::kINT32:
+        return TensorDataType::Int32;
+    case nvinfer1::DataType::kINT64:
+        return TensorDataType::Int64;
+    case nvinfer1::DataType::kINT8:
+        return TensorDataType::Int8;
+    case nvinfer1::DataType::kBOOL:
+        return TensorDataType::Bool;
+    case nvinfer1::DataType::kUINT8:
+        return TensorDataType::UInt8;
+    default:
+        throw ModelLoadException("Unsupported TensorRT tensor element type for metadata datatype: " +
+                                 std::to_string(static_cast<int>(type)));
+    }
+}
+
 void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int64_t>>& input_sizes) {
     context_ = engine_->createExecutionContext();
     int num_tensors = engine_->getNbIOTensors();
@@ -434,7 +454,8 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 }
             }
         }
-        inference_metadata_.addInput(tensor_name, shape, batch_size_);
+        inference_metadata_.addInput(tensor_name, shape, batch_size_,
+                                     toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 
     // Process output tensors
@@ -455,6 +476,7 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 shape.push_back(dims.d[j]);
             }
         }
-        inference_metadata_.addOutput(tensor_name, shape, batch_size_);
+        inference_metadata_.addOutput(tensor_name, shape, batch_size_,
+                                      toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 }
