@@ -1,15 +1,11 @@
 #pragma once
 
 #include "InferenceInterface.hpp"
+#include "TensorDataType.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-
-// Element kinds handled across the codebase when translating between raw input
-// bytes and neuriplo's TensorElement variant. Mirrors the types backends
-// currently branch on when interpreting tensor data.
-enum class TensorDataType { Float32, Int32, Int64, UInt8, Int8, Bool };
 
 // Pure-virtual abstraction over the raw-bytes <-> typed-tensor conversion that
 // backends (e.g. ORTInfer) currently inline. Interface only: this step defines
