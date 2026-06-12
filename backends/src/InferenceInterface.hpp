@@ -8,25 +8,7 @@ using TensorElement = std::variant<float, int32_t, int64_t, uint8_t>;
 
 #include "BackendState.hpp"
 #include "InferenceMetadata.hpp"
-
-// Element type tags for raw typed output buffers. Values mirror
-// neuriplo_dtype_t in include/neuriplo/plugin_abi.h. Distinct from
-// TensorDataType (ITensorConverter.hpp), which describes wire formats that
-// widen on decode (Int8 -> Int32, Bool -> UInt8).
-enum class TensorDtype : uint8_t { FP32 = 0, INT32 = 1, INT64 = 2, UINT8 = 3 };
-
-constexpr size_t tensor_dtype_size(TensorDtype dtype) noexcept {
-    switch (dtype) {
-    case TensorDtype::FP32:
-    case TensorDtype::INT32:
-        return 4;
-    case TensorDtype::INT64:
-        return 8;
-    case TensorDtype::UINT8:
-        return 1;
-    }
-    return 0;
-}
+#include "TensorDtype.hpp"
 
 // One inference output as a typed contiguous native-endian byte buffer.
 struct RawOutputTensor {

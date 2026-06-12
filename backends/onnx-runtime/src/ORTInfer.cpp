@@ -332,7 +332,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         }
 
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
-        inference_metadata_.addInput(name, shapes, batch_size);
+        inference_metadata_.addInput(name, shapes, batch_size, inputTensorDataType(input_type));
 
         std::string input_type_str = getDataTypeString(input_type);
         LOG(INFO) << "\tData Type: " << input_type_str;
@@ -355,9 +355,10 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         auto type_info = session_.GetOutputTypeInfo(i);
         auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
         auto shapes = tensor_info.GetShape();
+        auto output_type = tensor_info.GetElementType();
         shapes[0] = shapes[0] == -1 ? batch_size : shapes[0];
         LOG(INFO) << "\t" << name << " : " << print_shape(shapes);
-        inference_metadata_.addOutput(name, shapes, batch_size);
+        inference_metadata_.addOutput(name, shapes, batch_size, outputTensorDataType(output_type));
     }
 
     state_ = BackendState::Ready;
@@ -492,6 +493,44 @@ std::string ORTInfer::getDataTypeString(ONNXTensorElementDataType type) {
         return "Int64";
     default:
         return "Unknown";
+    }
+}
+
+TensorDataType ORTInfer::inputTensorDataType(ONNXTensorElementDataType type) {
+    switch (type) {
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+        return TensorDataType::Float32;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+        return TensorDataType::Int32;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+        return TensorDataType::Int64;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+        return TensorDataType::UInt8;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+        return TensorDataType::Int8;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+        return TensorDataType::Bool;
+    default:
+        throw std::runtime_error("Unsupported ONNX input tensor element type for metadata datatype: " +
+                                 std::to_string(static_cast<int>(type)));
+    }
+}
+
+TensorDataType ORTInfer::outputTensorDataType(ONNXTensorElementDataType type) {
+    // Mirror get_infer_results_raw(): outputs are emitted only as these element
+    // kinds, so advertise nothing the infer path cannot actually produce.
+    switch (type) {
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+        return TensorDataType::Float32;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+        return TensorDataType::Int32;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+        return TensorDataType::Int64;
+    case ONNXTensorElementDataType::ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+        return TensorDataType::UInt8;
+    default:
+        throw std::runtime_error("Unsupported ONNX output tensor element type for metadata datatype: " +
+                                 std::to_string(static_cast<int>(type)));
     }
 }
 
