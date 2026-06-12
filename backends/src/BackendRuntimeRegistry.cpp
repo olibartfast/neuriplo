@@ -2,32 +2,45 @@
 
 #ifdef USE_ONNX_RUNTIME
 #include "ORTRuntimeFactory.hpp"
-#elif USE_LIBTORCH
+#endif
+#ifdef USE_LIBTORCH
 #include "LibtorchRuntimeFactory.hpp"
-#elif USE_LIBTENSORFLOW
+#endif
+#ifdef USE_LIBTENSORFLOW
 #include "TFRuntimeFactory.hpp"
-#elif USE_OPENCV_DNN
+#endif
+#ifdef USE_OPENCV_DNN
 #include "OCVDNNRuntimeFactory.hpp"
-#elif USE_TENSORRT
+#endif
+#ifdef USE_TENSORRT
 #include "TRTRuntimeFactory.hpp"
-#elif USE_OPENVINO
+#endif
+#ifdef USE_OPENVINO
 #include "OVRuntimeFactory.hpp"
-#elif USE_GGML
+#endif
+#ifdef USE_GGML
 #include "GGMLRuntimeFactory.hpp"
-#elif USE_TVM
+#endif
+#ifdef USE_TVM
 #include "TVMRuntimeFactory.hpp"
-#elif USE_CACTUS
+#endif
+#ifdef USE_CACTUS
 #include "CactusRuntimeFactory.hpp"
-#elif USE_MIGRAPHX
+#endif
+#ifdef USE_MIGRAPHX
 #include "MIGraphXRuntimeFactory.hpp"
-#elif USE_LLAMACPP
+#endif
+#ifdef USE_LLAMACPP
 #include "LlamaCppRuntimeFactory.hpp"
-#elif USE_EXECUTORCH
+#endif
+#ifdef USE_EXECUTORCH
 #include "ExecuTorchRuntimeFactory.hpp"
-#elif USE_LITERT
+#endif
+#ifdef USE_LITERT
 #include "LiteRTRuntimeFactory.hpp"
 #endif
 
+#include <cstring>
 #include <memory>
 
 namespace {
@@ -36,53 +49,79 @@ template <typename Factory> std::unique_ptr<IBackendRuntimeFactory> make_factory
     return std::make_unique<Factory>();
 }
 
-const BackendRuntimeRegistration* selected_registration() noexcept {
+// Single TU holding every compiled-in registration. Backends are appended under
+// independent USE_* guards so any subset can coexist in one build; intentionally
+// not self-registering static initializers, which the linker may drop from
+// static/object libraries.
+std::vector<BackendRuntimeRegistration> build_registrations() {
+    std::vector<BackendRuntimeRegistration> registrations;
 #ifdef USE_ONNX_RUNTIME
-    static const BackendRuntimeRegistration registration{"ONNX_RUNTIME", "ONNX Runtime",
-                                                         &make_factory<ORTRuntimeFactory>, false};
-#elif USE_LIBTORCH
-    static const BackendRuntimeRegistration registration{"LIBTORCH", "LibTorch", &make_factory<LibtorchRuntimeFactory>,
-                                                         false};
-#elif USE_LIBTENSORFLOW
-    static const BackendRuntimeRegistration registration{"LIBTENSORFLOW", "TensorFlow", &make_factory<TFRuntimeFactory>,
-                                                         false};
-#elif USE_OPENCV_DNN
-    static const BackendRuntimeRegistration registration{"OPENCV_DNN", "OpenCV DNN",
-                                                         &make_factory<OCVDNNRuntimeFactory>, false};
-#elif USE_TENSORRT
-    static const BackendRuntimeRegistration registration{"TENSORRT", "TensorRT", &make_factory<TRTRuntimeFactory>,
-                                                         true};
-#elif USE_OPENVINO
-    static const BackendRuntimeRegistration registration{"OPENVINO", "OpenVINO", &make_factory<OVRuntimeFactory>,
-                                                         false};
-#elif USE_GGML
-    static const BackendRuntimeRegistration registration{"GGML", "GGML", &make_factory<GGMLRuntimeFactory>, false};
-#elif USE_TVM
-    static const BackendRuntimeRegistration registration{"TVM", "TVM", &make_factory<TVMRuntimeFactory>, false};
-#elif USE_CACTUS
-    static const BackendRuntimeRegistration registration{"CACTUS", "Cactus", &make_factory<CactusRuntimeFactory>,
-                                                         false};
-#elif USE_MIGRAPHX
-    static const BackendRuntimeRegistration registration{"MIGRAPHX", "MIGraphX", &make_factory<MIGraphXRuntimeFactory>,
-                                                         false};
-#elif USE_LLAMACPP
-    static const BackendRuntimeRegistration registration{"LLAMACPP", "llama.cpp", &make_factory<LlamaCppRuntimeFactory>,
-                                                         false};
-#elif USE_EXECUTORCH
-    static const BackendRuntimeRegistration registration{"EXECUTORCH", "ExecuTorch",
-                                                         &make_factory<ExecuTorchRuntimeFactory>, false};
-#elif USE_LITERT
-    static const BackendRuntimeRegistration registration{"LITERT", "LiteRT", &make_factory<LiteRTRuntimeFactory>,
-                                                         false};
-#else
-    return nullptr;
+    registrations.push_back({"ONNX_RUNTIME", "ONNX Runtime", &make_factory<ORTRuntimeFactory>, false});
 #endif
-    return &registration;
+#ifdef USE_LIBTORCH
+    registrations.push_back({"LIBTORCH", "LibTorch", &make_factory<LibtorchRuntimeFactory>, false});
+#endif
+#ifdef USE_LIBTENSORFLOW
+    registrations.push_back({"LIBTENSORFLOW", "TensorFlow", &make_factory<TFRuntimeFactory>, false});
+#endif
+#ifdef USE_OPENCV_DNN
+    registrations.push_back({"OPENCV_DNN", "OpenCV DNN", &make_factory<OCVDNNRuntimeFactory>, false});
+#endif
+#ifdef USE_TENSORRT
+    registrations.push_back({"TENSORRT", "TensorRT", &make_factory<TRTRuntimeFactory>, true});
+#endif
+#ifdef USE_OPENVINO
+    registrations.push_back({"OPENVINO", "OpenVINO", &make_factory<OVRuntimeFactory>, false});
+#endif
+#ifdef USE_GGML
+    registrations.push_back({"GGML", "GGML", &make_factory<GGMLRuntimeFactory>, false});
+#endif
+#ifdef USE_TVM
+    registrations.push_back({"TVM", "TVM", &make_factory<TVMRuntimeFactory>, false});
+#endif
+#ifdef USE_CACTUS
+    registrations.push_back({"CACTUS", "Cactus", &make_factory<CactusRuntimeFactory>, false});
+#endif
+#ifdef USE_MIGRAPHX
+    registrations.push_back({"MIGRAPHX", "MIGraphX", &make_factory<MIGraphXRuntimeFactory>, false});
+#endif
+#ifdef USE_LLAMACPP
+    registrations.push_back({"LLAMACPP", "llama.cpp", &make_factory<LlamaCppRuntimeFactory>, false});
+#endif
+#ifdef USE_EXECUTORCH
+    registrations.push_back({"EXECUTORCH", "ExecuTorch", &make_factory<ExecuTorchRuntimeFactory>, false});
+#endif
+#ifdef USE_LITERT
+    registrations.push_back({"LITERT", "LiteRT", &make_factory<LiteRTRuntimeFactory>, false});
+#endif
+    return registrations;
 }
 
 } // namespace
 
-const BackendRuntimeRegistration* get_compiled_backend_registration() noexcept { return selected_registration(); }
+const std::vector<BackendRuntimeRegistration>& get_registered_backends() noexcept {
+    static const std::vector<BackendRuntimeRegistration> registrations = build_registrations();
+    return registrations;
+}
+
+const BackendRuntimeRegistration* find_backend_registration(std::string_view id) noexcept {
+    for (const BackendRuntimeRegistration& registration : get_registered_backends()) {
+        if (id == registration.id) {
+            return &registration;
+        }
+    }
+    return nullptr;
+}
+
+const BackendRuntimeRegistration* get_compiled_backend_registration() noexcept {
+#ifdef NEURIPLO_DEFAULT_BACKEND
+    if (const BackendRuntimeRegistration* registration = find_backend_registration(NEURIPLO_DEFAULT_BACKEND)) {
+        return registration;
+    }
+#endif
+    const std::vector<BackendRuntimeRegistration>& registrations = get_registered_backends();
+    return registrations.empty() ? nullptr : &registrations.front();
+}
 
 const char* compiled_backend_id() noexcept {
     const BackendRuntimeRegistration* registration = get_compiled_backend_registration();

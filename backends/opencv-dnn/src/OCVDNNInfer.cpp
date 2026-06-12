@@ -1,5 +1,7 @@
 #include "OCVDNNInfer.hpp"
 
+#include <cstring>
+
 OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                          const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
@@ -34,7 +36,7 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
     outNames_ = net_.getUnconnectedOutLayersNames();
 
     if (input_sizes.empty()) {
-        throw("With OpenCV DNN backend, input sizes must be specified");
+        throw std::runtime_error("With OpenCV DNN backend, input sizes must be specified");
     }
 
     for (size_t i = 0; i < input_sizes.size(); i++) {
@@ -50,8 +52,7 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
     state_ = BackendState::Ready;
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+std::vector<cv::Mat> OCVDNNInfer::run_forward(const std::vector<std::vector<uint8_t>>& input_tensors) {
 
     // OpenCV DNN backend currently supports only single input models
     if (input_tensors.size() != 1) {
@@ -87,13 +88,19 @@ OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
 
     cv::Mat blob(mat_size.size(), mat_size.data(), CV_32F, const_cast<uint8_t*>(input_data.data()));
 
-    std::vector<std::vector<TensorElement>> outputs;
-    std::vector<std::vector<int64_t>> shapes;
-
     std::vector<cv::Mat> outs;
     net_.setInput(blob);
     net_.forward(outs, outNames_);
+    return outs;
+}
 
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+
+    const std::vector<cv::Mat> outs = run_forward(input_tensors);
+
+    std::vector<std::vector<TensorElement>> outputs;
+    std::vector<std::vector<int64_t>> shapes;
     outputs.reserve(outs.size());
     shapes.reserve(outs.size());
 
@@ -128,4 +135,44 @@ OCVDNNInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
     }
 
     return std::make_tuple(outputs, shapes);
+}
+
+std::vector<RawOutputTensor>
+OCVDNNInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
+
+    const std::vector<cv::Mat> outs = run_forward(input_tensors);
+
+    std::vector<RawOutputTensor> raw_outputs;
+    raw_outputs.reserve(outs.size());
+
+    for (const auto& output : outs) {
+        // forward() allocates fresh, continuous Mats; clone defensively if not.
+        const cv::Mat contiguous = output.isContinuous() ? output : output.clone();
+
+        RawOutputTensor raw;
+        raw.shape.reserve(contiguous.dims);
+        for (int j = 0; j < contiguous.dims; ++j) {
+            raw.shape.push_back(contiguous.size[j]);
+        }
+
+        raw.dtype = TensorDtype::FP32;
+        const size_t num_elements = contiguous.total();
+        raw.bytes.resize(num_elements * sizeof(float));
+        auto* typed = reinterpret_cast<float*>(raw.bytes.data());
+
+        if (contiguous.type() == CV_32F) {
+            std::memcpy(raw.bytes.data(), contiguous.ptr<float>(), raw.bytes.size());
+        } else if (contiguous.type() == CV_64F) {
+            const double* data = contiguous.ptr<double>();
+            for (size_t j = 0; j < num_elements; ++j) {
+                typed[j] = static_cast<float>(data[j]);
+            }
+        } else {
+            throw std::runtime_error("Unsupported data type in OCVDNNInfer::get_infer_results_raw");
+        }
+
+        raw_outputs.push_back(std::move(raw));
+    }
+
+    return raw_outputs;
 }
