@@ -64,6 +64,12 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
 
     // Deserialize engine
     engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
+    if (!engine_) {
+        state_ = BackendState::Failed;
+        throw std::runtime_error("Failed to deserialize TensorRT engine (plan built with an "
+                                 "incompatible TensorRT version?): " +
+                                 engine_path);
+    }
     createContextAndAllocateBuffers(input_sizes);
 }
 

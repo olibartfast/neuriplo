@@ -26,6 +26,11 @@ class BackendDecorator : public InferenceInterface {
         return inner_->get_infer_results(input_tensors);
     }
 
+    // get_infer_results_raw is deliberately NOT forwarded to inner_: the base
+    // default routes through this->get_infer_results(), so subclasses that
+    // augment the variant path (caching, quantization, ...) keep their
+    // behavior on the raw path too.
+
     InferenceMetadata get_inference_metadata() override { return inner_->get_inference_metadata(); }
 
     BackendState state() const noexcept override { return inner_->state(); }
