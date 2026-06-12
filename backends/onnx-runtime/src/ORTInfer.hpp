@@ -26,6 +26,15 @@ class ORTInfer : public InferenceInterface {
     Ort::Session session_{nullptr};
     std::vector<Ort::Value> run_session(const std::vector<std::vector<uint8_t>>& input_tensors);
     static std::string getDataTypeString(ONNXTensorElementDataType type);
+    // Map an ONNX Runtime element type to the neuriplo TensorDataType carried in
+    // InferenceMetadata so non-FP32 tensors survive the serving metadata
+    // boundary. Both throw (rather than silently reporting FP32) for element
+    // types the corresponding data path does not support.
+    //
+    // Inputs accept every type run_session() can build a tensor for; outputs are
+    // limited to the element kinds get_infer_results_raw() can emit.
+    static TensorDataType inputTensorDataType(ONNXTensorElementDataType type);
+    static TensorDataType outputTensorDataType(ONNXTensorElementDataType type);
 
     template <typename T>
     void processTensorData(std::vector<TensorElement>& tensor_data, const T* data, size_t num_elements) {
