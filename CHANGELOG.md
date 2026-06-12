@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-12
+
+### Added
+- Multi-backend builds: the `NEURIPLO_BACKENDS` CMake list compiles several
+  backends into one library, with runtime lookup through
+  `BackendRuntimeRegistry` (`get_registered_backends`,
+  `find_backend_registration`) and a new `EngineOptions` overload of
+  `setup_inference_engine` for explicit backend selection. Single-backend
+  `DEFAULT_BACKEND` builds are unchanged.
+- dlopen backend plugins behind a stable C ABI
+  (`include/neuriplo/plugin_abi.h`): per-backend
+  `libneuriplo_backend_<id>.so` targets via `NEURIPLO_PLUGIN_BACKENDS`, a
+  generic plugin shim over existing backend factories, and an
+  `RTLD_LOCAL` host loader with ABI version checks and
+  `NEURIPLO_PLUGIN_DIR` discovery. Plugin dependency conflicts (e.g.
+  llama.cpp + GGML) are isolated per plugin.
+- Raw typed-buffer output API: `RawOutputTensor{dtype, bytes, shape}` and
+  `InferenceInterface::get_infer_results_raw`, letting consumers receive
+  outputs as typed contiguous bytes instead of per-element `TensorElement`
+  variants. ONNX Runtime and OpenCV-DNN override the raw path; the default
+  implementation adapts `get_infer_results()` so all other backends keep
+  working unchanged.
+- Optional ccache support to speed up non-release builds.
+- Library roadmap (`ROADMAP.md`) and the ORT execution-provider plan
+  (`docs/plans/ort-execution-providers.md`).
+
+### Fixed
+- GGML backend frees its backend handle on constructor failure.
+- Hardened backend failure paths and plugin builds when consumed as a
+  subdirectory.
+- CI reliability: reclaim runner disk before backend image builds, retry
+  Docker Buildx bootstrap on registry flakes, and suppress an ONNX Runtime
+  internal leak in LeakSanitizer runs.
+
 ## [0.5.0] - 2026-06-07
 
 ### Added
