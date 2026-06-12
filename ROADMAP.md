@@ -79,6 +79,14 @@ Work items:
   ordered selector, `ORT_ENABLE_*_EP` build options, and
   `docs/ORT_EXECUTION_PROVIDERS.md`. Remaining: ExecuTorch delegates, QNN
   dependency wiring, quantized fixtures, and on-device NPU validation.
+- Inventory device/accelerator selection semantics for all 13 backends and
+  map each native mechanism onto shared `EngineOptions` fields: ORT EPs,
+  OpenVINO device plugins (CPU/GPU/NPU strings), LiteRT and ExecuTorch
+  delegates, LibTorch/TensorRT/MIGraphX device choice, llama.cpp/GGML GPU
+  offload layers, OpenCV-DNN backend/target enums, TVM compile targets,
+  TensorFlow device placement. ORT was only the first increment because it
+  is the one runtime that already exposes priority-ordered providers at
+  session creation; the end state is one selection API across backends.
 - Extend the existing `EngineOptions` API (backend, batch, model, plugin
   directory fields already landed with the multi-backend registry) with explicit
   device, provider/delegate, and fallback policy fields.
