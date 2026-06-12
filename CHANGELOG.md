@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Tensor datatype metadata: `TensorDtype` enum and datatype fields on
   `InferenceMetadata`; ONNX Runtime and TensorRT backends report real tensor
   datatypes from model metadata instead of assuming float32.
+- Plugin metadata ABI v2: `neuriplo_layer_info_t` now carries
+  `element_type`, so dlopen plugins preserve non-FP32 tensor datatypes across
+  the host boundary (`NEURIPLO_PLUGIN_ABI_VERSION` bumped to 2).
 
 ## [0.6.0] - 2026-06-12
 
