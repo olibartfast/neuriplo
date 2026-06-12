@@ -74,10 +74,11 @@ consumers.
 
 Work items:
 
-- Implement the focused ONNX Runtime execution-provider plan in `docs/plans/ort-execution-providers.md` as the
-  first provider-selection increment.
-- Keep Phase 1 ORT provider selection contained to `ONNX_RUNTIME`, using an
-  environment/config path before changing shared interfaces.
+- ORT execution-provider selection (Phase 1 of
+  `docs/plans/ort-execution-providers.md`) is shipped: `NEURIPLO_ORT_EP`
+  ordered selector, `ORT_ENABLE_*_EP` build options, and
+  `docs/ORT_EXECUTION_PROVIDERS.md`. Remaining: ExecuTorch delegates, QNN
+  dependency wiring, quantized fixtures, and on-device NPU validation.
 - Extend the existing `EngineOptions` API (backend, batch, model, plugin
   directory fields already landed with the multi-backend registry) with explicit
   device, provider/delegate, and fallback policy fields.
@@ -194,11 +195,12 @@ Exit criteria:
 1. Resolve the TensorRT metadata test TODO or quarantine it with a precise issue.
 2. Add backend metadata consistency checks around `docs/backends.yaml`,
    `BackendRegistry.cmake`, and setup scripts.
-3. Implement the ONNX Runtime execution-provider Phase 1 plan from `docs/plans/ort-execution-providers.md`.
-4. Expand plugin ABI and loader tests.
-5. Draft the `EngineOptions` device/provider/fallback field extension proposal.
+3. Expand plugin ABI and loader tests.
+4. Draft the `EngineOptions` device/provider/fallback field extension proposal
+   (folds in the `DeviceType` option-A follow-up from the ORT EP plan).
 
-(Was item 1: the CI free-disk-space fix — merged as PR #15, develop green.)
+(Dropped from the draft: the CI free-disk-space fix — merged as PR #15 — and
+the ORT EP Phase 1 implementation — already shipped in commit `33bb936`.)
 
 ## Validation Commands
 

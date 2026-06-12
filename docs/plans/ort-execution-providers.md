@@ -1,5 +1,14 @@
 # Plan: Configurable ONNX Runtime Execution Providers (Phase 1 — vision)
 
+> **Status (2026-06-12): Phase 1 is implemented** — commit `33bb936`
+> (`NEURIPLO_ORT_EP` selector in `ORTInfer.cpp`, `ORT_ENABLE_*_EP` CMake
+> options, provider-parsing tests, user guide in
+> `docs/ORT_EXECUTION_PROVIDERS.md`). This document is retained for the
+> rationale and the still-open follow-ups: ExecuTorch delegate sibling path,
+> QNN SDK dependency wiring + quantized test fixtures, on-device NPU
+> validation, and the `DeviceType`/`EngineOptions` interface refactor
+> (option A).
+
 ## Approach
 Add a configurable Execution Provider (EP) selection layer inside the existing
 `ONNX_RUNTIME` backend, not a new backend ID per provider.
