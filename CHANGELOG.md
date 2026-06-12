@@ -32,6 +32,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Library roadmap (`ROADMAP.md`) and the ORT execution-provider plan
   (`docs/plans/ort-execution-providers.md`).
 
+### Changed
+- `setup_inference_engine` no longer lets vendor exceptions (e.g.
+  `cv::Exception` from an unreadable or unparseable model) propagate to the
+  caller: every load failure is logged and surfaces as a `nullptr` return,
+  matching the contract already used for `InferenceException`. Consumers that
+  caught vendor exception types around engine setup must switch to checking
+  the returned pointer (neuriplo-infer adapted in its v0.6.1).
+
 ### Fixed
 - GGML backend frees its backend handle on constructor failure.
 - Hardened backend failure paths and plugin builds when consumed as a
