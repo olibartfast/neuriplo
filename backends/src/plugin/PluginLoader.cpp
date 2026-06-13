@@ -11,6 +11,20 @@ namespace {
 
 constexpr size_t kErrorBufferSize = 1024;
 
+TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
+    switch (dtype) {
+    case NEURIPLO_DTYPE_FP32:
+        return TensorDataType::Float32;
+    case NEURIPLO_DTYPE_INT32:
+        return TensorDataType::Int32;
+    case NEURIPLO_DTYPE_INT64:
+        return TensorDataType::Int64;
+    case NEURIPLO_DTYPE_UINT8:
+        return TensorDataType::UInt8;
+    }
+    return TensorDataType::Float32;
+}
+
 // Plugin handles are intentionally never dlclose()d: backend objects and the
 // api structs they hand out must stay valid for the process lifetime.
 struct PluginState {
@@ -194,12 +208,12 @@ class PluginBackendAdapter final : public InferenceInterface {
         for (size_t i = 0; i < metadata.n_inputs; ++i) {
             const neuriplo_layer_info_t& layer = metadata.inputs[i];
             inference_metadata_.addInput(layer.name, std::vector<int64_t>(layer.shape, layer.shape + layer.ndim),
-                                         layer.batch_size);
+                                         layer.batch_size, metadata_dtype_from_abi(layer.element_type));
         }
         for (size_t i = 0; i < metadata.n_outputs; ++i) {
             const neuriplo_layer_info_t& layer = metadata.outputs[i];
             inference_metadata_.addOutput(layer.name, std::vector<int64_t>(layer.shape, layer.shape + layer.ndim),
-                                          layer.batch_size);
+                                          layer.batch_size, metadata_dtype_from_abi(layer.element_type));
         }
     }
 

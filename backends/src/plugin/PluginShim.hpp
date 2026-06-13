@@ -7,6 +7,7 @@
 
 #include "IBackendRuntimeFactory.hpp"
 #include "InferenceInterface.hpp"
+#include "TensorDataType.hpp"
 #include "neuriplo/plugin_abi.h"
 
 #include <cstring>
@@ -56,6 +57,22 @@ static_assert(static_cast<int>(TensorDtype::INT64) == NEURIPLO_DTYPE_INT64, "dty
 static_assert(static_cast<int>(TensorDtype::UINT8) == NEURIPLO_DTYPE_UINT8, "dtype enums must mirror the ABI");
 
 inline neuriplo_dtype_t to_abi_dtype(TensorDtype dtype) { return static_cast<neuriplo_dtype_t>(dtype); }
+
+inline neuriplo_dtype_t metadata_dtype_to_abi(TensorDataType dtype) {
+    switch (dtype) {
+    case TensorDataType::Float32:
+        return NEURIPLO_DTYPE_FP32;
+    case TensorDataType::Int32:
+    case TensorDataType::Int8:
+        return NEURIPLO_DTYPE_INT32;
+    case TensorDataType::Int64:
+        return NEURIPLO_DTYPE_INT64;
+    case TensorDataType::UInt8:
+    case TensorDataType::Bool:
+        return NEURIPLO_DTYPE_UINT8;
+    }
+    return NEURIPLO_DTYPE_FP32;
+}
 
 template <typename Factory>
 neuriplo_backend_t* plugin_create(const neuriplo_engine_options_t* options, const neuriplo_host_services_t* host,
@@ -132,6 +149,7 @@ inline int plugin_get_metadata(neuriplo_backend_t* backend, neuriplo_metadata_t*
             info.shape = handle->layer_shapes.back().data();
             info.ndim = handle->layer_shapes.back().size();
             info.batch_size = layer.batch_size;
+            info.element_type = metadata_dtype_to_abi(layer.datatype);
             infos.push_back(info);
         };
         for (const LayerInfo& layer : metadata.getInputs()) {

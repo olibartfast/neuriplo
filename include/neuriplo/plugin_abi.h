@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-#define NEURIPLO_PLUGIN_ABI_VERSION 1u
+#define NEURIPLO_PLUGIN_ABI_VERSION 2u
 
 #define NEURIPLO_PLUGIN_ENTRY_SYMBOL "neuriplo_plugin_get_api_v1"
 
@@ -73,6 +73,7 @@ typedef struct neuriplo_layer_info_t {
     const int64_t* shape;
     size_t ndim;
     size_t batch_size;
+    neuriplo_dtype_t element_type;
 } neuriplo_layer_info_t;
 
 typedef struct neuriplo_metadata_t {
