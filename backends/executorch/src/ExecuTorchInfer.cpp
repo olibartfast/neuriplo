@@ -46,16 +46,6 @@ std::vector<int64_t> shape_with_batch(const std::vector<int64_t>& shape, size_t 
     return result;
 }
 
-std::string ecdet_input_name(size_t index) { return index == 0 ? "images" : "orig_target_sizes"; }
-
-std::string ecdet_output_name(size_t index) {
-    static const char* names[] = {"labels", "boxes", "scores"};
-    if (index < 3) {
-        return names[index];
-    }
-    return "output_" + std::to_string(index);
-}
-
 TensorPtr make_input_tensor(ScalarType input_type, const std::vector<int64_t>& shape,
                             const std::vector<uint8_t>& bytes) {
     const auto et_shape = to_executorch_dims(shape);
@@ -168,8 +158,6 @@ ExecuTorchInfer::ExecuTorchInfer(const std::string& model_path, bool use_gpu, si
         throw ModelLoadException("ExecuTorch forward() metadata is unavailable");
     }
 
-    const bool ecdet_contract = method_meta->num_inputs() == 2 && method_meta->num_outputs() == 3;
-
     for (size_t i = 0; i < method_meta->num_inputs(); ++i) {
         const auto input_meta = method_meta->input_tensor_meta(i);
         if (!input_meta.ok()) {
@@ -178,22 +166,21 @@ ExecuTorchInfer::ExecuTorchInfer(const std::string& model_path, bool use_gpu, si
 
         const auto shape =
             shape_with_batch(resolve_shape(to_int64_dims(input_meta->sizes()), input_sizes, i), batch_size_);
-        const std::string name = ecdet_contract ? ecdet_input_name(i) : ("input_" + std::to_string(i));
-        inference_metadata_.addInput(name, shape, batch_size_, inputTensorDataType(input_meta->scalar_type()));
+        inference_metadata_.addInput("input_" + std::to_string(i), shape, batch_size_,
+                                     inputTensorDataType(input_meta->scalar_type()));
         input_types_.push_back(input_meta->scalar_type());
     }
 
     for (size_t i = 0; i < method_meta->num_outputs(); ++i) {
         const auto output_meta = method_meta->output_tensor_meta(i);
         if (!output_meta.ok()) {
-            const std::string name = ecdet_contract ? ecdet_output_name(i) : ("output_" + std::to_string(i));
-            inference_metadata_.addOutput(name, {-1}, batch_size_);
+            inference_metadata_.addOutput("output_" + std::to_string(i), {-1}, batch_size_);
             continue;
         }
 
         const auto shape = shape_with_batch(to_int64_dims(output_meta->sizes()), batch_size_);
-        const std::string name = ecdet_contract ? ecdet_output_name(i) : ("output_" + std::to_string(i));
-        inference_metadata_.addOutput(name, shape, batch_size_, outputTensorDataType(output_meta->scalar_type()));
+        inference_metadata_.addOutput("output_" + std::to_string(i), shape, batch_size_,
+                                      outputTensorDataType(output_meta->scalar_type()));
     }
 
     state_ = BackendState::Ready;
