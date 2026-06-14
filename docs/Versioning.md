@@ -69,17 +69,32 @@ When merging a PR into `develop`, add a line under `[Unreleased]` in the appropr
    [0.2.0]: https://github.com/olibartfast/neuriplo/compare/v0.1.0...v0.2.0
    ```
 
-4. **Merge into `master`** and tag:
+4. **Validate and push the release branch**:
    ```
-   git checkout master
-   git merge release/0.2.0
-   git tag v0.2.0
-   git push origin master --tags
+   ./scripts/quality/format.sh --check
+   ./scripts/quality/run.sh
+   git push -u origin release/0.2.0
    ```
 
-5. **Bump develop** — merge back and set the next dev version:
+5. **Open and merge a PR into `master`**, then tag the merged `master` commit:
    ```
-   git checkout develop
-   git merge release/0.2.0
+   gh pr create --base master --head release/0.2.0 --title "Release 0.2.0"
+   gh pr merge <pr-number> --merge --delete-branch
+   git switch master
+   git pull
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
-   Update `VERSION` to `0.3.0-dev`, commit, push.
+
+6. **Back-merge to `develop` and delete the release branch**:
+   ```
+   git switch develop
+   git pull
+   git merge master
+   git push origin develop
+   git branch -d release/0.2.0
+   git fetch --prune origin
+   ```
+
+7. **Start the next development cycle** on `develop` when needed by setting
+   `VERSION` to the next `X.Y.Z-dev`, committing, and pushing.
