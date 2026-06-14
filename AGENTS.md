@@ -3,12 +3,14 @@
 - Repo-local agent metadata lives in `REPO_META.yaml`.
 - Use `REPO_META.yaml` as the local source of truth for build/test entrypoints, owned paths, and allowed automated change classes.
 - `develop` is the integration branch for normal work.
-- `master` is release-only.
+- `master` is release-only. CI runs on pushes and PRs for `master`, `develop`, `release/**`, and `feature/**`.
 - All new feature work — every new branch AND every new git worktree — MUST be created from `develop`, never from `master`. `master` lags behind `develop` and only receives release PRs; branching a feature off `master` produces a tree missing the latest backends and integration work. When a worktree tool defaults to the repo's main branch (`master`), reset it onto `develop` before starting work.
 - Prioritize correctness, backend compatibility, dependency safety, device placement assumptions, fallback behavior, and performance regressions.
 - Best practice: commit intentional, scoped changes before branch handoff.
 - Best practice: push the working branch before starting branch-closure or integration steps.
 - Best practice: after merging a feature branch into `develop`, push local `develop` to `origin/develop`, remove the merged feature branch locally and remotely, and update related docs and `Readme.md` when behavior or workflow changes.
+- After completing a `release/*` or `hotfix/*` flow, delete the finished branch
+  locally and on `origin`; see `.cursor/rules/gitflow-release-cleanup.mdc`.
 - When committing documentation-only changes, include `[skip ci]` in the commit message.
 - Keep `Readme.md` as a general-purpose project entrypoint. Put backend-specific setup, model-format, Docker, build, and troubleshooting details in the appropriate docs section, such as `docs/DEPENDENCY_MANAGEMENT.md` or a backend-specific guide, and link from the README only when the link is broadly useful.
 - When debugging CI failures, build errors, or test failures, consult `docs/TROUBLESHOOTING.md` for known patterns and hard-won lessons before starting from scratch.

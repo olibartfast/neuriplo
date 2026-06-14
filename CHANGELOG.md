@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-14
+
+### Added
+- LiteRT now registers custom TensorFlow Lite kernels required by models that
+  depend on non-builtin TFLite operators.
+
+### Fixed
+- OpenVINO and ExecuTorch backends handle ecdet dual-input models without
+  hard-coded model-name assumptions, keeping backend setup model-agnostic.
+
 ## [0.7.0] - 2026-06-13
 
 ### Added
@@ -161,7 +171,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/olibartfast/neuriplo/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/olibartfast/neuriplo/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/olibartfast/neuriplo/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/olibartfast/neuriplo/compare/v0.4.0...v0.5.0
