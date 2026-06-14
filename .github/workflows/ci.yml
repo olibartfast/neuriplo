@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [develop, 'feature/**']
+    branches: [master, develop, 'release/**', 'feature/**']
   pull_request:
-    branches: [develop, 'feature/**']
+    branches: [master, develop, 'release/**', 'feature/**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,10 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check formatting
+      - name: Install clang-format
         run: |
-          find src include backends -name '*.cpp' -o -name '*.hpp' | \
-            xargs clang-format-18 --dry-run --Werror
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+
+      - name: Check formatting
+        run: ./scripts/quality/format.sh --check
 
   backend-docs-check:
     name: Backend Docs Check

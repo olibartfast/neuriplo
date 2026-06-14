@@ -91,13 +91,17 @@ elseif(backend STREQUAL "LLAMACPP")
         "-Wl,-rpath,${LLAMACPP_DIR}/lib")
 elseif(backend STREQUAL "EXECUTORCH")
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/executorch/src)
-    target_link_libraries(${target} PRIVATE
+    set(_ET_LIBS
         executorch
         extension_module_static
         extension_tensor
         portable_ops_lib
         portable_kernels
     )
+    if(EXECUTORCH_DELEGATE STREQUAL "xnnpack")
+        list(APPEND _ET_LIBS xnnpack_backend)
+    endif()
+    target_link_libraries(${target} PRIVATE ${_ET_LIBS})
 elseif(backend STREQUAL "LITERT")
     target_include_directories(${target} SYSTEM PRIVATE ${LITERT_DIR}/include)
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/litert/src)

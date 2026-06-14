@@ -1,0 +1,48 @@
+---
+description: Inference backends must stay model-agnostic — never hardcode a specific model's tensor names or shape contract
+alwaysApply: true
+---
+
+# Backends must stay model-agnostic
+
+Every backend under `backends/*/src/` is a **generic adapter**. It must support
+multiple inputs and multiple outputs of generic datatypes via the
+`TensorElement` variant and the `RawOutputTensor` path. It must NOT contain any
+single model's tensor names, output count, or shape contract.
+
+This mirrors Triton: the backend reports whatever the model file exposes; the
+serving/config layer owns the named contract.
+
+## Never do this
+
+- Hardcode tensor names for a specific model:
+  ```cpp
+  // WRONG — bakes EdgeCrafter's contract into a generic backend
+  std::string ecdet_input_name(size_t i) { return i == 0 ? "images" : "orig_target_sizes"; }
+  ```
+- Branch backend behavior on a model-shape heuristic:
+  ```cpp
+  // WRONG — every 2-in/3-out model is now mislabeled
+  const bool ecdet_contract = meta->num_inputs() == 2 && meta->num_outputs() == 3;
+  ```
+
+This exact pattern was a real regression (commit `3a30266`, ExecuTorch). The
+agent hit a genuine obstacle — the `.pte` format carries no tensor names — and
+faked the names in the backend instead of solving it at the right layer.
+
+## Do this instead
+
+- Report what the model exposes. When the format carries names (ONNX, TensorRT,
+  OpenVINO IR), read them (`getIOTensorName`, `GetInputNameAllocated`,
+  `get_any_name`). When it does not (ExecuTorch `.pte`), emit positional
+  `input_i` / `output_i` and let the serving runtime supply names from
+  `config.pbtxt` (Triton-style overlay in `neuriplo-kserve-runtime`).
+- Preserve generic multi-input / multi-dtype handling; do not narrow a backend
+  to one input or one dtype.
+
+## Reviewer / agent check before committing a backend "fix"
+
+```bash
+grep -rniE '"(images|orig_target_sizes|labels|boxes|scores|input_ids|pixel_values)"|num_inputs\(\)\s*==|num_outputs\(\)\s*==' backends/
+```
+Any hit in a generic backend is a model-specific leak — move it to config.
