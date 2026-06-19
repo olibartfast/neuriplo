@@ -1,0 +1,6 @@
+// Generated plugin entry point for the @PLUGIN_BACKEND_ID@ backend.
+#include "PluginShim.hpp"
+
+#include "@PLUGIN_FACTORY_HEADER@"
+
+NEURIPLO_DEFINE_PLUGIN(@PLUGIN_FACTORY_CLASS@, "@PLUGIN_BACKEND_ID@", "@PLUGIN_DISPLAY_NAME@", @PLUGIN_FORCE_GPU@)

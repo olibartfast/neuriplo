@@ -1,0 +1,5 @@
+# ONNX Runtime's global environment leaks two small calloc allocations inside
+# libonnxruntime.so whenever the backend is instantiated, even when session
+# creation fails (observed with ORT 1.x via EngineOptionsSetupTest). The leak
+# has no frames in neuriplo code; suppress the library, not our wrappers.
+leak:libonnxruntime

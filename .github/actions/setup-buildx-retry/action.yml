@@ -1,0 +1,20 @@
+name: Set up Docker Buildx
+description: Bootstrap buildx with retry for Docker Hub registry flakes
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 5
+        max_attempts: 3
+        retry_wait_seconds: 30
+        command: |
+          docker buildx rm ci-builder 2>/dev/null || true
+          docker pull moby/buildkit:buildx-stable-1
+          docker buildx create \
+            --name ci-builder \
+            --driver docker-container \
+            --buildkitd-flags '--allow-insecure-entitlement security.insecure --allow-insecure-entitlement network.host' \
+            --use
+          docker buildx inspect --bootstrap

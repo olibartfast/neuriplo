@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <opencv2/opencv.hpp>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -178,6 +179,34 @@ TEST_F(ONNXRuntimeInferTest, MockUnitTest) {
     auto inference_metadata = mock_infer->get_inference_metadata();
     ASSERT_FALSE(inference_metadata.getInputs().empty());
     ASSERT_FALSE(inference_metadata.getOutputs().empty());
+}
+
+TEST(ONNXRuntimeProviderSelectionTest, ParsesProviderPriorityList) {
+    const auto providers = ORTInfer::parseExecutionProviderList(" qnn, cpu, CUDA ");
+
+    ASSERT_EQ(providers.size(), 3);
+    EXPECT_EQ(providers[0], "qnn");
+    EXPECT_EQ(providers[1], "cpu");
+    EXPECT_EQ(providers[2], "cuda");
+}
+
+TEST(ONNXRuntimeProviderSelectionTest, MapsSupportedProviderAliases) {
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("cpu"), "CPUExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("cuda"), "CUDAExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("trt"), "TensorrtExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("openvino"), "OpenVINOExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("migraphx"), "MIGraphXExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("qnn"), "QNNExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("xnnpack"), "XnnpackExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("cann"), "CANNExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("huawei_cann"), "CANNExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("vitisai"), "VitisAIExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("vitis_ai"), "VitisAIExecutionProvider");
+    EXPECT_EQ(ORTInfer::providerAliasToOrtName("rocm"), "");
+}
+
+TEST(ONNXRuntimeProviderSelectionTest, RejectsEmptyProviderList) {
+    EXPECT_THROW((void)ORTInfer::parseExecutionProviderList(" , "), std::runtime_error);
 }
 
 // GPU test - only runs if has_real_model and GPU available

@@ -18,6 +18,7 @@ class NDArray;
 }
 } // namespace tvm
 
+// Adapter: exposes the Apache TVM runtime through the common InferenceInterface contract.
 class TVMInfer : public InferenceInterface {
   public:
     TVMInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

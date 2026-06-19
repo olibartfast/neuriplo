@@ -4,6 +4,7 @@
 #include <ggml-backend.h>
 #include <ggml.h>
 
+// Adapter: exposes the GGML runtime through the common InferenceInterface contract.
 class GGMLInfer : public InferenceInterface {
   private:
     struct ggml_context* ctx_;

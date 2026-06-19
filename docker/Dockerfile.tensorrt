@@ -32,6 +32,10 @@ RUN . /tmp/versions.env && \
     https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${TRT_SHORT}/tars/TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz \
     && tar -xzvf TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz -C /opt \
     && rm TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.cuda-${CUDA_VERSION}.tar.gz \
+    && find /opt/TensorRT-${TENSORRT_VERSION} -type f \( -name '*.a' -o -name '*.whl' \) -delete \
+    && rm -rf /opt/TensorRT-${TENSORRT_VERSION}/doc \
+              /opt/TensorRT-${TENSORRT_VERSION}/python \
+              /opt/TensorRT-${TENSORRT_VERSION}/samples \
     && ln -s /opt/TensorRT-${TENSORRT_VERSION} /opt/tensorrt
 
 ENV TENSORRT_DIR=/opt/tensorrt

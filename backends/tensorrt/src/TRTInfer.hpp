@@ -7,6 +7,7 @@
 #include <fstream>
 #include <vector>
 
+// Adapter: exposes the TensorRT runtime through the common InferenceInterface contract.
 class TRTInfer : public InferenceInterface {
   protected:
     std::shared_ptr<nvinfer1::ICudaEngine> engine_;
@@ -29,6 +30,12 @@ class TRTInfer : public InferenceInterface {
 
     // calculate size of tensor
     size_t getSizeByDim(const nvinfer1::Dims& dims);
+
+    // Map a TensorRT element type to the neuriplo TensorDataType carried in
+    // InferenceMetadata so non-FP32 tensors (e.g. INT64 sizes/labels) survive the
+    // serving metadata boundary. Throws for types neuriplo's typed tensor system
+    // cannot represent, rather than silently reporting FP32.
+    static TensorDataType toTensorDataType(nvinfer1::DataType type);
 
     void infer(); // You might want to remove or update this depending on your needs
 

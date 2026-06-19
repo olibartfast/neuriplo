@@ -5,26 +5,30 @@
 
 ## Overview
 
-* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks. 
-* It supports multiple frameworks and libraries such as OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM and GGML.
+* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks.
+* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, ExecuTorch, and LiteRT.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
-* The library is currently mainly used as component of the [Vision Inference Project](https://github.com/olibartfast/vision-inference)
+* The library is currently mainly used as component of the [Neuriplo Infer Project](https://github.com/olibartfast/neuriplo-infer)
 
-## Dependencies 
+## Dependencies
 - C++17
 - OpenCV
 - glog
 
 ### Supported Backends (Inside [versions.env](versions.env) file, versions tested in this project):
 * OpenCV DNN module
-* ONNX Runtime 
-* Pytorch (Libtorch) 
-* TensorRT 
-* OpenVINO 
+* ONNX Runtime
+* Pytorch (Libtorch)
+* TensorRT
+* OpenVINO
 * Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
 * GGML - Efficient tensor library for machine learning
 * TVM - Open deep learning compiler stack
 * MIGraphX - AMD ROCm graph inference engine
+* Cactus - GGUF-native text generation backend
+* llama.cpp - GGUF-native LLM and multimodal backend
+* ExecuTorch - PyTorch edge inference runtime
+* LiteRT - Google AI Edge runtime, formerly TensorFlow Lite
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -49,6 +53,10 @@ Supported `<BACKEND_NAME>` values:
 * `GGML`
 * `TVM`
 * `MIGRAPHX`
+* `CACTUS`
+* `LLAMACPP`
+* `EXECUTORCH`
+* `LITERT`
 
 #### Test All Backends
 ```bash
@@ -61,23 +69,12 @@ Supported `<BACKEND_NAME>` values:
 ./scripts/test_backends.sh --backend <BACKEND_NAME>
 ```
 
-### MIGraphX Docker Workflow
+### Backend-Specific Workflows
 
-**Model format support:** neuriplo's MIGraphX backend loads **ONNX** models only. If your model starts in PyTorch, export it to ONNX first; native PyTorch/TorchScript model loading is not supported by this backend integration.
-
-For backend-specific setup and usage constraints, see [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
-
-Build the MIGraphX test image:
-
-```bash
-docker build --rm -t neuriplo:migraphx -f docker/Dockerfile.migraphx .
-```
-
-Run the MIGraphX backend test container on a ROCm-capable host:
-
-```bash
-docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video neuriplo:migraphx
-```
+Backend-specific setup notes, model format constraints, Docker workflows, and
+GGUF backend details live in [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
+ExecuTorch delegate selection is covered in
+[docs/EXECUTORCH_DELEGATES.md](docs/EXECUTORCH_DELEGATES.md).
 
 
 ### Manual Build Instructions
@@ -124,6 +121,31 @@ target_include_directories(your_project PRIVATE path_to/neuriplo/include)
 
 Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
 
+## Architecture
+
+Neuriplo's backend layer is organized around five design patterns, all built on
+the single `InferenceInterface` contract that `setup_inference_engine` returns:
+
+- **Adapter** — each `*Infer` class wraps a vendor SDK behind `InferenceInterface`.
+- **Bridge** — `ModelRunner` orchestrates lifecycle and delegates to any backend
+  without knowing the concrete type.
+- **Abstract Factory** — each backend ships an `IBackendRuntimeFactory`
+  (`*RuntimeFactory`) that produces a coherent `{backend, allocator, converter}`
+  family. `setup_inference_engine` builds through the factory selected at compile
+  time by `-DDEFAULT_BACKEND`.
+- **Decorator** — `ProfilingBackend` / `LoggingBackend` / `CachingBackend` /
+  `QuantizedBackend` add cross-cutting behavior. They are opt-in; enable the
+  profiling/logging chain at runtime with `NEURIPLO_ENABLE_PROFILING=1` and
+  `NEURIPLO_ENABLE_LOGGING=1` (default off, so the production path is unchanged).
+- **State** — `BackendState{Uninitialized, Loading, Ready, Failed}` makes the
+  lifecycle explicit. Load failures set `Failed` and throw `ModelLoadException`,
+  which the facade translates to a `nullptr` return (no `std::exit`).
+
+The public contract is unchanged: `setup_inference_engine(model_path, use_gpu,
+batch_size, input_sizes)` still returns `std::unique_ptr<InferenceInterface>`.
+See [docs/REFACTOR_DESIGN_PATTERNS.md](docs/REFACTOR_DESIGN_PATTERNS.md) for the
+full design.
+
 ## Backend Configuration System
 
 Neuriplo uses a centralized configuration system that makes it easy to add new backends. The system consists of:
@@ -160,36 +182,21 @@ Neuriplo uses a centralized configuration system that makes it easy to add new b
 
 ### Adding a New Backend
 
-To add a new backend (e.g., NCNN), you need to edit **three files**:
+See [Adding an Inference Backend](docs/ADDING_BACKEND.md) for the complete
+workflow.
 
-1. **Add to `versions.env`**:
-   ```bash
-   NCNN_VERSION=1.0.34
-   ```
+At a high level, a new backend needs:
 
-2. **Add to `cmake/versions.cmake`**:
-   ```cmake
-   # Add cache variable after read_versions_from_env()
-   set(NCNN_VERSION "${NCNN_VERSION}" CACHE STRING "NCNN version")
-   
-   # Add to BACKEND_VERSION_MAPPING
-   set(BACKEND_VERSION_MAPPING
-       ...
-       "NCNN:NCNN_VERSION"
-   )
-   ```
+1. A `backends/<backend>/src` implementation deriving from `InferenceInterface`.
+2. Backend tests under `backends/<backend>/test`.
+3. A backend CMake module such as `cmake/NCNN.cmake`.
+4. CMake registration in `cmake/BackendRegistry.cmake`.
+5. Link and dependency-validation rules for the backend's library layout.
+6. Factory registration in `include/InferenceBackendSetup.hpp` and `src/InferenceBackendSetup.cpp`.
+7. Script and docs updates when setup, testing, model format, or runtime behavior changes.
 
-3. **Add to relevant scripts** (e.g., `scripts/test_backends.sh`):
-   ```bash
-   # Add to BACKENDS array
-   BACKENDS=(...  "NCNN")
-   
-   # Add to mapping arrays
-   BACKEND_DIRS=(... ["NCNN"]="ncnn")
-   BACKEND_TEST_EXES=(... ["NCNN"]="NCNNInferTest")
-   ```
-
-That's it! The validation system will automatically verify consistency, and all scripts will recognize the new backend.
+The CMake registry centralizes supported backend IDs, selected-backend module
+lookup, test directory lookup, and backend version-variable mapping.
 
 ### Validation
 
@@ -200,9 +207,23 @@ The system automatically validates that every backend has a corresponding versio
 cmake ..
 ```
 
+## Code quality
+
+Local checks (format, cppcheck, ASan/UBSan, clang-tidy) and git hook setup:
+
+```bash
+./scripts/quality/setup_hooks.sh   # pre-commit + pre-push hooks
+./scripts/quality/run.sh           # format + cppcheck
+./scripts/quality/sanitizers.sh    # ASan + UBSan build and ctest
+```
+
+See **[Code Quality](docs/CODE_QUALITY.md)** for details.
+
 ## Documentation
 
 For detailed documentation, see the [docs/](docs/) directory:
 
+- **[Code Quality](docs/CODE_QUALITY.md)** - Formatting, static analysis, sanitizers, pre-commit hooks
+- **[Architecture / Design Patterns](docs/REFACTOR_DESIGN_PATTERNS.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
-- **[TVM Build Guide](docs/TVM_BUILD_GUIDE.md)** - Detailed instructions for building and using TVM backend
+- **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist

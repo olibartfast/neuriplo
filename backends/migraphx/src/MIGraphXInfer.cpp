@@ -13,6 +13,7 @@ MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu, size_t
     try {
         program_ = migraphx::parse_onnx(model_path.c_str(), onnx_opts);
     } catch (const std::exception& e) {
+        state_ = BackendState::Failed;
         throw ModelLoadException(std::string("MIGraphX parse_onnx failed: ") + e.what());
     }
 
@@ -60,6 +61,8 @@ MIGraphXInfer::MIGraphXInfer(const std::string& model_path, bool use_gpu, size_t
         }
         dummy_buf_.clear();
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>

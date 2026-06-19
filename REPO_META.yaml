@@ -14,6 +14,12 @@ entrypoints:
     - ctest --test-dir build --output-on-failure
   backend_matrix:
     - ./scripts/test_backends.sh
+  quality:
+    - ./scripts/quality/run.sh
+    - ./scripts/quality/format.sh --check
+    - ./scripts/quality/cppcheck.sh
+    - ./scripts/quality/sanitizers.sh
+    - ./scripts/quality/setup_hooks.sh
 
 owned_paths:
   - backends/

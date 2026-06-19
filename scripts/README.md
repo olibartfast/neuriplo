@@ -42,6 +42,13 @@ Main testing script that builds and tests each backend individually.
 - `LIBTENSORFLOW` - TensorFlow C++
 - `TENSORRT` - NVIDIA TensorRT
 - `OPENVINO` - Intel OpenVINO
+- `GGML` - GGML tensor runtime
+- `TVM` - Apache TVM runtime
+- `MIGRAPHX` - AMD ROCm MIGraphX runtime
+- `CACTUS` - Cactus GGUF runtime
+- `LLAMACPP` - llama.cpp GGUF runtime
+- `EXECUTORCH` - ExecuTorch edge runtime
+- `LITERT` - LiteRT / TensorFlow Lite FlatBuffer runtime
 
 **Examples:**
 ```bash
@@ -136,12 +143,32 @@ Each backend includes specialized tests:
 - Device plugin selection
 - Dynamic batching
 
+**Cactus (`CactusInferTest`)**
+- GGUF model loading
+- Prompt byte to generated-text conversion
+- Mock fallback when no real model is available
+
+**llama.cpp (`LlamaCppInferTest`)**
+- GGUF model loading
+- Tokenization and generation path coverage
+- Mock fallback when no real model is available
+
+**ExecuTorch (`ExecuTorchInferTest`)**
+- `.pte` program loading
+- Delegate selection coverage
+- Mock fallback when no real model is available
+
+**LiteRT (`LiteRTInferTest`)**
+- `.tflite` FlatBuffer loading
+- Interpreter metadata inspection
+- Skips when no real `.tflite` model is available
+
 ## Test Models
 
-All tests use ResNet-18 classifier as the standard model:
-- **Input**: 224x224x3 RGB images
-- **Output**: 1000-class probability distribution
-- **Formats**: Generated per backend requirements
+Neuriplo currently uses two test-model families:
+
+- Vision and graph backends use ResNet-18 style classifier assets
+- GGUF backends use small downloadable GGUF language models with mock fallbacks
 
 ### Model Files
 - `resnet18.onnx` - ONNX format (OpenCV DNN, ONNX Runtime)
@@ -149,6 +176,9 @@ All tests use ResNet-18 classifier as the standard model:
 - `saved_model/` - TensorFlow SavedModel (TensorFlow)
 - `resnet18.engine` - TensorRT engine (TensorRT)
 - `resnet18.xml/.bin` - OpenVINO IR (OpenVINO)
+- `*.gguf` - GGUF test model for Cactus and llama.cpp backends
+- `*.pte` - ExecuTorch program (ExecuTorch)
+- `*.tflite` - LiteRT FlatBuffer model (LiteRT)
 
 ## Test Results
 
