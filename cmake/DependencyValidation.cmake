@@ -380,7 +380,8 @@ function(validate_tvm)
             message(FATAL_ERROR "TVM installation incomplete. None of the expected header files found: ${possible_header_files}")
         endif()
         
-        set(required_files
+        require_any_existing_path(
+            "TVM runtime library"
             "${TVM_DIR}/build/libtvm_runtime.so"
             "${TVM_DIR}/build/libtvm.so"
             "${TVM_DIR}/build/tvm_runtime.dll"
@@ -389,12 +390,6 @@ function(validate_tvm)
             "${TVM_DIR}/build/Release/tvm_runtime.lib"
             "${TVM_DIR}/build/Release/tvm.lib"
         )
-        
-        foreach(file ${required_files})
-            if(NOT EXISTS "${file}")
-                message(FATAL_ERROR "TVM installation incomplete. Missing: ${file}")
-            endif()
-        endforeach()
         
         message(STATUS "✓ TVM validation passed")
     endif()
