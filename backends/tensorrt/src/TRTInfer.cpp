@@ -9,7 +9,8 @@
         auto ret = (status);                                                                                           \
         if (ret != cudaSuccess) {                                                                                      \
             LOG(ERROR) << "CUDA error: " << cudaGetErrorString(ret);                                                   \
-            std::exit(1);                                                                                              \
+            state_ = BackendState::Failed;                                                                             \
+            throw InferenceException(std::string("CUDA error: ") + cudaGetErrorString(ret));                           \
         }                                                                                                              \
     } while (0)
 
@@ -19,6 +20,7 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     LOG(INFO) << "Initializing TensorRT for model " << model_path;
     initializeBuffers(model_path, input_sizes);
     populateInferenceMetadata(input_sizes);
+    state_ = BackendState::Ready;
 }
 
 TRTInfer::~TRTInfer() {
@@ -62,6 +64,12 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
 
     // Deserialize engine
     engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
+    if (!engine_) {
+        state_ = BackendState::Failed;
+        throw std::runtime_error("Failed to deserialize TensorRT engine (plan built with an "
+                                 "incompatible TensorRT version?): " +
+                                 engine_path);
+    }
     createContextAndAllocateBuffers(input_sizes);
 }
 
@@ -75,6 +83,26 @@ size_t TRTInfer::getSizeByDim(const nvinfer1::Dims& dims) {
         size *= dims.d[i];
     }
     return size;
+}
+
+TensorDataType TRTInfer::toTensorDataType(nvinfer1::DataType type) {
+    switch (type) {
+    case nvinfer1::DataType::kFLOAT:
+        return TensorDataType::Float32;
+    case nvinfer1::DataType::kINT32:
+        return TensorDataType::Int32;
+    case nvinfer1::DataType::kINT64:
+        return TensorDataType::Int64;
+    case nvinfer1::DataType::kINT8:
+        return TensorDataType::Int8;
+    case nvinfer1::DataType::kBOOL:
+        return TensorDataType::Bool;
+    case nvinfer1::DataType::kUINT8:
+        return TensorDataType::UInt8;
+    default:
+        throw ModelLoadException("Unsupported TensorRT tensor element type for metadata datatype: " +
+                                 std::to_string(static_cast<int>(type)));
+    }
 }
 
 void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int64_t>>& input_sizes) {
@@ -169,7 +197,8 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
             break;
         default:
             LOG(ERROR) << "Unsupported data type for tensor " << tensor_name;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw ModelLoadException("Unsupported data type for tensor " + tensor_name);
         }
         CHECK_CUDA(cudaMalloc(&buffers_[i], binding_size));
     }
@@ -229,7 +258,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
             break; // Added support for UINT8
         default:
             LOG(ERROR) << "Unsupported input data type for tensor " << tensor_name;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported input data type for tensor " + tensor_name);
         }
 
         size_t expected_bytes = vol * element_size;
@@ -254,20 +284,25 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
     for (size_t i = 0; i < num_inputs_; ++i) {
         if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(), buffers_[i])) {
             LOG(ERROR) << "Failed to set input tensor address for tensor: " << input_tensor_names_[i];
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Failed to set input tensor address for tensor: " +
+                                              input_tensor_names_[i]);
         }
     }
 
     for (size_t i = 0; i < num_outputs_; ++i) {
         if (!context_->setOutputTensorAddress(output_tensor_names_[i].c_str(), buffers_[i + num_inputs_])) {
             LOG(ERROR) << "Failed to set output tensor address for tensor: " << output_tensor_names_[i];
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Failed to set output tensor address for tensor: " +
+                                              output_tensor_names_[i]);
         }
     }
 
     if (!context_->enqueueV3(stream)) {
         LOG(ERROR) << "Inference failed!";
-        std::exit(1);
+        state_ = BackendState::Failed;
+        throw InferenceExecutionException("TensorRT enqueueV3 inference call failed");
     }
 
     // Extract outputs and their shapes
@@ -329,7 +364,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         default:
             LOG(ERROR) << "Unsupported output data type for tensor " << tensor_name;
-            std::exit(1);
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported output data type for tensor " + tensor_name);
         }
 
         outputs.emplace_back(std::move(tensor_data));
@@ -418,7 +454,8 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 }
             }
         }
-        inference_metadata_.addInput(tensor_name, shape, batch_size_);
+        inference_metadata_.addInput(tensor_name, shape, batch_size_,
+                                     toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 
     // Process output tensors
@@ -439,6 +476,7 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 shape.push_back(dims.d[j]);
             }
         }
-        inference_metadata_.addOutput(tensor_name, shape, batch_size_);
+        inference_metadata_.addOutput(tensor_name, shape, batch_size_,
+                                      toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 }

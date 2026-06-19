@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Git pre-push hook. Prefer: ./scripts/quality/setup_hooks.sh (pre-commit pre-push stage).
+# Skip optional act cppcheck: SKIP_ACT=1 git push
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT"
+
+if command -v pre-commit >/dev/null 2>&1; then
+    pre-commit run --hook-stage pre-push
+else
+    echo "[pre-push] pre-commit not installed — running minimal checks" >&2
+    ./scripts/quality/format.sh --check
+    python3 scripts/gen_backend_docs.py --check
+    ./scripts/quality/cppcheck.sh
+fi
+
+[[ "${SKIP_ACT:-0}" == "1" ]] && exit 0
+
+ACT=$(command -v act 2>/dev/null || echo "")
+if [[ -z "$ACT" ]] || ! docker info >/dev/null 2>&1; then
+    exit 0
+fi
+
+echo "[pre-push] Optional: act cppcheck job ..."
+act push -j cppcheck --no-cache-server -q

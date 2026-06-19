@@ -1,29 +1,6 @@
-# Unset cache compiler definitions for the selected framework
-if(DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
-    include(OpenCVdnn)
-elseif (DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")
-    # Set ONNX Runtime
-    include(ONNXRuntime)
-elseif (DEFAULT_BACKEND STREQUAL "LIBTORCH")
-    # Set libtorch
-    include(LibTorch)
-elseif (DEFAULT_BACKEND STREQUAL "TENSORRT")
-    # Set tensorrt
-    include(TensorRT)
-elseif (DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW")
-    # Set TensorFlow
-    include(LibTensorFlow)
-elseif (DEFAULT_BACKEND STREQUAL "OPENVINO")
-    # Set OpenVino
-    include(OpenVino)
-elseif (DEFAULT_BACKEND STREQUAL "GGML")
-    # Set GGML
-    include(GGML)
-elseif (DEFAULT_BACKEND STREQUAL "TVM")
-    # Set TVM
-    include(TVM)
-elseif (DEFAULT_BACKEND STREQUAL "MIGRAPHX")
-    # Set MIGraphX
-    include(MIGraphX)
-endif()
-
+# Include the CMake module for every enabled backend. Each module appends its
+# sources to SOURCES and adds its USE_* compile definition; modules compose, so
+# any subset of backends can be enabled together.
+foreach(neuriplo_enabled_backend IN LISTS NEURIPLO_ENABLED_BACKENDS)
+    neuriplo_include_backend_module("${neuriplo_enabled_backend}")
+endforeach()

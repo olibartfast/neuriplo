@@ -6,7 +6,18 @@
 #include <variant>
 using TensorElement = std::variant<float, int32_t, int64_t, uint8_t>;
 
+#include "BackendState.hpp"
 #include "InferenceMetadata.hpp"
+#include "TensorDtype.hpp"
+
+// One inference output as a typed contiguous native-endian byte buffer.
+struct RawOutputTensor {
+    TensorDtype dtype = TensorDtype::FP32;
+    std::vector<uint8_t> bytes;
+    std::vector<int64_t> shape;
+
+    size_t element_count() const noexcept { return bytes.size() / tensor_dtype_size(dtype); }
+};
 
 // Custom exceptions for better error handling
 class InferenceException : public std::runtime_error {
@@ -37,8 +48,21 @@ class InferenceInterface {
     virtual std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) = 0;
 
+    // Raw typed-buffer inference: outputs as contiguous bytes instead of
+    // per-element TensorElement variants (~16 bytes/scalar). The default
+    // adapts get_infer_results(); backends override it to copy framework
+    // output buffers directly. Calling through this->get_infer_results()
+    // keeps decorator augmentations applied on the raw path.
+    virtual std::vector<RawOutputTensor> get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors);
+
     // Model information
     virtual InferenceMetadata get_inference_metadata();
+
+    // Lifecycle (State pattern). Default behavior preserves the current
+    // "constructed == ready" semantics: backends that load in their constructor
+    // can leave these defaults untouched; load() is a no-op that marks Ready.
+    virtual BackendState state() const noexcept { return state_; }
+    virtual void load() { state_ = BackendState::Ready; }
 
     // Utility methods
     virtual bool is_gpu_available() const noexcept { return gpu_available_; }
@@ -55,6 +79,7 @@ class InferenceInterface {
 
   protected:
     InferenceMetadata inference_metadata_;
+    BackendState state_{BackendState::Uninitialized};
     std::string model_path_;
     bool gpu_available_;
     size_t batch_size_;

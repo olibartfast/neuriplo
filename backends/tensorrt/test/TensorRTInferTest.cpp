@@ -27,7 +27,8 @@ class TensorRTInferTest : public ::testing::Test {
         if (model_path.empty()) {
             model_path = GenerateModelPath();
             if (model_path.empty()) {
-                GTEST_SKIP() << "TensorRT engine file not found and scripted generation is unavailable on this platform";
+                GTEST_SKIP()
+                    << "TensorRT engine file not found and scripted generation is unavailable on this platform";
             }
         }
     }
@@ -37,14 +38,8 @@ class TensorRTInferTest : public ::testing::Test {
         fs::path current_path = fs::current_path();
 
         // Look for existing TensorRT engine file
-        std::vector<std::string> possible_paths = {
-            "resnet18.engine",
-            "resnet18.plan",
-            "../resnet18.engine",
-            "../resnet18.plan",
-            "test_model.engine",
-            "test_model.plan"
-        };
+        std::vector<std::string> possible_paths = {"resnet18.engine",  "resnet18.plan",     "../resnet18.engine",
+                                                   "../resnet18.plan", "test_model.engine", "test_model.plan"};
         for (const auto& path : possible_paths) {
             if (fs::exists(path)) {
                 return path;

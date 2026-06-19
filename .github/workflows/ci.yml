@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [develop]
+    branches: [master, develop, 'release/**', 'feature/**']
   pull_request:
-    branches: [develop]
+    branches: [master, develop, 'release/**', 'feature/**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,10 +22,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check formatting
+      - name: Install clang-format
         run: |
-          find src include backends -name '*.cpp' -o -name '*.hpp' | \
-            xargs clang-format-18 --dry-run --Werror
+          sudo apt-get update
+          sudo apt-get install -y clang-format-18
+
+      - name: Check formatting
+        run: ./scripts/quality/format.sh --check
+
+  backend-docs-check:
+    name: Backend Docs Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check generated sections are up to date
+        run: |
+          pip install pyyaml --quiet
+          python3 scripts/gen_backend_docs.py --check
 
   cppcheck:
     name: Cppcheck
@@ -54,7 +68,7 @@ jobs:
     name: "Clang-Tidy / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
@@ -66,10 +80,16 @@ jobs:
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
           - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
           - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
+          - { backend: LITERT,        dockerfile: docker/Dockerfile.litert }
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -107,7 +127,7 @@ jobs:
     name: "Werror / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
@@ -119,10 +139,16 @@ jobs:
           - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
           - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
           - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
+          - { backend: LITERT,        dockerfile: docker/Dockerfile.litert }
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -153,7 +179,7 @@ jobs:
     name: "Sanitizers / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn,      test_exe: OCVDNNInferTest }
@@ -166,7 +192,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -195,6 +226,7 @@ jobs:
               -DCMAKE_BUILD_TYPE=Debug \
               -DBUILD_INFERENCE_ENGINE_TESTS=ON >/dev/null 2>&1
             cmake --build /app/build --clean-first --parallel
+            export LSAN_OPTIONS=suppressions=/app/scripts/quality/lsan-suppressions.txt:print_suppressions=0
             ctest --test-dir /app/build --output-on-failure
           '
 
@@ -204,9 +236,9 @@ jobs:
   # =============================================================
   build-and-test-cpu:
     name: "${{ matrix.backend }}"
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs_on || 'ubuntu-latest' }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - backend: OPENCV_DNN
@@ -244,12 +276,31 @@ jobs:
             image: neuriplo-libtorch-cpu
             test_exe: LibtorchInferTest
 
+          - backend: CACTUS
+            dockerfile: docker/Dockerfile.cactus
+            image: neuriplo-cactus
+            test_exe: CactusInferTest
+            runs_on: ubuntu-24.04-arm
+          - backend: LLAMACPP
+            dockerfile: docker/Dockerfile.llamacpp
+            image: neuriplo-llamacpp
+            test_exe: LlamaCppInferTest
+
+          - backend: LITERT
+            dockerfile: docker/Dockerfile.litert
+            image: neuriplo-litert
+            test_exe: LiteRTInferTest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -286,14 +337,18 @@ jobs:
   # Tests are skipped — they require a real GPU (see build-and-test-gpu).
   # =============================================================
   build-tensorrt:
-    name: Build (TENSORRT)
+    name: TENSORRT build-only
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/setup-buildx-retry
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -306,4 +361,35 @@ jobs:
               --tag neuriplo-tensorrt:ci \
               --cache-from type=gha,scope=docker-TENSORRT \
               ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-TENSORRT' || '' }} \
+              .
+
+  # =============================================================
+  # ExecuTorch Build (build-only — tests use mock inference, but
+  # model export requires Python torch install done separately)
+  # =============================================================
+  build-executorch:
+    name: EXECUTORCH build-only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 90
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.executorch \
+              --tag neuriplo-executorch:ci \
+              --cache-from type=gha,scope=docker-EXECUTORCH \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-EXECUTORCH' || '' }} \
               .

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Git pre-commit hook. Prefer: ./scripts/quality/setup_hooks.sh (installs pre-commit templates).
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT"
+
+if command -v pre-commit >/dev/null 2>&1; then
+    exec pre-commit run
+fi
+
+echo "[pre-commit] pre-commit not installed — running minimal checks (./scripts/quality/setup_hooks.sh for full hooks)" >&2
+./scripts/quality/format.sh --check

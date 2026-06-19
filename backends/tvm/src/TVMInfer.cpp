@@ -1,6 +1,7 @@
 #include "TVMInfer.hpp"
-#include <fstream>
+
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 
 namespace {
@@ -60,14 +61,12 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
             }
         }
 
-        if (lib_path.empty())
-        {
+        if (lib_path.empty()) {
             throw std::runtime_error("TVM model file not found: " + model_path);
         }
-        
+
         std::ifstream file_check(lib_path);
-        if (!file_check.is_open())
-        {
+        if (!file_check.is_open()) {
             throw std::runtime_error("TVM model file not found: " + lib_path.string());
         }
         file_check.close();
@@ -110,8 +109,11 @@ TVMInfer::TVMInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
         }
     } catch (const std::exception& e) {
         LOG(ERROR) << "Failed to load TVM model: " << e.what();
+        state_ = BackendState::Failed;
         throw ModelLoadException(e.what());
     }
+
+    state_ = BackendState::Ready;
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>

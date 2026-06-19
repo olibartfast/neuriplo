@@ -2,24 +2,11 @@
 message(STATUS "Test enabled")
 find_package(GTest REQUIRED)
 enable_testing()
-# Add test directories
-if(DEFAULT_BACKEND STREQUAL "LIBTENSORFLOW" )
-    add_subdirectory(backends/libtensorflow/test)
-elseif(DEFAULT_BACKEND STREQUAL "LIBTORCH" )
-    message(STATUS "Libtorch test enabled")
-    add_subdirectory(backends/libtorch/test)
-elseif(DEFAULT_BACKEND STREQUAL "ONNX_RUNTIME")    
-    add_subdirectory(backends/onnx-runtime/test)
-elseif (DEFAULT_BACKEND STREQUAL "OPENCV_DNN")
-    add_subdirectory(backends/opencv-dnn/test)
-elseif(DEFAULT_BACKEND STREQUAL "TENSORRT")    
-    add_subdirectory(backends/tensorrt/test)
-elseif(DEFAULT_BACKEND STREQUAL "OPENVINO")
-    add_subdirectory(backends/openvino/test)
-elseif(DEFAULT_BACKEND STREQUAL "GGML")
-    add_subdirectory(backends/ggml/test)
-elseif(DEFAULT_BACKEND STREQUAL "TVM")
-    add_subdirectory(backends/tvm/test)
-elseif(DEFAULT_BACKEND STREQUAL "MIGRAPHX")
-    add_subdirectory(backends/migraphx/test)
-endif()    
+
+# Backend-agnostic pattern tests (Bridge/Decorator/State/Mock). Built regardless
+# of which backend is selected, since they only use the common interface.
+add_subdirectory("${CMAKE_SOURCE_DIR}/backends/src/test")
+
+foreach(neuriplo_enabled_backend IN LISTS NEURIPLO_ENABLED_BACKENDS)
+    neuriplo_add_backend_tests("${neuriplo_enabled_backend}")
+endforeach()

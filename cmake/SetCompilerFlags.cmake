@@ -5,12 +5,14 @@ if(WERROR)
     message(STATUS "Strict warnings: -Wall -Wextra -Wpedantic -Werror enabled")
 endif()
 
-# Enable sanitizers in debug builds (opt-in via -DSANITIZERS=ON)
+# Enable ASan + UBSan (opt-in via -DSANITIZERS=ON). Use Debug builds and run tests with:
+#   ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ctest ...
+# Local helper: ./scripts/quality/sanitizers.sh
 option(SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 if(SANITIZERS)
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=address,undefined)
-    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled")
+    message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled (use Debug + ctest)")
 endif()
 
 if(CMAKE_CUDA_COMPILER)
@@ -21,8 +23,15 @@ if(CMAKE_CUDA_COMPILER)
     set(CUDA_ARCH_FLAG "--expt-extended-lambda") # CUDA compiler option that enables support for C++11 lambdas in device code.
 else()
     # If CUDA is not available, set CPU flags
+    # Use a portable baseline per architecture to avoid illegal-instruction
+    # crashes when Docker layer cache crosses machines with different CPU
+    # capabilities (e.g. AVX-512 vs AVX2 on x86_64).
     if(NOT MSVC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3")
+        elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a")
+        endif()
     endif()
     set(CUDA_ARCH_FLAG "")
 endif()
@@ -32,12 +41,13 @@ if(USE_LIBTORCH)
     # Add LibTorch-specific flags, including ${TORCH_CXX_FLAGS}
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 else()
-    # If LibTorch is not enabled, set common optimization flags
+    # Keep aggressive optimization on release profiles only.
     if(MSVC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /O2 /fp:fast")
+        string(APPEND CMAKE_CXX_FLAGS_RELEASE " /O2 /fp:fast")
     else()
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -ffast-math")
+        string(APPEND CMAKE_CXX_FLAGS_RELEASE " -O3 -ffast-math")
     endif()
+    string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -O2")
 endif()
 
 # Set debug flags
@@ -59,6 +69,13 @@ if((USE_TENSORRT OR DEFAULT_BACKEND STREQUAL "TENSORRT") AND NOT MSVC)
     add_compile_options(
         -Wno-error=deprecated-declarations
         -Wno-error=unused-parameter
+    )
+endif()
+
+if(DEFAULT_BACKEND STREQUAL "LITERT")
+    add_compile_options(
+        -Wno-error=unused-parameter
+        -Wno-error=pedantic
     )
 endif()
 

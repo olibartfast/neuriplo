@@ -6,6 +6,7 @@
 #include <tensorflow/core/framework/tensor.h>
 #include <tensorflow/core/public/session.h>
 
+// Adapter: exposes the TensorFlow C++ runtime through the common InferenceInterface contract.
 class TFDetectionAPI : public InferenceInterface {
 
   public:
