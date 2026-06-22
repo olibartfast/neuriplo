@@ -12,6 +12,7 @@
 - After completing a `release/*` or `hotfix/*` flow, delete the finished branch
   locally and on `origin`; see `.cursor/rules/gitflow-release-cleanup.mdc`.
 - When committing documentation-only changes, include `[skip ci]` in the commit message.
+- **Hyperlink verification:** When editing `Readme.md` or any documentation with hyperlinks, verify all relative links resolve to existing files and absolute GitHub URLs are reachable. Prefer absolute GitHub blob/tree URLs over fragile cross-repo relative paths.
 - Keep `Readme.md` as a general-purpose project entrypoint. Put backend-specific setup, model-format, Docker, build, and troubleshooting details in the appropriate docs section, such as `docs/DEPENDENCY_MANAGEMENT.md` or a backend-specific guide, and link from the README only when the link is broadly useful.
 - When debugging CI failures, build errors, or test failures, consult `docs/TROUBLESHOOTING.md` for known patterns and hard-won lessons before starting from scratch.
 - Code quality: see `docs/CODE_QUALITY.md`. Fast local gate: `./scripts/quality/run.sh`. One-time hook setup: `./scripts/quality/setup_hooks.sh` (installs pre-commit into `.githooks/`). ASan+UBSan: `./scripts/quality/sanitizers.sh` or `-DSANITIZERS=ON` with Debug build.
