@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `DALI` backend: hosts a serialized NVIDIA DALI pipeline in-process through
+  the DALI C API, pure C++ at inference time. Not an inference engine -- it
+  fills the same `InferenceInterface` slot so a serving pipeline can chain
+  GPU preprocessing (nvJPEG decode, letterbox, normalize) ahead of a model
+  such as a TensorRT engine. Feed it encoded image bytes; it returns the
+  preprocessed tensor plus an `IMAGE_SHAPE` output carrying the source
+  dimensions, which downstream postprocessing needs to map results back onto
+  the original frame. Enable with `-DDEFAULT_BACKEND=DALI` (or add `DALI` to
+  `NEURIPLO_BACKENDS`) and `-DDALI_DIR=<dir>`; pipelines are authored offline
+  with `export/dali/generate_yolo_pipeline.py`, which reproduces the
+  neuriplo-tasks YOLO letterbox exactly (centered padding, zero fill,
+  `antialias=False`). Both `libdali.so` and `libdali_operators.so` are linked,
+  and `daliInitOperators()` is called at first use -- without either, every
+  pipeline fails at run time with `No schema found for operator
+  "decoders__Image"`.
+
 ## [0.8.0] - 2026-06-14
 
 ### Added
