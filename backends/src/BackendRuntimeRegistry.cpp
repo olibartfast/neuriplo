@@ -39,6 +39,9 @@
 #ifdef USE_LITERT
 #include "LiteRTRuntimeFactory.hpp"
 #endif
+#ifdef USE_DALI
+#include "DALIRuntimeFactory.hpp"
+#endif
 
 #include <cstring>
 #include <memory>
@@ -93,6 +96,11 @@ std::vector<BackendRuntimeRegistration> build_registrations() {
 #endif
 #ifdef USE_LITERT
     registrations.push_back({"LITERT", "LiteRT", &make_factory<LiteRTRuntimeFactory>, false});
+#endif
+#ifdef USE_DALI
+    // GPU preprocessing, not an inference engine: it occupies the same slot so a
+    // pipeline can chain decode/resize/normalize ahead of a model. force_gpu.
+    registrations.push_back({"DALI", "NVIDIA DALI", &make_factory<DALIRuntimeFactory>, true});
 #endif
     return registrations;
 }
