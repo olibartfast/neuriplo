@@ -16,6 +16,19 @@ elseif (backend STREQUAL "LIBTORCH")
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/libtorch/src)
     target_link_libraries(${target} PRIVATE ${TORCH_LIBRARIES})
     target_compile_definitions(${target} PRIVATE C10_USE_GLOG)
+elseif (backend STREQUAL "DALI")
+    # Both libraries are required. libdali.so pulls in libdali_core.so and
+    # libdali_kernels.so through DT_NEEDED, but NOT the operator library --
+    # DALI's Python bindings dlopen that one. Without it every pipeline fails at
+    # run time with `No schema found for operator "decoders__Image"`.
+    find_package(CUDAToolkit QUIET)
+    target_include_directories(${target} SYSTEM PRIVATE ${DALI_DIR}/include)
+    target_include_directories(${target} PRIVATE ${INFER_ROOT}/dali/src)
+    if(CUDAToolkit_FOUND)
+        target_include_directories(${target} SYSTEM PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
+    endif()
+    target_link_directories(${target} PRIVATE ${DALI_DIR})
+    target_link_libraries(${target} PRIVATE dali dali_operators)
 elseif (backend STREQUAL "TENSORRT")
     find_package(CUDAToolkit QUIET)
     target_include_directories(${target} SYSTEM PRIVATE ${TENSORRT_DIR}/include)
