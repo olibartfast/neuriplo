@@ -17,6 +17,7 @@ set(NEURIPLO_BACKEND_IDS
     LLAMACPP
     EXECUTORCH
     LITERT
+    DALI
 )
 
 set(NEURIPLO_BACKEND_OPENCV_DNN_MODULE OpenCVdnn)
@@ -190,3 +191,7 @@ function(neuriplo_add_backend_tests backend)
     neuriplo_get_backend_property("${backend}" TEST_DIR backend_test_dir)
     add_subdirectory("${backend_test_dir}")
 endfunction()
+
+set(NEURIPLO_BACKEND_DALI_MODULE DALI)
+set(NEURIPLO_BACKEND_DALI_TEST_DIR backends/dali/test)
+set(NEURIPLO_BACKEND_DALI_VERSION_VAR DALI_VERSION)
