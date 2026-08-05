@@ -1,9 +1,9 @@
 #include "DALIInfer.hpp"
 
+#include <cstdlib>
+#include <cstring>
 #include <dali/c_api.h>
 #include <dali/operators.h>
-
-#include <cstring>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -36,6 +36,39 @@ std::string read_file(const std::string& path) {
 
 // Guards against DALI's unsigned-wrapped "not declared" sentinel sizing a vector.
 constexpr size_t kMaxTensorRank = 8;
+
+// DALI has thirteen output types; this backend carries the ones neuriplo's
+// TensorDtype can represent exactly. Anything else is rejected rather than
+// reported as FP32, which would mis-size the buffer and silently corrupt the
+// tensor (FP16 being the realistic case for a half-precision pipeline).
+struct DaliTypeMapping {
+    TensorDtype dtype;
+    size_t size;
+};
+
+DaliTypeMapping map_dali_type(dali_data_type_t type) {
+    switch (type) {
+    case DALI_UINT8:
+        return {TensorDtype::UINT8, 1};
+    case DALI_INT32:
+        return {TensorDtype::INT32, 4};
+    case DALI_INT64:
+        return {TensorDtype::INT64, 8};
+    case DALI_FLOAT:
+        return {TensorDtype::FP32, 4};
+    default:
+        break;
+    }
+    throw InferenceExecutionException("DALI output type " + std::to_string(static_cast<int>(type)) +
+                                      " is not supported by this backend; the pipeline must emit "
+                                      "UINT8, INT32, INT64, or FLOAT");
+}
+
+// daliShapeAt returns memory the caller owns (see dali/c_api.h).
+struct DaliShapeDeleter {
+    void operator()(int64_t* shape) const noexcept { std::free(shape); }
+};
+using DaliShape = std::unique_ptr<int64_t, DaliShapeDeleter>;
 
 int64_t element_count(const std::vector<int64_t>& shape) {
     int64_t count = 1;
@@ -114,7 +147,7 @@ struct DALIInfer::Impl {
     struct Output {
         std::vector<uint8_t> bytes;
         std::vector<int64_t> shape;
-        dali_data_type_t dtype;
+        TensorDtype dtype = TensorDtype::FP32;
     };
 
     // Feeds one encoded image, runs the pipeline, and copies every output to
@@ -162,23 +195,25 @@ struct DALIInfer::Impl {
             throw InferenceExecutionException("DALI pipeline reported an implausible output rank: " +
                                               std::to_string(ndim));
         }
-        const int64_t* dims = daliShapeAt(&handle, index);
-        if (dims == nullptr) {
+        const DaliShape dims(daliShapeAt(&handle, index));
+        if (!dims) {
             throw InferenceExecutionException("DALI pipeline returned no output shape");
         }
 
         Output output;
-        output.dtype = daliGetDeclaredOutputDtype(&handle, index);
+        // The runtime type, not the declared one: a pipeline that declares no
+        // output type still produces concretely typed data.
+        const auto mapping = map_dali_type(daliTypeAt(&handle, index));
+        output.dtype = mapping.dtype;
         const size_t bytes = daliTensorSize(&handle, index);
-        const size_t dtype_size = output.dtype == DALI_UINT8 ? 1u : (output.dtype == DALI_INT64 ? 8u : 4u);
 
         // The declared rank is the *sample* rank while daliShapeAt returns the
         // batch-inclusive shape, so reading `ndim` entries drops the last axis.
         // Take the batch dimension too, then check the product against the byte
         // count rather than trusting either number on its own.
-        output.shape.assign(dims, dims + ndim + 1);
-        if (static_cast<size_t>(element_count(output.shape)) * dtype_size != bytes) {
-            output.shape.assign(dims, dims + ndim);
+        output.shape.assign(dims.get(), dims.get() + ndim + 1);
+        if (static_cast<size_t>(element_count(output.shape)) * mapping.size != bytes) {
+            output.shape.assign(dims.get(), dims.get() + ndim);
         }
 
         output.bytes.resize(bytes);
@@ -245,10 +280,7 @@ std::vector<RawOutputTensor> DALIInfer::get_infer_results_raw(const std::vector<
         RawOutputTensor tensor;
         tensor.bytes = std::move(item.bytes);
         tensor.shape = std::move(item.shape);
-        tensor.dtype = item.dtype == DALI_UINT8   ? TensorDtype::UINT8
-                       : item.dtype == DALI_INT64 ? TensorDtype::INT64
-                       : item.dtype == DALI_INT32 ? TensorDtype::INT32
-                                                  : TensorDtype::FP32;
+        tensor.dtype = item.dtype;
         outputs.push_back(std::move(tensor));
     }
     return outputs;
@@ -267,7 +299,10 @@ InferenceMetadata DALIInfer::get_inference_metadata() {
         shape.insert(shape.begin(), 1);
     }
     metadata.addOutput(kPreprocessedOutputName, shape, 1,
-                       impl_->output_dtype == DALI_UINT8 ? TensorDataType::UInt8 : TensorDataType::Float32);
+                       impl_->output_dtype == DALI_UINT8   ? TensorDataType::UInt8
+                       : impl_->output_dtype == DALI_INT32 ? TensorDataType::Int32
+                       : impl_->output_dtype == DALI_INT64 ? TensorDataType::Int64
+                                                           : TensorDataType::Float32);
     // Source image dimensions, carried so a downstream postprocess step can map
     // results back onto the original frame.
     metadata.addOutput(kImageShapeOutputName, {1, 3}, 1, TensorDataType::Int32);

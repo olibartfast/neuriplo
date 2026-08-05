@@ -236,6 +236,7 @@ function(validate_all_dependencies)
     validate_llamacpp()
     validate_executorch()
     validate_litert()
+    validate_dali()
 
     # Validate CUDA if needed for any enabled backend
     validate_cuda()
@@ -462,6 +463,32 @@ function(validate_litert)
         set(LITERT_LIBRARY "${LITERT_DIR}/lib/libtensorflowlite.so" CACHE FILEPATH "LiteRT shared library")
 
         message(STATUS "✓ LiteRT validation passed")
+    endif()
+endfunction()
+
+# Function to validate DALI
+function(validate_dali)
+    if("DALI" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
+        validate_dependency("DALI" "${DALI_DIR}")
+
+        # Both libraries are required: libdali.so does not pull in the operator
+        # library through DT_NEEDED, and without it every pipeline fails at run
+        # time with `No schema found for operator "decoders__Image"`.
+        set(required_files
+            "${DALI_DIR}/include/dali/c_api.h"
+            "${DALI_DIR}/libdali.so"
+            "${DALI_DIR}/libdali_operators.so"
+        )
+
+        foreach(file ${required_files})
+            if(NOT EXISTS "${file}")
+                message(FATAL_ERROR "DALI installation incomplete. Missing: ${file}\n"
+                    "NVIDIA publishes no standalone C++ DALI distribution; run "
+                    "scripts/setup_dali.sh to extract it from the nvidia-dali wheel.")
+            endif()
+        endforeach()
+
+        message(STATUS "✓ DALI validation passed")
     endif()
 endfunction()
 

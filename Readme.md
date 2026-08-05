@@ -6,7 +6,7 @@
 ## Overview
 
 * Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks.
-* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, ExecuTorch, and LiteRT.
+* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, ExecuTorch, and LiteRT, plus NVIDIA DALI for GPU preprocessing.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Neuriplo Infer Project](https://github.com/olibartfast/neuriplo-infer)
 
@@ -29,6 +29,9 @@
 * llama.cpp - GGUF-native LLM and multimodal backend
 * ExecuTorch - PyTorch edge inference runtime
 * LiteRT - Google AI Edge runtime, formerly TensorFlow Lite
+* NVIDIA DALI - GPU data pipeline (decode, resize, normalize). Not an inference
+  engine: it occupies the same backend slot so a serving pipeline can run
+  preprocessing on the GPU ahead of a model. See "DALI backend" below.
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -57,6 +60,7 @@ Supported `<BACKEND_NAME>` values:
 * `LLAMACPP`
 * `EXECUTORCH`
 * `LITERT`
+* `DALI`
 
 #### Test All Backends
 ```bash
@@ -227,3 +231,39 @@ For detailed documentation, see the [docs/](docs/) directory:
 - **[Architecture / Design Patterns](docs/REFACTOR_DESIGN_PATTERNS.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
+
+## DALI backend
+
+DALI is a GPU data pipeline, not an inference engine. It implements
+`InferenceInterface` so a serving pipeline can chain "decode + resize +
+normalize on the GPU" ahead of a model such as a TensorRT engine without the
+chaining layer needing a second concept.
+
+```bash
+cmake -S . -B build -DDEFAULT_BACKEND=DALI -DDALI_DIR=/path/to/dali
+```
+
+Input is the encoded image bytes (`IMAGE`, UINT8, `[1, N]`). Output 0 is the
+preprocessed tensor; output 1 is `IMAGE_SHAPE`, the source image's height,
+width, and channel count, which downstream postprocessing needs to map results
+back onto the original frame.
+
+`model_path` is a serialized `.dali` pipeline, authored offline:
+
+```bash
+python3 export/dali/generate_yolo_pipeline.py --size 640 --output yolo_pre_640.dali
+```
+
+Nothing runs Python at inference time -- the pipeline is deserialized and
+executed entirely in C++ through the DALI C API.
+
+Two libraries are linked, `libdali.so` and `libdali_operators.so`, and
+`daliInitOperators()` is called once before the first pipeline. `libdali.so`
+does not pull in the operator library (DALI's Python bindings dlopen it), and
+without both the first run fails with `No schema found for operator
+"decoders__Image"`.
+
+NVIDIA publishes no standalone C++ DALI distribution: the headers and shared
+libraries ship inside the `nvidia-dali` pip wheel. `scripts/setup_dali.sh`
+extracts them; point the build at the result with `-DDALI_DIR=<dir>`.
+

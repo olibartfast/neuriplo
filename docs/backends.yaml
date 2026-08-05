@@ -200,3 +200,18 @@ backends:
     model_source: "manual or app-provided `.tflite` model"
     arch: [x86_64, arm64]
     gpu: false
+
+  - id: DALI
+    name: NVIDIA DALI
+    version_var: DALI_VERSION
+    setup_script: setup_dali.sh
+    setup_note: "GPU preprocessing, not an inference engine - extracts the C++ distribution from the nvidia-dali wheel"
+    dir_var: DALI_DIR
+    dir_default: "$DEPENDENCY_ROOT/dali"
+    dockerfile: docker/Dockerfile.dali
+    test_exe: DALIInferTest
+    model_format: ".dali"
+    model_source: "serialized offline by `export/dali/generate_yolo_pipeline.py`"
+    arch: [x86_64]
+    gpu: true
+
