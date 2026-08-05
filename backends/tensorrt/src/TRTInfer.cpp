@@ -204,8 +204,15 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
     }
 }
 
-std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+nvinfer1::Dims TRTInfer::outputDims(size_t index) const {
+    const std::string& tensor_name = output_tensor_names_[index];
+    if (context_) {
+        return context_->getTensorShape(tensor_name.c_str());
+    }
+    return engine_->getTensorShape(tensor_name.c_str());
+}
+
+void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_tensors) {
 
     // Process user-provided input tensors
     if (input_tensors.size() != num_inputs_) {
@@ -275,9 +282,18 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         CHECK_CUDA(cudaMemcpy(buffers_[i], input_tensors[i].data(), actual_bytes, cudaMemcpyHostToDevice));
     }
 
-    // Perform inference
-    cudaStream_t stream = 0;
-    CHECK_CUDA(cudaStreamCreate(&stream));
+    // Perform inference. RAII so the binding failures below, which throw, do
+    // not leak the stream.
+    struct StreamGuard {
+        cudaStream_t stream = nullptr;
+        ~StreamGuard() {
+            if (stream) {
+                cudaStreamDestroy(stream);
+            }
+        }
+    } guard;
+    CHECK_CUDA(cudaStreamCreate(&guard.stream));
+    cudaStream_t stream = guard.stream;
 
     // Note: Dynamic shape checking loop removed as per optimization
 
@@ -305,18 +321,23 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         throw InferenceExecutionException("TensorRT enqueueV3 inference call failed");
     }
 
+    // Wait here rather than relying on the legacy default stream implicitly
+    // synchronising with this one, so the callers' output copies are ordinary
+    // reads of finished device memory.
+    CHECK_CUDA(cudaStreamSynchronize(stream));
+}
+
+std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
+TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+    uploadAndEnqueue(input_tensors);
+
     // Extract outputs and their shapes
     std::vector<std::vector<int64_t>> output_shapes;
     std::vector<std::vector<TensorElement>> outputs;
 
     for (size_t i = 0; i < num_outputs_; ++i) {
         std::string tensor_name = output_tensor_names_[i];
-        nvinfer1::Dims dims;
-        if (context_) {
-            dims = context_->getTensorShape(tensor_name.c_str());
-        } else {
-            dims = engine_->getTensorShape(tensor_name.c_str());
-        }
+        const nvinfer1::Dims dims = outputDims(i);
         auto num_elements = getSizeByDim(dims);
 
         std::vector<TensorElement> tensor_data;
@@ -370,7 +391,6 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
 
         outputs.emplace_back(std::move(tensor_data));
 
-        const int64_t curr_batch = dims.d[0] == -1 ? 1 : dims.d[0];
         std::vector<int64_t> out_shape;
         for (int j = 0; j < dims.nbDims; ++j) {
             out_shape.push_back(dims.d[j]);
@@ -378,9 +398,71 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         output_shapes.emplace_back(out_shape);
     }
 
-    CHECK_CUDA(cudaStreamDestroy(stream));
-
     return std::make_tuple(std::move(outputs), std::move(output_shapes));
+}
+
+std::vector<RawOutputTensor> TRTInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
+    uploadAndEnqueue(input_tensors);
+
+    std::vector<RawOutputTensor> raw_outputs;
+    raw_outputs.reserve(num_outputs_);
+
+    for (size_t i = 0; i < num_outputs_; ++i) {
+        const std::string& tensor_name = output_tensor_names_[i];
+        const nvinfer1::Dims dims = outputDims(i);
+        const size_t num_elements = getSizeByDim(dims);
+        void* device_buffer = buffers_[i + num_inputs_];
+
+        RawOutputTensor tensor;
+        tensor.shape.reserve(static_cast<size_t>(dims.nbDims));
+        for (int j = 0; j < dims.nbDims; ++j) {
+            tensor.shape.push_back(dims.d[j]);
+        }
+
+        // One device-to-host copy straight into the destination byte buffer.
+        auto copy_direct = [&](TensorDtype dtype, size_t element_size) {
+            tensor.dtype = dtype;
+            tensor.bytes.resize(num_elements * element_size);
+            CHECK_CUDA(cudaMemcpy(tensor.bytes.data(), device_buffer, tensor.bytes.size(), cudaMemcpyDeviceToHost));
+        };
+
+        switch (engine_->getTensorDataType(tensor_name.c_str())) {
+        case nvinfer1::DataType::kFLOAT:
+            copy_direct(TensorDtype::FP32, sizeof(float));
+            break;
+        case nvinfer1::DataType::kINT32:
+            copy_direct(TensorDtype::INT32, sizeof(int32_t));
+            break;
+        case nvinfer1::DataType::kINT64:
+            copy_direct(TensorDtype::INT64, sizeof(int64_t));
+            break;
+        case nvinfer1::DataType::kUINT8:
+            copy_direct(TensorDtype::UINT8, sizeof(uint8_t));
+            break;
+        case nvinfer1::DataType::kHALF: {
+            // RawOutputTensor has no FP16 tag, so widen on the host. Still one
+            // copy plus a flat conversion, not a per-scalar variant.
+            std::vector<__half> staging(num_elements);
+            CHECK_CUDA(
+                cudaMemcpy(staging.data(), device_buffer, num_elements * sizeof(__half), cudaMemcpyDeviceToHost));
+            tensor.dtype = TensorDtype::FP32;
+            tensor.bytes.resize(num_elements * sizeof(float));
+            auto* typed = reinterpret_cast<float*>(tensor.bytes.data());
+            for (size_t j = 0; j < num_elements; ++j) {
+                typed[j] = __half2float(staging[j]);
+            }
+            break;
+        }
+        default:
+            LOG(ERROR) << "Unsupported output data type for tensor " << tensor_name;
+            state_ = BackendState::Failed;
+            throw InferenceExecutionException("Unsupported output data type for tensor " + tensor_name);
+        }
+
+        raw_outputs.push_back(std::move(tensor));
+    }
+
+    return raw_outputs;
 }
 
 void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>& input_sizes) {
