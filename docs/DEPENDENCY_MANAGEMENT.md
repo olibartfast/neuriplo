@@ -22,6 +22,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `LLAMACPP` | llama.cpp | `b9085` | x86_64, ARM64 | no |
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
+| `DALI` | NVIDIA DALI | `1.50.0` | x86_64 only | yes |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -158,6 +159,7 @@ Per-backend install-path overrides:
 | `LLAMACPP_DIR` | `$DEPENDENCY_ROOT/llamacpp` |
 | `EXECUTORCH_DIR` | `$HOME/dependencies/executorch` |
 | `LITERT_DIR` | `$DEPENDENCY_ROOT/litert` |
+| `DALI_DIR` | `$DEPENDENCY_ROOT/dali` |
 <!-- /GEN:cmake-dir-variables -->
 
 Per-backend version overrides (default from `versions.env`):
@@ -178,6 +180,7 @@ Per-backend version overrides (default from `versions.env`):
 | `LLAMACPP_VERSION` | `b9085` |
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
+| `DALI_VERSION` | `1.50.0` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
@@ -200,6 +203,7 @@ export CACTUS_DIR="$DEPENDENCY_ROOT/cactus"
 export LLAMACPP_DIR="$DEPENDENCY_ROOT/llamacpp"
 export EXECUTORCH_DIR="$HOME/dependencies/executorch"
 export LITERT_DIR="$DEPENDENCY_ROOT/litert"
+export DALI_DIR="$DEPENDENCY_ROOT/dali"
 export LD_LIBRARY_PATH="\
 $ONNX_RUNTIME_DIR/lib:\
 $LIBTORCH_DIR/lib:\
@@ -213,6 +217,7 @@ $CACTUS_DIR/lib:\
 $LLAMACPP_DIR/lib:\
 $EXECUTORCH_DIR/lib:\
 $LITERT_DIR/lib:\
+$DALI_DIR/lib:\
 $LD_LIBRARY_PATH"
 ```
 <!-- /GEN:env-variables -->
@@ -399,6 +404,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | llama.cpp | GGUF | downloaded by Dockerfile or mock fallback |
 | ExecuTorch | .pte | `backends/executorch/test/export_executorch_classifier.py` |
 | LiteRT | .tflite | manual or app-provided `.tflite` model |
+| NVIDIA DALI | .dali | serialized offline by `export/dali/generate_yolo_pipeline.py` |
 <!-- /GEN:test-models-table -->
 
 ## Contributing
@@ -430,6 +436,7 @@ time.
 | `setup_llamacpp.sh` | llama.cpp |
 | `setup_executorch.sh` | ExecuTorch — builds from source — do not delete cmake-out after install |
 | `setup_litert.sh` | LiteRT — formerly TensorFlow Lite - builds from TensorFlow source |
+| `setup_dali.sh` | NVIDIA DALI — GPU preprocessing, not an inference engine - extracts the C++ distribution from the nvidia-dali wheel |
 | `build_cactus.sh` | Build the Cactus Docker image (ARM64 only) |
 <!-- /GEN:setup-scripts-table -->
 

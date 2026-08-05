@@ -158,21 +158,37 @@ class NCNNRuntimeFactory : public IBackendRuntimeFactory {
 
 ## Factory Registration
 
-`setup_inference_engine` selects the factory by `#ifdef`, so register the backend
-in two places. Add the include in `include/InferenceBackendSetup.hpp`:
+Backends are registered once in `backends/src/BackendRuntimeRegistry.cpp`: add
+the factory include under the backend's `USE_*` guard, and one registration
+entry in `build_registrations()`.
 
 ```cpp
-#elif USE_NCNN
+#ifdef USE_NCNN
 #include "NCNNRuntimeFactory.hpp"
+#endif
+...
+#ifdef USE_NCNN
+    registrations.push_back({"NCNN", "NCNN", &make_factory<NCNNRuntimeFactory>, false});
+#endif
 ```
 
-and the factory dispatch in `make_runtime_factory()` in
-`src/InferenceBackendSetup.cpp`:
+The fourth field is `force_gpu`. `setup_inference_engine` resolves the factory
+through `find_backend_registration(options.backend_id)`, so no `#ifdef` chain in
+`InferenceBackendSetup` is involved -- registrations are data, and any subset of
+backends can coexist in one build.
 
-```cpp
-#elif USE_NCNN
-    return std::make_unique<NCNNRuntimeFactory>();
+## Documentation Registry
+
+Add the backend to `docs/backends.yaml`, the single source of truth for the
+generated documentation sections, then regenerate:
+
+```bash
+python3 scripts/gen_backend_docs.py
 ```
+
+CI runs `gen_backend_docs.py --check` and fails when a backend is missing or the
+generated sections are stale. Update `Readme.md` prose by hand for anything the
+generator does not cover.
 
 The shared facade then handles eager `load()`, the `Failed`-state /
 `ModelLoadException` -> `nullptr` translation, and the opt-in decorator chain —
