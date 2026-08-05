@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feature/windows-support
+      - develop
+      - 'feature/**'
   pull_request:
     branches:
       - develop
@@ -17,10 +19,11 @@ on:
   workflow_dispatch:
 
 jobs:
+
+  # ── OpenCV DNN ─────────────────────────────────────────────────────
   build-windows-opencvdnn:
     name: Windows / OPENCV_DNN
     runs-on: windows-latest
-    if: github.event_name != 'pull_request' || github.head_ref == 'feature/windows-support'
 
     steps:
       - name: Checkout
@@ -61,3 +64,69 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build --config Release --parallel
+
+  # ── ONNX Runtime ───────────────────────────────────────────────────
+  build-windows-onnxruntime:
+    name: Windows / ONNX_RUNTIME
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            opencv4[core,dnn]:x64-windows `
+            glog:x64-windows `
+            gtest:x64-windows
+
+      - name: Download ONNX Runtime
+        shell: pwsh
+        run: |
+          $ver = "1.19.2"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-gpu-$ver.zip"
+          $dest = "$env:USERPROFILE\dependencies"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Write-Host "Downloading ONNX Runtime $ver..."
+          Invoke-WebRequest -Uri $url -OutFile "$dest\onnxruntime.zip"
+          Write-Host "Extracting..."
+          Expand-Archive -Path "$dest\onnxruntime.zip" -DestinationPath "$dest" -Force
+          Remove-Item "$dest\onnxruntime.zip"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DDEFAULT_BACKEND=ONNX_RUNTIME `
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          # ONNX Runtime DLL must be on PATH for tests to load it
+          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-1.19.2\lib;$env:Path"
+          ctest --test-dir build --build-config Release --output-on-failure

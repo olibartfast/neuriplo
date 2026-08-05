@@ -23,6 +23,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pipeline fails at run time with `No schema found for operator
   "decoders__Image"`.
 
+### Changed
+- `TensorRT` backend: implements `get_infer_results_raw()` instead of
+  inheriting the default, which routed through `get_infer_results()` and
+  materialised one 16-byte `std::variant` per output scalar before
+  re-serialising it. For a YOLO26m-seg engine that was ~2.6M scalars, roughly
+  42 MB of variant vector built and walked twice per inference. Outputs are now
+  copied device-to-host straight into the destination byte buffer. Measured on
+  an RTX 3060 Laptop through neuriplo-kserve-runtime, server-side, same engine
+  and same frames: an all-CPU pre/post ensemble went 148.0 -> 123.5 ms, GPU
+  preprocessing 123.6 -> 78.7 ms, and full GPU pre+post 70.9 -> 26.8 ms
+  (2.65x). Detections are unchanged -- a 50-frame agreement run reproduced the
+  recorded baseline exactly (701 reference, 739 candidate, 641 matched).
+- `TensorRT` backend: the per-inference CUDA stream is RAII-owned and
+  explicitly synchronised after `enqueueV3` rather than leaking on the binding
+  error paths and relying on the legacy default stream to synchronise for it.
+
+### Fixed
+- `DALI` backend: reject an external input whose declared shape needs more
+  bytes than the supplied buffer holds. `daliSetExternalInput` takes no
+  destination length, so this previously became an out-of-bounds read inside
+  the library with no diagnostic. The output copy is likewise redzone-checked,
+  because `daliOutputCopy` has the same no-length signature and a
+  `daliTensorSize` that under-reported would corrupt the heap silently.
+
 ## [0.8.0] - 2026-06-14
 
 ### Added
