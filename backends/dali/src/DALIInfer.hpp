@@ -27,9 +27,13 @@
 // "decoders__Image"`.
 class DALIInfer : public InferenceInterface {
   public:
-    // `model_path` is a serialized DALI pipeline. `input_sizes[0]` declares the
-    // pipeline's output shape (for example {3, 640, 640}); DALI cannot report it
-    // before a run, and callers need it to advertise model metadata at load.
+    // `model_path` is a serialized DALI pipeline, optionally followed by
+    // `|plugin=<path.so>` for pipelines built on custom DALI operators (GPU
+    // postprocessing plugins are the case that needs it).
+    //
+    // `input_sizes[0]` declares the pipeline's first output shape (for example
+    // {3, 640, 640}); DALI cannot report output shapes before a run, and callers
+    // need them to advertise model metadata at load.
     DALIInfer(const std::string& model_path, bool use_gpu = true, size_t batch_size = 1,
               const std::vector<std::vector<int64_t>>& input_sizes = {});
     ~DALIInfer() override;
@@ -44,8 +48,9 @@ class DALIInfer : public InferenceInterface {
 
     InferenceMetadata get_inference_metadata() override;
 
-    // Name of the external source the pipeline must declare, matching the
-    // generator in export/dali/.
+    // Conventional name for an encoded-image external source, matching the
+    // generator in export/dali/. Pipelines may declare any inputs they like:
+    // the backend discovers them and feeds them in declaration order.
     static constexpr const char* kEncodedInputName = "IMAGE";
     // Output 0: the model input tensor. Output 1: the source image shape (HWC),
     // which postprocessing needs to map results back onto the original frame.
@@ -55,4 +60,8 @@ class DALIInfer : public InferenceInterface {
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    // Declared shapes for the pipeline's inputs and first output, supplied by
+    // the caller because DALI reports neither before a run.
+    std::vector<std::vector<int64_t>> input_sizes_;
+    std::vector<std::vector<int64_t>> input_shapes_;
 };

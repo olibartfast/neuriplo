@@ -64,6 +64,31 @@ DaliTypeMapping map_dali_type(dali_data_type_t type) {
                                       "UINT8, INT32, INT64, or FLOAT");
 }
 
+size_t dali_type_size(dali_data_type_t type) {
+    switch (type) {
+    case DALI_UINT8:
+    case DALI_INT8:
+    case DALI_BOOL:
+        return 1;
+    case DALI_UINT16:
+    case DALI_INT16:
+    case DALI_FLOAT16:
+        return 2;
+    case DALI_UINT32:
+    case DALI_INT32:
+    case DALI_FLOAT:
+        return 4;
+    case DALI_UINT64:
+    case DALI_INT64:
+    case DALI_FLOAT64:
+        return 8;
+    default:
+        break;
+    }
+    throw InferenceExecutionException("unsupported DALI external input type: " +
+                                      std::to_string(static_cast<int>(type)));
+}
+
 // daliShapeAt returns memory the caller owns (see dali/c_api.h).
 struct DaliShapeDeleter {
     void operator()(int64_t* shape) const noexcept { std::free(shape); }
@@ -87,8 +112,76 @@ struct DALIInfer::Impl {
     std::vector<int64_t> last_output_shape;
     dali_data_type_t output_dtype{DALI_FLOAT};
 
-    Impl(const std::string& path, const std::vector<std::vector<int64_t>>& input_sizes) {
+    // Names of every external source, in declaration order. A preprocessing
+    // pipeline has one (the encoded image); a postprocessing pipeline has one
+    // per model output it consumes, so the backend cannot assume either shape.
+    std::vector<std::string> external_inputs;
+    std::vector<dali_data_type_t> external_input_types;
+    // Output names: DALI identifies outputs positionally, so a caller that
+    // needs them addressable by name (an ensemble graph mapping an envelope)
+    // supplies them through the model_path "outnames=" suffix.
+    std::vector<std::string> output_names;
+
+    Impl(const std::string& path_spec, const std::vector<std::vector<int64_t>>& input_sizes) {
         ensure_dali_initialized();
+
+        // "pipeline.dali|plugin=libfoo.so": pipelines built on custom operators
+        // (GPU postprocessing) need their plugin loaded before deserialization,
+        // or the operator schema is unknown.
+        // model_path may carry suffixes: "pipeline.dali|plugin=libfoo.so|out=3x640x640".
+        // input_sizes keeps its usual meaning (per-input shapes); the declared
+        // output shape is separate because DALI reports output shapes only
+        // after a run and the caller needs one to advertise metadata at load.
+        std::string path = path_spec;
+        std::string plugin;
+        {
+            size_t cursor = path.find('|');
+            const std::string spec = cursor == std::string::npos ? "" : path.substr(cursor + 1);
+            if (cursor != std::string::npos) {
+                path = path.substr(0, cursor);
+            }
+            size_t start = 0;
+            while (start < spec.size()) {
+                const size_t end = spec.find('|', start);
+                const std::string field = spec.substr(start, end - start);
+                if (field.rfind("plugin=", 0) == 0) {
+                    plugin = field.substr(7);
+                } else if (field.rfind("outnames=", 0) == 0) {
+                    std::string names = field.substr(9);
+                    size_t pos = 0;
+                    while (pos <= names.size()) {
+                        const size_t next = names.find(',', pos);
+                        output_names.push_back(names.substr(pos, next - pos));
+                        if (next == std::string::npos) {
+                            break;
+                        }
+                        pos = next + 1;
+                    }
+                } else if (field.rfind("out=", 0) == 0) {
+                    std::string dims = field.substr(4);
+                    size_t pos = 0;
+                    while (pos < dims.size()) {
+                        const size_t next = dims.find('x', pos);
+                        declared_output_shape.push_back(std::stoll(dims.substr(pos, next - pos)));
+                        if (next == std::string::npos) {
+                            break;
+                        }
+                        pos = next + 1;
+                    }
+                }
+                if (end == std::string::npos) {
+                    break;
+                }
+                start = end + 1;
+            }
+        }
+        if (!plugin.empty()) {
+            try {
+                daliLoadLibrary(plugin.c_str());
+            } catch (...) {
+                throw ModelLoadException("could not load DALI operator plugin: " + plugin);
+            }
+        }
 
         const std::string serialized = read_file(path);
         if (serialized.empty()) {
@@ -99,29 +192,19 @@ struct DALIInfer::Impl {
         }
         daliDeserializeDefault(&handle, serialized.c_str(), static_cast<int>(serialized.size()));
 
-        // Fail at load if the pipeline does not expose the external source this
-        // backend feeds, rather than producing wrong tensors later.
         const int num_inputs = daliGetNumExternalInput(&handle);
-        bool found = false;
-        std::string names;
+        if (num_inputs < 1) {
+            daliDeletePipeline(&handle);
+            throw ModelLoadException("DALI pipeline declares no external source: " + path);
+        }
         for (int i = 0; i < num_inputs; ++i) {
             const char* name = daliGetExternalInputName(&handle, i);
             if (name == nullptr) {
-                continue;
+                daliDeletePipeline(&handle);
+                throw ModelLoadException("DALI pipeline has an unnamed external source: " + path);
             }
-            if (!names.empty()) {
-                names += ", ";
-            }
-            names += name;
-            if (std::string(name) == DALIInfer::kEncodedInputName) {
-                found = true;
-            }
-        }
-        if (!found) {
-            daliDeletePipeline(&handle);
-            throw ModelLoadException(std::string("DALI pipeline has no external source named '") +
-                                     DALIInfer::kEncodedInputName + "' (found: " + (names.empty() ? "none" : names) +
-                                     "): " + path);
+            external_inputs.emplace_back(name);
+            external_input_types.push_back(daliGetExternalInputType(&handle, name));
         }
 
         if (daliGetNumOutput(&handle) < 1) {
@@ -130,11 +213,7 @@ struct DALIInfer::Impl {
         }
         output_dtype = daliGetDeclaredOutputDtype(&handle, 0);
 
-        // DALI reports output shapes only after a run, so the caller declares
-        // the shape the downstream model expects.
-        if (!input_sizes.empty() && !input_sizes[0].empty()) {
-            declared_output_shape = input_sizes[0];
-        }
+        (void)input_sizes;
     }
 
     ~Impl() {
@@ -150,14 +229,18 @@ struct DALIInfer::Impl {
         TensorDtype dtype = TensorDtype::FP32;
     };
 
-    // Feeds one encoded image, runs the pipeline, and copies every output to
-    // host. A preprocessing pipeline emits more than the model tensor: the
-    // original image shape travels alongside it, because postprocessing needs
-    // the source dimensions to map boxes back and the decode is the only place
-    // that knows them.
-    std::vector<Output> run(const std::vector<uint8_t>& encoded) {
-        if (encoded.empty()) {
-            throw InferenceExecutionException("DALI backend received an empty encoded image");
+    // Feeds each declared external source from the corresponding request
+    // tensor, runs the pipeline, and copies every output to host.
+    //
+    // A preprocessing pipeline takes one encoded image and emits the model
+    // tensor plus the source dimensions. A postprocessing pipeline takes the
+    // model's outputs and emits a decoded result envelope. The backend does not
+    // distinguish them: it feeds what the pipeline declares, in order.
+    std::vector<Output> run(const std::vector<std::vector<uint8_t>>& inputs,
+                            const std::vector<std::vector<int64_t>>& shapes) {
+        if (inputs.size() != external_inputs.size()) {
+            throw InferenceExecutionException("DALI pipeline declares " + std::to_string(external_inputs.size()) +
+                                              " external inputs but received " + std::to_string(inputs.size()));
         }
 
         if (output_shared) {
@@ -165,9 +248,42 @@ struct DALIInfer::Impl {
             output_shared = false;
         }
 
-        const int64_t shape = static_cast<int64_t>(encoded.size());
-        daliSetExternalInput(&handle, DALIInfer::kEncodedInputName, device_type_t::CPU, encoded.data(), DALI_UINT8,
-                             &shape, 1, nullptr, DALI_ext_force_copy);
+        for (size_t i = 0; i < external_inputs.size(); ++i) {
+            if (inputs[i].empty()) {
+                throw InferenceExecutionException("DALI backend received empty data for input '" + external_inputs[i] +
+                                                  "'");
+            }
+            const auto type = external_input_types[i];
+            const size_t element_size = dali_type_size(type);
+
+            // DALI asserts on rank, so the sample shape must match the rank the
+            // external source declares. A caller-declared shape is trimmed of
+            // leading batch dimensions; a rank-1 source otherwise takes the flat
+            // element count, which is the encoded-image case.
+            const int declared_ndim = daliGetExternalInputNdim(&handle, external_inputs[i].c_str());
+            std::vector<int64_t> sample_shape;
+            if (i < shapes.size() && !shapes[i].empty()) {
+                sample_shape = shapes[i];
+                while (static_cast<int>(sample_shape.size()) > declared_ndim && !sample_shape.empty() &&
+                       sample_shape.front() == 1) {
+                    sample_shape.erase(sample_shape.begin());
+                }
+            }
+            if (static_cast<int>(sample_shape.size()) != declared_ndim) {
+                if (declared_ndim == 1) {
+                    sample_shape = {static_cast<int64_t>(inputs[i].size() / element_size)};
+                } else {
+                    throw InferenceExecutionException("DALI external input '" + external_inputs[i] + "' expects rank " +
+                                                      std::to_string(declared_ndim) +
+                                                      " but no matching shape was declared");
+                }
+            }
+
+            daliSetExternalInput(&handle, external_inputs[i].c_str(), device_type_t::CPU, inputs[i].data(), type,
+                                 sample_shape.data(), static_cast<int>(sample_shape.size()), nullptr,
+                                 DALI_ext_force_copy);
+        }
+
         daliRun(&handle);
         daliOutput(&handle);
         output_shared = true;
@@ -228,7 +344,7 @@ struct DALIInfer::Impl {
 DALIInfer::DALIInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                      const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface(model_path, use_gpu, batch_size, input_sizes),
-      impl_(std::make_unique<Impl>(model_path, input_sizes)) {
+      impl_(std::make_unique<Impl>(model_path, input_sizes)), input_sizes_(input_sizes), input_shapes_(input_sizes) {
     if (batch_size != 1) {
         throw ModelLoadException("DALI backend currently supports batch size 1 only");
     }
@@ -269,11 +385,7 @@ DALIInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
 }
 
 std::vector<RawOutputTensor> DALIInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
-    if (input_tensors.size() != 1) {
-        throw InferenceExecutionException("DALI backend expects exactly one input (the encoded image)");
-    }
-
-    auto produced = impl_->run(input_tensors[0]);
+    auto produced = impl_->run(input_tensors, input_shapes_);
     std::vector<RawOutputTensor> outputs;
     outputs.reserve(produced.size());
     for (auto& item : produced) {
@@ -288,8 +400,21 @@ std::vector<RawOutputTensor> DALIInfer::get_infer_results_raw(const std::vector<
 
 InferenceMetadata DALIInfer::get_inference_metadata() {
     InferenceMetadata metadata;
-    // Variable-length encoded bytes: the extent is per-request.
-    metadata.addInput(kEncodedInputName, {1, -1}, 1, TensorDataType::UInt8);
+    for (size_t i = 0; i < impl_->external_inputs.size(); ++i) {
+        const auto& name = impl_->external_inputs[i];
+        const auto type = impl_->external_input_types[i];
+        // An encoded image is variable length; other inputs take the shape the
+        // caller declared, since DALI reports only rank for external sources.
+        std::vector<int64_t> shape{1, -1};
+        if (name != kEncodedInputName && i + 1 < input_sizes_.size() + 1 && i < input_sizes_.size()) {
+            shape = input_sizes_[i];
+        }
+        metadata.addInput(name, shape, 1,
+                          type == DALI_UINT8   ? TensorDataType::UInt8
+                          : type == DALI_INT32 ? TensorDataType::Int32
+                          : type == DALI_INT64 ? TensorDataType::Int64
+                                               : TensorDataType::Float32);
+    }
 
     auto shape = impl_->declared_output_shape;
     if (shape.empty()) {
@@ -298,13 +423,21 @@ InferenceMetadata DALIInfer::get_inference_metadata() {
     if (shape.size() == 3) {
         shape.insert(shape.begin(), 1);
     }
-    metadata.addOutput(kPreprocessedOutputName, shape, 1,
-                       impl_->output_dtype == DALI_UINT8   ? TensorDataType::UInt8
-                       : impl_->output_dtype == DALI_INT32 ? TensorDataType::Int32
-                       : impl_->output_dtype == DALI_INT64 ? TensorDataType::Int64
-                                                           : TensorDataType::Float32);
-    // Source image dimensions, carried so a downstream postprocess step can map
-    // results back onto the original frame.
-    metadata.addOutput(kImageShapeOutputName, {1, 3}, 1, TensorDataType::Int32);
+
+    const size_t output_count = impl_->output_names.empty() ? 2 : impl_->output_names.size();
+    for (size_t i = 0; i < output_count; ++i) {
+        const std::string name =
+            i < impl_->output_names.size()
+                ? impl_->output_names[i]
+                : (i == 0 ? kPreprocessedOutputName : (i == 1 ? kImageShapeOutputName : "output" + std::to_string(i)));
+        // Only output 0's shape can be declared up front; the rest are learned
+        // on the first run, which is enough for name-addressed graph wiring.
+        metadata.addOutput(name, i == 0 ? shape : std::vector<int64_t>{}, 1,
+                           i == 0 ? (impl_->output_dtype == DALI_UINT8   ? TensorDataType::UInt8
+                                     : impl_->output_dtype == DALI_INT32 ? TensorDataType::Int32
+                                     : impl_->output_dtype == DALI_INT64 ? TensorDataType::Int64
+                                                                         : TensorDataType::Float32)
+                                  : TensorDataType::Float32);
+    }
     return metadata;
 }

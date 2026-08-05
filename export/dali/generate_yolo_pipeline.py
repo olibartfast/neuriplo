@@ -59,7 +59,12 @@ def yolo_encoded_pipeline(size: int):
     # Source dimensions, read from the JPEG header without decoding. This is a
     # second pipeline output because postprocessing has to map boxes back onto
     # the original frame, and the decode is the only place that knows its size.
-    source_shape = fn.peek_image_shape(encoded, dtype=types.INT32)
+    #
+    # INT64 (height, width) is the convention the GPU postprocessing operators
+    # expect, so preprocessing emits exactly that and one convention serves both
+    # the CPU and GPU postprocess paths.
+    full_shape = fn.peek_image_shape(encoded, dtype=types.INT64)
+    source_shape = fn.slice(full_shape, 0, 2, axes=[0])
 
     # Centering and padding happen inside crop_mirror_normalize: a crop of
     # size x size positioned at the image centre, on an image that is smaller
