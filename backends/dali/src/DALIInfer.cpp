@@ -279,6 +279,17 @@ struct DALIInfer::Impl {
                 }
             }
 
+            // DALI reads product(sample_shape) * element_size bytes from the
+            // pointer with no length argument, so a shape that outruns the
+            // buffer is an out-of-bounds read inside the library with no
+            // diagnostic. Fail here instead, where the names are still known.
+            const size_t required = static_cast<size_t>(element_count(sample_shape)) * element_size;
+            if (required > inputs[i].size()) {
+                throw InferenceExecutionException("DALI external input '" + external_inputs[i] + "' needs " +
+                                                  std::to_string(required) + " bytes for the declared shape but only " +
+                                                  std::to_string(inputs[i].size()) + " were supplied");
+            }
+
             daliSetExternalInput(&handle, external_inputs[i].c_str(), device_type_t::CPU, inputs[i].data(), type,
                                  sample_shape.data(), static_cast<int>(sample_shape.size()), nullptr,
                                  DALI_ext_force_copy);
@@ -332,11 +343,25 @@ struct DALIInfer::Impl {
             output.shape.assign(dims.get(), dims.get() + ndim);
         }
 
-        output.bytes.resize(bytes);
+        // daliOutputCopy takes no destination length, so a daliTensorSize that
+        // under-reports what the pipeline actually writes corrupts the heap
+        // silently and aborts in some unrelated later allocation. Pad the
+        // destination and check the padding rather than trusting the number.
+        constexpr size_t kRedzone = 64;
+        constexpr uint8_t kRedzoneByte = 0xA5;
+        output.bytes.assign(bytes + kRedzone, kRedzoneByte);
         // Destination is host memory, so DALI does the device-to-host copy. A
         // serving pipeline that owned the downstream device buffer would copy
         // straight into it and skip the host round trip entirely.
         daliOutputCopy(&handle, output.bytes.data(), index, device_type_t::CPU, 0, DALI_ext_force_sync);
+        for (size_t i = bytes; i < bytes + kRedzone; ++i) {
+            if (output.bytes[i] != kRedzoneByte) {
+                throw InferenceExecutionException(
+                    "DALI wrote past the end of output " + std::to_string(index) + ": daliTensorSize reported " +
+                    std::to_string(bytes) + " bytes but the copy overran by at least " + std::to_string(i - bytes + 1));
+            }
+        }
+        output.bytes.resize(bytes);
         return output;
     }
 };
