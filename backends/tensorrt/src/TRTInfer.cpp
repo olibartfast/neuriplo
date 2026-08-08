@@ -3,6 +3,34 @@
 #include <cuda_fp16.h> // For __half if using half-precision
 #include <fstream>
 
+namespace {
+
+// Reported tensor shapes must include the batch dimension, because that is what
+// every other backend reports and what clients send. Reporting the trailing
+// dimensions only made the same model take [3,H,W] when served through
+// TensorRT and [1,3,H,W] through ONNX Runtime, so a client that worked against
+// one was rejected by the other.
+//
+// `trailing` is the shape without the batch dimension, as built for the
+// input_sizes override logic; `dims` is the engine's own view, whose leading
+// dimension is authoritative unless it is dynamic (-1), in which case the
+// configured batch size is what will actually be executed.
+std::vector<int64_t> withBatchDimension(const std::vector<int64_t>& trailing, const nvinfer1::Dims& dims,
+                                        size_t batch_size) {
+    if (dims.nbDims <= 0) {
+        return trailing; // Scalar tensor: there is no batch dimension to restore.
+    }
+
+    std::vector<int64_t> shape;
+    shape.reserve(trailing.size() + 1);
+    const int64_t leading = dims.d[0];
+    shape.push_back(leading == -1 ? static_cast<int64_t>(batch_size) : leading);
+    shape.insert(shape.end(), trailing.begin(), trailing.end());
+    return shape;
+}
+
+} // namespace
+
 // CUDA error checking macro
 #define CHECK_CUDA(status)                                                                                             \
     do {                                                                                                               \
@@ -536,7 +564,7 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 }
             }
         }
-        inference_metadata_.addInput(tensor_name, shape, batch_size_,
+        inference_metadata_.addInput(tensor_name, withBatchDimension(shape, dims, batch_size_), batch_size_,
                                      toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 
@@ -558,7 +586,7 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 shape.push_back(dims.d[j]);
             }
         }
-        inference_metadata_.addOutput(tensor_name, shape, batch_size_,
+        inference_metadata_.addOutput(tensor_name, withBatchDimension(shape, dims, batch_size_), batch_size_,
                                       toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 }

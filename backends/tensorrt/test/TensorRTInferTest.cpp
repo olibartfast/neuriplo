@@ -112,16 +112,37 @@ TEST_F(TensorRTInferTest, InferenceResults) {
                             [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
-// Test metadata retrieval - DISABLED due to crash
+// Re-enabled: get_inference_metadata() was disabled here after a crash, but it
+// runs against TensorRT 10.14 engines. If it crashes again this test is the
+// signal, which is the point of enabling it rather than leaving it commented.
 TEST_F(TensorRTInferTest, InferenceMetadataRetrieval) {
     TRTInfer infer(model_path, true);
-    // DISABLED: auto inference_metadata = infer.get_inference_metadata();
+    const auto inference_metadata = infer.get_inference_metadata();
 
-    // Just verify the object was created successfully
-    std::cout << "TRTInfer object created for metadata test" << std::endl;
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+    ASSERT_FALSE(inference_metadata.getOutputs().empty());
+}
 
-    // Skip the actual metadata retrieval for now
-    // TODO: Fix the crash in get_inference_metadata()
+// Reported shapes must include the batch dimension. Without it the same model
+// advertised [3,H,W] through TensorRT and [1,3,H,W] through ONNX Runtime, so a
+// client that worked against one backend was rejected by the other.
+TEST_F(TensorRTInferTest, MetadataShapesIncludeBatchDimension) {
+    const size_t batch_size = 1;
+    const std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
+    TRTInfer infer(model_path, true, batch_size, input_sizes);
+
+    const auto inference_metadata = infer.get_inference_metadata();
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+
+    const auto& input = inference_metadata.getInputs().front();
+    // 3-dimensional input sizes plus the restored batch dimension.
+    EXPECT_EQ(input.shape.size(), input_sizes[0].size() + 1);
+    EXPECT_EQ(input.shape.front(), static_cast<int64_t>(batch_size));
+
+    for (const auto& output : inference_metadata.getOutputs()) {
+        ASSERT_FALSE(output.shape.empty());
+        EXPECT_EQ(output.shape.front(), static_cast<int64_t>(batch_size));
+    }
 }
 
 // Test with different batch sizes
