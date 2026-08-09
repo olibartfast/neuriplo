@@ -95,10 +95,26 @@ jobs:
             glog:x64-windows `
             gtest:x64-windows
 
+      - name: Read ONNX Runtime version
+        shell: pwsh
+        run: |
+          # cmake/versions.cmake:114 derives ONNX_RUNTIME_DIR from this same
+          # value, so it has to come from versions.env rather than being
+          # repeated here. Hard-coding it means the next version bump downloads
+          # one version and configures against the path of another, failing at
+          # configure time on an otherwise-routine dependency update.
+          $match = Select-String -Path versions.env -Pattern '^ONNX_RUNTIME_VERSION=(.+)$'
+          if (-not $match) {
+            throw "ONNX_RUNTIME_VERSION not found in versions.env"
+          }
+          $ver = $match.Matches[0].Groups[1].Value.Trim()
+          Write-Host "ONNX Runtime version from versions.env: $ver"
+          "ONNX_RUNTIME_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Download ONNX Runtime
         shell: pwsh
         run: |
-          $ver = "1.19.2"
+          $ver = $env:ONNX_RUNTIME_VERSION
           $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-gpu-$ver.zip"
           $dest = "$env:USERPROFILE\dependencies"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -128,5 +144,5 @@ jobs:
         shell: pwsh
         run: |
           # ONNX Runtime DLL must be on PATH for tests to load it
-          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-1.19.2\lib;$env:Path"
+          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-${env:ONNX_RUNTIME_VERSION}\lib;$env:Path"
           ctest --test-dir build --build-config Release --output-on-failure
