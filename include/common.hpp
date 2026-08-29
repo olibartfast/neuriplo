@@ -7,6 +7,10 @@
 // <memory> <stdexcept> <string> <tuple> <utility> <vector>), so those are now
 // listed explicitly. Without them the tree still builds on libstdc++, where
 // <iostream> happens to drag most of them in, but not on MSVC.
+//
+// OpenCV also supplied the glibc C headers -- <cassert>, <cstdlib> and the
+// rest. Those are deliberately not listed here: the four files that had been
+// relying on them now include what they use, which is where it belongs.
 #include <algorithm>
 #include <any>
 #include <array>

@@ -1,5 +1,6 @@
 #include "TFDetectionAPI.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>
