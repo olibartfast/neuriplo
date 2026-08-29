@@ -26,6 +26,7 @@ owned_paths:
   - cmake/
   - scripts/
   - docs/
+  - specs/
   - include/
   - src/
   - versions.env

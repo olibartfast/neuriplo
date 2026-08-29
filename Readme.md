@@ -227,6 +227,7 @@ See **[Code Quality](docs/CODE_QUALITY.md)** for details.
 
 For detailed documentation, see the [docs/](docs/) directory:
 
+- **Project constitution** - [Mission](specs/mission.md), [Technical Stack](specs/tech-stack.md), and [Roadmap](specs/roadmap.md)
 - **[Code Quality](docs/CODE_QUALITY.md)** - Formatting, static analysis, sanitizers, pre-commit hooks
 - **[Architecture / Design Patterns](docs/REFACTOR_DESIGN_PATTERNS.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
@@ -266,4 +267,3 @@ without both the first run fails with `No schema found for operator
 NVIDIA publishes no standalone C++ DALI distribution: the headers and shared
 libraries ship inside the `nvidia-dali` pip wheel. `scripts/setup_dali.sh`
 extracts them; point the build at the result with `-DDALI_DIR=<dir>`.
-

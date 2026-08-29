@@ -2,6 +2,15 @@
 
 - Repo-local agent metadata lives in `REPO_META.yaml`.
 - Use `REPO_META.yaml` as the local source of truth for build/test entrypoints, owned paths, and allowed automated change classes.
+- The project constitution lives in `specs/mission.md`, `specs/tech-stack.md`,
+  and `specs/roadmap.md`. Read it before planning new or actively changing
+  feature work.
+- For a non-trivial new roadmap phase, create
+  `specs/YYYY-MM-DD-feature-name/{requirements.md,plan.md,validation.md}` before
+  implementation. Do not backfill feature packets for completed work. Trivial
+  fixes and documentation edits do not require a three-file packet.
+- Keep feature requirements, plan, validation, code, and roadmap status in sync
+  in the same branch whenever implementation changes the intended contract.
 - `develop` is the integration branch for normal work.
 - `master` is release-only. CI runs on pushes and PRs for `master`, `develop`, `release/**`, and `feature/**`.
 - All new feature work — every new branch AND every new git worktree — MUST be created from `develop`, never from `master`. `master` lags behind `develop` and only receives release PRs; branching a feature off `master` produces a tree missing the latest backends and integration work. When a worktree tool defaults to the repo's main branch (`master`), reset it onto `develop` before starting work.
