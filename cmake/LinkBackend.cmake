@@ -3,7 +3,13 @@
 # same target (the neuriplo library or a plugin module).
 function(neuriplo_link_backend_to target backend)
 if (backend STREQUAL "OPENCV_DNN")
+    # The only place in the tree that asks for OpenCV. It is REQUIRED here
+    # rather than at the top level so that configuring any other backend needs
+    # no OpenCV installed at all.
+    find_package(OpenCV REQUIRED)
+    target_include_directories(${target} SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/opencv-dnn/src)
+    target_link_libraries(${target} PRIVATE ${OpenCV_LIBS})
 elseif (backend STREQUAL "ONNX_RUNTIME")
     target_include_directories(${target} SYSTEM PRIVATE ${ONNX_RUNTIME_DIR}/include)
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/onnx-runtime/src)
