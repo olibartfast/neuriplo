@@ -1,14 +1,15 @@
 #pragma once
 
 #include "InferenceInterface.hpp"
+#include "testing/TestBlob.hpp"
 
 #include <chrono>
 #include <cstdint>
-#include <cstring>
 #include <gmock/gmock.h>
-#include <opencv2/opencv.hpp>
+#include <memory>
 #include <random>
 #include <thread>
+#include <vector>
 
 /**
  * Mock implementation of InferenceInterface for unit testing.
@@ -183,18 +184,13 @@ class MockInferenceInterface : public InferenceInterface {
 class AtomicBackendTest : public ::testing::Test {
   protected:
     std::unique_ptr<MockInferenceInterface> mock_interface;
-    cv::Mat test_input;
 
     void SetUp() override {
         // Create mock interface
         mock_interface = std::make_unique<MockInferenceInterface>();
 
-        // Create standard test input
-        test_input_ = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::dnn::blobFromImage(test_input_, test_blob_, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-        // Byte-tensor view of the blob, matching the real get_infer_results signature.
-        test_input_tensors_ = MatToTensors(test_blob_);
+        // Standard test input, in the raw byte-tensor form get_infer_results expects.
+        test_input_tensors_ = neuriplo::testing::zero_blob_tensors();
     }
 
     void TearDown() override {
@@ -203,19 +199,7 @@ class AtomicBackendTest : public ::testing::Test {
     }
 
     // Common test utilities
-    cv::Mat test_input_;
-    cv::Mat test_blob_;
     std::vector<std::vector<uint8_t>> test_input_tensors_;
-
-    // Flatten a cv::Mat blob into the raw byte-tensor form the real
-    // InferenceInterface::get_infer_results expects.
-    static std::vector<std::vector<uint8_t>> MatToTensors(const cv::Mat& blob) {
-        std::vector<uint8_t> bytes(blob.total() * blob.elemSize());
-        if (!bytes.empty()) {
-            std::memcpy(bytes.data(), blob.data, bytes.size());
-        }
-        return {std::move(bytes)};
-    }
 
     // Validate basic inference result structure
     void ValidateInferenceResult(
@@ -275,12 +259,16 @@ class AtomicBackendTest : public ::testing::Test {
         ASSERT_LT(memory_usage, max_memory_mb) << "Memory usage should be reasonable";
     }
 
-    // Create various test inputs
-    cv::Mat CreateSmallTestInput() { return cv::Mat::ones(64, 64, CV_8UC3) * 128; }
+    // Create various test inputs, all in the byte-tensor form the interface takes
+    std::vector<std::vector<uint8_t>> CreateSmallTestInput() {
+        return neuriplo::testing::zero_blob_tensors(1, 3, 64, 64);
+    }
 
-    cv::Mat CreateLargeTestInput() { return cv::Mat::ones(512, 512, CV_8UC3) * 128; }
+    std::vector<std::vector<uint8_t>> CreateLargeTestInput() {
+        return neuriplo::testing::zero_blob_tensors(1, 3, 512, 512);
+    }
 
-    cv::Mat CreateInvalidTestInput() {
-        return cv::Mat(); // Empty matrix
+    std::vector<std::vector<uint8_t>> CreateInvalidTestInput() {
+        return {}; // No tensors at all
     }
 };
