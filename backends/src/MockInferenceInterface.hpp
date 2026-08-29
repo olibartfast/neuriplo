@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <gmock/gmock.h>
 #include <memory>
+#include <new>
 #include <random>
 #include <thread>
 #include <vector>

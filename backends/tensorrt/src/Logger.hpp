@@ -1,5 +1,8 @@
 #pragma once
+
 #include <NvInfer.h> // for TensorRT API
+#include <iostream>
+
 class Logger : public nvinfer1::ILogger {
   public:
     void log(Severity severity, const char* msg) noexcept override {

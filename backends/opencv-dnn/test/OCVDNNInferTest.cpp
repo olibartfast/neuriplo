@@ -2,6 +2,7 @@
 
 #include "testing/TestBlob.hpp"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>
