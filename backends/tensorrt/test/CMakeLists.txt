@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/TensorRTInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
@@ -31,7 +30,6 @@ endif()
 target_include_directories(TensorRTInferTest SYSTEM PRIVATE
     ${TENSORRT_DIR}/include
     ${CUDAToolkit_INCLUDE_DIRS}
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
@@ -45,7 +43,6 @@ target_link_libraries(TensorRTInferTest PRIVATE
     ${TENSORRT_NVINFER_LIBRARY}
     ${TENSORRT_NVONNXPARSER_LIBRARY}
     CUDA::cudart
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     glog::glog
     gtest
