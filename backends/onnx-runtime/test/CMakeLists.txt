@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/ONNXRuntimeInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 add_executable(ONNXRuntimeInferTest ${TEST_SOURCES})
@@ -24,14 +23,12 @@ target_include_directories(ONNXRuntimeInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
     ${ONNX_RUNTIME_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
 target_link_libraries(ONNXRuntimeInferTest PRIVATE
     neuriplo
     ${ONNX_RUNTIME_LIBRARY}
-    ${OpenCV_LIBS}
     gtest
     gtest_main
     ${GLOG_LIBRARIES}

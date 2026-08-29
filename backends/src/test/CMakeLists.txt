@@ -6,7 +6,6 @@ set(PATTERNS_TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/PatternsTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 add_executable(PatternsTest ${PATTERNS_TEST_SOURCES})
@@ -18,13 +17,11 @@ target_compile_definitions(PatternsTest PRIVATE
 target_include_directories(PatternsTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
 target_link_libraries(PatternsTest PRIVATE
     neuriplo
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     gtest
     gtest_main
@@ -45,13 +42,11 @@ if(NEURIPLO_PLUGIN_BACKENDS)
     target_include_directories(PluginLoaderTest PRIVATE
         ${CMAKE_SOURCE_DIR}/backends/src
         ${CMAKE_SOURCE_DIR}/include
-        ${OpenCV_INCLUDE_DIRS}
         ${GLOG_INCLUDE_DIRS}
     )
 
     target_link_libraries(PluginLoaderTest PRIVATE
         neuriplo
-        ${OpenCV_LIBS}
         ${GLOG_LIBRARIES}
         gtest
         gtest_main
