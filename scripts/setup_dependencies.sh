@@ -42,9 +42,18 @@ esac
 # is rejected by the backend validation above).
 install_system_deps() {
     local os=$(grep -oP '^ID=\K.*' /etc/os-release 2>/dev/null || echo "linux")
+    # libopenvino.so records DT_NEEDED on libtbb.so.12, so OPENVINO needs the
+    # TBB runtime on top of the common set. It used to arrive transitively via
+    # libopencv-dev, which this script no longer installs.
+    local extra=""
+    local extra_rpm=""
+    if [[ "$BACKEND" == "OPENVINO" ]]; then
+        extra="libtbb12"
+        extra_rpm="tbb"
+    fi
     case $os in
-        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopenblas-dev ;;
-        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config openblas-devel ;;
+        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopenblas-dev $extra ;;
+        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config openblas-devel $extra_rpm ;;
         *) echo "Warning: Unsupported OS: $os. Install dependencies manually." ;;
     esac
 }
