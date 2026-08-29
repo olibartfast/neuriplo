@@ -30,6 +30,6 @@ quality_clang_tidy() {
 
 quality_cpp_sources() {
     local root="$1"
-    find "$root/src" "$root/include" "$root/backends" \
+    find "$root/src" "$root/include" "$root/backends" "$root/test" \
         \( -name '*.cpp' -o -name '*.hpp' \) -print 2>/dev/null | sort
 }
