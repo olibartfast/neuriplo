@@ -20,6 +20,10 @@ on:
       - .github/workflows/windows-build.yml
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
 
   # ── Public headers without OpenCV ──────────────────────────────────
@@ -64,15 +68,15 @@ jobs:
         shell: pwsh
         run: |
           cmake -S test/public-headers -B build-headers `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build-headers --config Release
+          cmake --build build-headers
 
   # ── OpenCV DNN ─────────────────────────────────────────────────────
   build-windows-opencvdnn:
@@ -107,8 +111,8 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B build `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DDEFAULT_BACKEND=OPENCV_DNN `
@@ -117,7 +121,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build --parallel
 
   # ── ONNX Runtime ───────────────────────────────────────────────────
   build-windows-onnxruntime:
@@ -182,8 +186,8 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B build `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DDEFAULT_BACKEND=ONNX_RUNTIME `
@@ -192,11 +196,14 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build --parallel
 
       - name: Run tests
         shell: pwsh
         run: |
-          # ONNX Runtime DLL must be on PATH for tests to load it
-          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-${env:ONNX_RUNTIME_VERSION}\lib;$env:Path"
-          ctest --test-dir build --build-config Release --output-on-failure
+          # ONNX Runtime and the vcpkg DLLs (glog, gtest) must be on PATH for
+          # the tests to load. Under the Visual Studio generator vcpkg's MSBuild
+          # integration copied the latter next to the executables; Ninja gets no
+          # such step, so name the directory instead of relying on it.
+          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-${env:ONNX_RUNTIME_VERSION}\lib;$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\bin;$env:Path"
+          ctest --test-dir build --output-on-failure
