@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Spec-driven project constitution under `specs/`: mission, technical
+  boundaries, a status-bearing roadmap, and the three-document feature-packet
+  workflow for new or actively changing phases.
 - `DALI` backend: hosts a serialized NVIDIA DALI pipeline in-process through
   the DALI C API, pure C++ at inference time. Not an inference engine -- it
   fills the same `InferenceInterface` slot so a serving pipeline can chain
@@ -90,7 +93,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   implementation adapts `get_infer_results()` so all other backends keep
   working unchanged.
 - Optional ccache support to speed up non-release builds.
-- Library roadmap (`ROADMAP.md`) and the ORT execution-provider plan
+- Library roadmap (`specs/roadmap.md`) and the ORT execution-provider plan
   (`docs/plans/ort-execution-providers.md`).
 
 ### Changed
