@@ -32,7 +32,7 @@ From `REPO_META.yaml` and `AGENTS.md`:
 - `protect_fallback_behavior: true` — provider/device fallback stays explicit and
   logged, never silent.
 - `new-dependency` **forbidden** — no new third-party libs; everything below is
-  internal C++17 + existing deps (glog, OpenCV).
+  internal C++17 + existing deps (glog; OpenCV only in the opencv-dnn backend).
 - `inference-logic-change` / `perf-critical-kernel-change` **forbidden** — the
   numeric path inside `get_infer_results` must not change. Structural extraction
   is allowed; altering math/quantization defaults is **not** (see `QuantizedBackend`

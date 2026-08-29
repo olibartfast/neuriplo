@@ -26,8 +26,6 @@ RUN apt-get update && apt-get upgrade -y && \
     libgoogle-glog-dev \
     libgtest-dev \
     ninja-build \
-    libopencv-dev \
-    libopencv-contrib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY versions.env /tmp/versions.env
