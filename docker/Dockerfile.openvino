@@ -6,7 +6,9 @@ FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies.
+# libtbb12 is a hard requirement of libopenvino.so (DT_NEEDED libtbb.so.12);
+# it used to arrive transitively via libopencv-dev -> libopencv-core410.
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y \
     cmake=3.* \
@@ -22,6 +24,7 @@ RUN apt-get update && apt-get upgrade -y && \
     ninja-build \
     libgoogle-glog-dev \
     libgtest-dev \
+    libtbb12 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY versions.env /tmp/versions.env
