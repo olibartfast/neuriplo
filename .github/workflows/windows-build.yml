@@ -148,8 +148,9 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
+          # No OpenCV: the ONNX Runtime backend does not use it, and leaving
+          # it out is what proves so.
           & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
-            opencv4[core,dnn]:x64-windows `
             glog:x64-windows `
             gtest:x64-windows
 

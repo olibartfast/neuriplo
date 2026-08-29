@@ -36,12 +36,15 @@ case $BACKEND in
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
-# Install system dependencies
+# Install system dependencies.
+# No OpenCV here: it is needed only by the OPENCV_DNN backend, which this
+# script does not handle (it takes a system package, not a downloaded SDK, and
+# is rejected by the backend validation above).
 install_system_deps() {
     local os=$(grep -oP '^ID=\K.*' /etc/os-release 2>/dev/null || echo "linux")
     case $os in
-        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopencv-dev libopenblas-dev ;;
-        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config opencv-devel openblas-devel ;;
+        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopenblas-dev ;;
+        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config openblas-devel ;;
         *) echo "Warning: Unsupported OS: $os. Install dependencies manually." ;;
     esac
 }
