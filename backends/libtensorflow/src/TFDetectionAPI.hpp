@@ -1,6 +1,5 @@
 #pragma once
 #include "InferenceInterface.hpp"
-#include "opencv2/opencv.hpp"
 
 #include <tensorflow/cc/saved_model/loader.h>
 #include <tensorflow/core/framework/tensor.h>
