@@ -1,4 +1,5 @@
 #include "TRTInfer.hpp"
+#include "testing/TestBlob.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -6,7 +7,6 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
-#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
@@ -78,14 +78,7 @@ TEST_F(TensorRTInferTest, InferenceResults) {
     TRTInfer infer(model_path, true);
 
     // Create test input (ResNet-18 expects 224x224)
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-    // Convert blob to vector<vector<uint8_t>>
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
 
@@ -164,13 +157,7 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
         TRTInfer infer(model_path, true);
 
         // Multiple inference calls to test memory management
-        cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::Mat blob;
-        cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-        std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-        memcpy(input_data.data(), blob.data, input_data.size());
-        std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+        std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
         for (int i = 0; i < 3; ++i) {
             auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
