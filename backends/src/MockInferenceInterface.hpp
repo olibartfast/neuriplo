@@ -41,10 +41,10 @@ class MockInferenceInterface : public InferenceInterface {
     MOCK_METHOD(void, load, (), (override));
 
     // Mock performance methods
-    MOCK_METHOD(double, get_last_inference_time_ms, (), (const, override));
-    MOCK_METHOD(size_t, get_total_inferences, (), (const, override));
-    MOCK_METHOD(size_t, get_memory_usage_mb, (), (const, override));
-    MOCK_METHOD(void, clear_cache, (), (override));
+    MOCK_METHOD(double, get_last_inference_time_ms, (), (const, noexcept, override));
+    MOCK_METHOD(size_t, get_total_inferences, (), (const, noexcept, override));
+    MOCK_METHOD(size_t, get_memory_usage_mb, (), (const, noexcept, override));
+    MOCK_METHOD(void, clear_cache, (), (noexcept, override));
 
     // Helper method to set up common mock expectations
     void SetupDefaultExpectations() {

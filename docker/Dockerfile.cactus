@@ -29,6 +29,7 @@ RUN apt-get update && apt-get upgrade -y && \
     libopenblas-dev \
     libgoogle-glog-dev \
     libgtest-dev \
+    libgmock-dev \
     ninja-build \
     libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
