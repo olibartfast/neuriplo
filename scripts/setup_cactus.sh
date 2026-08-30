@@ -32,16 +32,23 @@ else
     exit 1
 fi
 
+source "${SCRIPT_DIR}/lib/version_stamp.sh"
+
 INSTALL_DIR="${HOME}/dependencies/cactus"
 if [[ "${1:-}" == "--install-dir" ]]; then
     INSTALL_DIR="${2:?--install-dir requires a path argument}"
 fi
 
 SRC_DIR="/tmp/cactus-src"
+FORCE="${FORCE:-false}"
 
 # ── Already installed? ────────────────────────────────────────────────────────
-if [ -f "${INSTALL_DIR}/lib/libcactus.so" ] && [ -f "${INSTALL_DIR}/include/cactus.h" ] && [ -f "${INSTALL_DIR}/include/graph/graph.h" ]; then
-    echo "✓ Cactus ${CACTUS_VERSION} already installed at ${INSTALL_DIR}"
+# The libraries existing does not say which tag built them, and INSTALL_DIR
+# carries no version, so a v1.13 tree used to satisfy a v1.14 pin forever.
+if [ -f "${INSTALL_DIR}/lib/libcactus.so" ] && [ -f "${INSTALL_DIR}/include/cactus.h" ] && [ -f "${INSTALL_DIR}/include/graph/graph.h" ] && [ "${FORCE}" != "true" ]; then
+    if neuriplo_stamp_matches "${INSTALL_DIR}" "${CACTUS_VERSION}" "Cactus"; then
+        echo "✓ Cactus ${CACTUS_VERSION} already installed at ${INSTALL_DIR}"
+    fi
     exit 0
 fi
 
@@ -89,6 +96,9 @@ if [ ! -f "${INSTALL_DIR}/lib/libcactus.so" ]; then
 fi
 
 rm -rf "${SRC_DIR}"
+
+# Only now that the install is complete: a stamp always describes a usable tree.
+neuriplo_write_stamp "${INSTALL_DIR}" "${CACTUS_VERSION}"
 
 echo ""
 echo "✓ Cactus ${CACTUS_VERSION} installed to ${INSTALL_DIR}"

@@ -13,13 +13,20 @@ else
     exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/version_stamp.sh"
+
 # Default installation directory
 TVM_DIR="${DEPENDENCY_ROOT}/tvm"
 BUILD_DIR="${TVM_DIR}/build"
+FORCE="${FORCE:-false}"
 
-# Check if TVM is already installed
-if [ -d "$TVM_DIR" ] && [ -f "$BUILD_DIR/libtvm_runtime.so" ] && [ -f "$TVM_DIR/include/tvm/runtime/c_runtime_api.h" ] && [ "$FORCE" != "true" ]; then
-    echo "✓ TVM already installed at $TVM_DIR"
+# Check if TVM is already installed. The libraries existing says nothing about
+# which tag produced them -- TVM_DIR carries no version -- so compare the stamp.
+if [ -f "$BUILD_DIR/libtvm_runtime.so" ] && [ -f "$TVM_DIR/include/tvm/runtime/c_runtime_api.h" ] && [ "$FORCE" != "true" ]; then
+    if neuriplo_stamp_matches "$TVM_DIR" "$TVM_VERSION" "TVM"; then
+        echo "✓ TVM $TVM_VERSION already installed at $TVM_DIR"
+    fi
     exit 0
 fi
 
@@ -245,6 +252,8 @@ export PYTHONPATH="${TVM_DIR}/python:${PYTHONPATH}"
 export LD_LIBRARY_PATH="${TVM_DIR}/build:${LD_LIBRARY_PATH}"
 
 if [ -f "${TVM_DIR}/build/libtvm_runtime.so" ] && [ -f "${TVM_DIR}/build/libtvm.so" ]; then
+    # Only now that the tree is known good: a stamp always describes a usable install.
+    neuriplo_write_stamp "$TVM_DIR" "$TVM_VERSION"
     echo "✓ TVM libraries found"
 else
     echo "✗ TVM library verification failed"

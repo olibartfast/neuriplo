@@ -15,10 +15,14 @@ else
     exit 1
 fi
 
+source "${SCRIPT_DIR}/lib/version_stamp.sh"
+
 INSTALL_DIR="${HOME}/dependencies/executorch"
 if [[ "${1:-}" == "--install-dir" ]]; then
     INSTALL_DIR="${2:?--install-dir requires a path argument}"
 fi
+
+FORCE="${FORCE:-false}"
 
 # v1.2.0 requires the source directory to be named exactly "executorch"
 SRC_DIR="/tmp/executorch"
@@ -26,8 +30,12 @@ SRC_DIR="/tmp/executorch"
 # ── Already installed? ────────────────────────────────────────────────────────
 # Require the XNNPACK backend lib too: a core-only install from an older run
 # would fail to link the EXECUTORCH backend, so treat it as not installed.
-if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ]; then
-    echo "✓ ExecuTorch ${EXECUTORCH_VERSION} already installed at ${INSTALL_DIR}"
+# INSTALL_DIR carries no version either, so the archives existing does not mean
+# they came from the pinned tag.
+if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ] && [ "${FORCE}" != "true" ]; then
+    if neuriplo_stamp_matches "${INSTALL_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch"; then
+        echo "✓ ExecuTorch ${EXECUTORCH_VERSION} already installed at ${INSTALL_DIR}"
+    fi
     exit 0
 fi
 
@@ -94,6 +102,9 @@ cmake -S . -B cmake-out \
 # ── Build & install ───────────────────────────────────────────────────────────
 cmake --build cmake-out --config Release -j"$(nproc)"
 cmake --install cmake-out
+
+# Only now that the install is complete: a stamp always describes a usable tree.
+neuriplo_write_stamp "${INSTALL_DIR}" "${EXECUTORCH_VERSION}"
 
 echo ""
 echo "✓ ExecuTorch ${EXECUTORCH_VERSION} installed to ${INSTALL_DIR}"
