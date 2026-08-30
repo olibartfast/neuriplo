@@ -67,7 +67,8 @@ SYMBOL_HEADERS = {
     "cstdlib": ["std::getenv", "std::exit", "std::abort", "std::strtol", "std::strtod", "std::atoi"],
     "cstring": ["std::memcpy", "std::memset", "std::memcmp", "std::strlen", "std::strcmp", "std::strncmp"],
     "cstdint": ["int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t"],
-    "string": ["std::string", "std::to_string", "std::stoi", "std::stof", "std::stod", "std::string_view"],
+    "string": ["std::string", "std::to_string", "std::stoi", "std::stof", "std::stod"],
+    "string_view": ["std::string_view"],
     "vector": ["std::vector"],
     "array": ["std::array"],
     "map": ["std::map"],
@@ -82,7 +83,8 @@ SYMBOL_HEADERS = {
     "numeric": ["std::accumulate", "std::iota", "std::inner_product"],
     "sstream": ["std::ostringstream", "std::istringstream", "std::stringstream"],
     "fstream": ["std::ifstream", "std::ofstream", "std::fstream"],
-    "iostream": ["std::cout", "std::cerr", "std::cin", "std::endl"],
+    "iostream": ["std::cout", "std::cerr", "std::cin"],
+    "ostream": ["std::endl"],
     "iomanip": ["std::setprecision", "std::setw", "std::setfill"],
     "stdexcept": [
         "std::runtime_error", "std::logic_error", "std::invalid_argument",
@@ -121,7 +123,12 @@ PROVIDES = {
     "math.h": {"cmath"},
     "cassert": {"assert.h"},
     "assert.h": {"cassert"},
-    "sstream": {"string"},
+    "sstream": {"string", "ostream"},
+    # [iostream.syn] says <iostream> includes <ostream>, so std::endl is
+    # available through it. <fstream> and <sstream> likewise cannot declare
+    # basic_ofstream/basic_ostringstream without basic_ostream.
+    "iostream": {"ostream"},
+    "fstream": {"ostream"},
 }
 
 # Quoted includes that belong to an SDK rather than to this repo. Without this,

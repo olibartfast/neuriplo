@@ -35,9 +35,14 @@ add_test(NAME PatternsTest COMMAND PatternsTest)
 # translation unit includes them, so nothing type-checked them until now.
 #
 # GTest::gmock comes from GTestConfig.cmake's OPTIONAL include of
-# GMockTargets.cmake, i.e. from libgmock-dev alongside libgtest-dev. The guard
-# keeps a consumer that has gtest but not gmock configuring, at the cost of
-# silently skipping this target -- hence the message.
+# GMockTargets.cmake, i.e. from libgmock-dev alongside libgtest-dev. CMake's own
+# FindGTest module only defines the target from 3.23, so on an older CMake this
+# skips even when gmock is installed.
+#
+# Missing gmock therefore only warns: it must not turn a normal build of this
+# repo into one that needs a package it did not need before. CI configures with
+# -DNEURIPLO_REQUIRE_GMOCK=ON, where the Dockerfiles do install libgmock-dev, so
+# the check still cannot be skipped unnoticed there.
 if(TARGET GTest::gmock)
     add_executable(TestTemplateCompileTest ${CMAKE_CURRENT_LIST_DIR}/TestTemplateCompileTest.cpp)
 
@@ -57,18 +62,15 @@ if(TARGET GTest::gmock)
     )
 
     add_test(NAME TestTemplateCompileTest COMMAND TestTemplateCompileTest)
-elseif(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    # Building neuriplo itself: a silent skip here is how the header went
-    # unchecked in the first place, so refuse rather than warn.
+elseif(NEURIPLO_REQUIRE_GMOCK)
     message(FATAL_ERROR
-        "GTest::gmock not found, so BackendTestTemplate.hpp cannot be compile-checked. "
-        "Install libgmock-dev alongside libgtest-dev, or configure with "
-        "-DBUILD_INFERENCE_ENGINE_TESTS=OFF.")
+        "GTest::gmock not found, so BackendTestTemplate.hpp cannot be compile-checked, "
+        "and NEURIPLO_REQUIRE_GMOCK is ON. Install libgmock-dev alongside libgtest-dev "
+        "(CMake 3.23+ is needed for the module-mode target), or configure with "
+        "-DNEURIPLO_REQUIRE_GMOCK=OFF.")
 else()
-    # Embedded in a larger project: do not break a consumer that has gtest but
-    # not gmock; they are not the ones maintaining this header.
     message(WARNING "GTest::gmock not found: BackendTestTemplate.hpp will not be compile-checked. "
-                    "Install libgmock-dev (or the gmock half of your GoogleTest package).")
+                    "Install libgmock-dev (or the gmock half of your GoogleTest package) to enable it.")
 endif()
 
 # Plugin loader tests: only meaningful when this build produces plugins.
