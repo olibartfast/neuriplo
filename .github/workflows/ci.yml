@@ -54,9 +54,14 @@ jobs:
 
       - name: Run cppcheck
         run: |
+          # TestTemplateCompileTest.cpp is excluded: cppcheck cannot expand
+          # gmock's MOCK_METHOD. Without the gmock headers it reports a syntax
+          # error in that file; with them, one inside gmock's own preprocessor
+          # machinery. It is compiled and run by ctest instead.
           cppcheck --enable=warning --std=c++17 --error-exitcode=1 \
             --suppress=missingIncludeSystem \
             --suppress=unmatchedSuppression \
+            -i backends/src/test/TestTemplateCompileTest.cpp \
             -I include -I backends/src \
             src/ backends/
 
