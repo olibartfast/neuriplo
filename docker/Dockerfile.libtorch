@@ -21,7 +21,6 @@ RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y \
     cmake=3.* \
     build-essential=12.* \
-    libopencv-dev \
     libgoogle-glog-dev \
     libgtest-dev \
     wget \
@@ -78,7 +77,7 @@ RUN python3 -m venv /opt/pytorch_env
 ENV PATH=/opt/pytorch_env/bin:$PATH
 
 RUN pip install --upgrade pip && \
-    pip install torch torchvision onnx numpy opencv-python \
+    pip install torch torchvision onnx numpy \
     pytest pytest-cov pytest-mock pytest-benchmark pytest-xdist \
     coverage pytest-html pytest-json-report
 

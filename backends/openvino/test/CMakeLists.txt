@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/OpenVINOInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 find_package(OpenVINO REQUIRED)
 
@@ -12,14 +11,12 @@ target_include_directories(OpenVINOInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/openvino/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
 target_link_libraries(OpenVINOInferTest PRIVATE
     neuriplo
     openvino::runtime
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     glog::glog
     gtest

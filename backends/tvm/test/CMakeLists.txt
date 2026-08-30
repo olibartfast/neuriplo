@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/TVMInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 add_executable(TVMInferTest ${TEST_SOURCES})
@@ -23,7 +22,6 @@ target_include_directories(TVMInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/tvm/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
     ${TVM_DIR}/include
     ${TVM_DIR}/3rdparty/dmlc-core/include
@@ -36,7 +34,6 @@ target_include_directories(TVMInferTest PRIVATE
 
 target_link_libraries(TVMInferTest PRIVATE
     neuriplo
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     ${TVM_RUNTIME_LIBRARY}
     gtest

@@ -1,6 +1,7 @@
 #include "ORTInfer.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 #include <cstdlib>
 #include <numeric>

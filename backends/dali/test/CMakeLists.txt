@@ -10,7 +10,6 @@ target_include_directories(DALIInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/dali/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
@@ -24,7 +23,6 @@ target_link_libraries(DALIInferTest PRIVATE
     neuriplo
     dali
     dali_operators
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     gtest
     gtest_main

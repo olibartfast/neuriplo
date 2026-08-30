@@ -1,6 +1,8 @@
 #pragma once
 #include "TensorDataType.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 

@@ -1,5 +1,6 @@
 #include "TVMInfer.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>

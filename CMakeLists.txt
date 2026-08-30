@@ -21,7 +21,6 @@ include(cmake/versions.cmake)
 # Include dependency validation
 include(cmake/DependencyValidation.cmake)
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -109,7 +108,6 @@ target_include_directories(neuriplo PRIVATE
 )
 
 target_link_libraries(neuriplo PRIVATE
-    ${OpenCV_LIBS}
     glog::glog
     ${CMAKE_DL_LIBS}
 )

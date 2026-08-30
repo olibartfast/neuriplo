@@ -15,7 +15,6 @@ RUN apt-get update && apt-get upgrade -y && \
     pkg-config \
     wget \
     git \
-    libopencv-dev \
     libgoogle-glog-dev \
     libgtest-dev \
     && rm -rf /var/lib/apt/lists/*

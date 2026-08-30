@@ -1,4 +1,5 @@
 #include "OVInfer.hpp"
+#include "testing/TestBlob.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -6,7 +7,6 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
-#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
@@ -103,13 +103,7 @@ TEST_F(OpenVINOInferTest, InferenceResults) {
     OVInfer infer(model_path, use_gpu);
 
     // Create test input (ResNet-18 expects 224x224)
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_8UC3); // Use 8-bit unsigned int
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
 
@@ -170,13 +164,7 @@ TEST_F(OpenVINOInferTest, DynamicShapes) {
     OVInfer infer(model_path, false, 1, input_sizes);
 
     // Test inference with standard input
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_8UC3); // Use 8-bit unsigned int
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
     ASSERT_FALSE(output_vectors.empty());
