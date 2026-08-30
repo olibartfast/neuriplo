@@ -30,6 +30,47 @@ target_link_libraries(PatternsTest PRIVATE
 
 add_test(NAME PatternsTest COMMAND PatternsTest)
 
+# Compile coverage for BackendTestTemplate.hpp / MockInferenceInterface.hpp.
+# They are kept for docs/REFACTOR_DESIGN_PATTERNS.md S6.3 but no other
+# translation unit includes them, so nothing type-checked them until now.
+#
+# GTest::gmock comes from GTestConfig.cmake's OPTIONAL include of
+# GMockTargets.cmake, i.e. from libgmock-dev alongside libgtest-dev. The guard
+# keeps a consumer that has gtest but not gmock configuring, at the cost of
+# silently skipping this target -- hence the message.
+if(TARGET GTest::gmock)
+    add_executable(TestTemplateCompileTest ${CMAKE_CURRENT_LIST_DIR}/TestTemplateCompileTest.cpp)
+
+    target_include_directories(TestTemplateCompileTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/backends/src
+        ${CMAKE_SOURCE_DIR}/include
+        ${GLOG_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(TestTemplateCompileTest PRIVATE
+        neuriplo
+        ${GLOG_LIBRARIES}
+        GTest::gtest
+        GTest::gtest_main
+        GTest::gmock
+        glog::glog
+    )
+
+    add_test(NAME TestTemplateCompileTest COMMAND TestTemplateCompileTest)
+elseif(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    # Building neuriplo itself: a silent skip here is how the header went
+    # unchecked in the first place, so refuse rather than warn.
+    message(FATAL_ERROR
+        "GTest::gmock not found, so BackendTestTemplate.hpp cannot be compile-checked. "
+        "Install libgmock-dev alongside libgtest-dev, or configure with "
+        "-DBUILD_INFERENCE_ENGINE_TESTS=OFF.")
+else()
+    # Embedded in a larger project: do not break a consumer that has gtest but
+    # not gmock; they are not the ones maintaining this header.
+    message(WARNING "GTest::gmock not found: BackendTestTemplate.hpp will not be compile-checked. "
+                    "Install libgmock-dev (or the gmock half of your GoogleTest package).")
+endif()
+
 # Plugin loader tests: only meaningful when this build produces plugins.
 if(NEURIPLO_PLUGIN_BACKENDS)
     add_executable(PluginLoaderTest ${CMAKE_CURRENT_LIST_DIR}/PluginLoaderTest.cpp)

@@ -24,6 +24,7 @@ RUN apt-get update && apt-get upgrade -y && \
     build-essential=12.* \
     libgoogle-glog-dev \
     libgtest-dev \
+    libgmock-dev \
     wget \
     git \
     curl \
