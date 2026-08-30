@@ -116,7 +116,18 @@ cmake -S . -B cmake-out \
 
 # ── Build & install ───────────────────────────────────────────────────────────
 cmake --build cmake-out --config Release -j"$(nproc)"
-cmake --install cmake-out
+
+# cmake --install merges into whatever the prefix already holds, so a forced
+# rebuild after a version change would leave the previous tag's artifacts in
+# place and the stamp below would certify the mixture as the new version. Give
+# INSTALL_DIR one build at a time by installing into a staging tree and
+# swapping; staging also means a failed build leaves the existing installation
+# intact rather than half-replaced.
+STAGE_DIR="${INSTALL_DIR}.incoming"
+rm -rf "${STAGE_DIR}"
+cmake --install cmake-out --prefix "${STAGE_DIR}"
+rm -rf "${INSTALL_DIR}"
+mv "${STAGE_DIR}" "${INSTALL_DIR}"
 
 # Only now that the install is complete: a stamp always describes a usable tree.
 neuriplo_write_stamp "${INSTALL_DIR}" "${EXECUTORCH_VERSION}"
