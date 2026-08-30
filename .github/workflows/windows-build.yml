@@ -20,8 +20,14 @@ on:
       - .github/workflows/windows-build.yml
   workflow_dispatch:
 
+# github.ref differs between the two events that can start this workflow for
+# one branch -- refs/heads/<branch> on push, refs/pull/<n>/merge on
+# pull_request -- so keying on it put the two in separate groups and ran the
+# whole matrix twice for every branch with an open PR. head_ref is the branch
+# name on pull_request and empty on push, so this collapses both onto the
+# branch name and lets cancel-in-progress do its job.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
