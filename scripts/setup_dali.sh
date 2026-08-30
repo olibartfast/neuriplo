@@ -8,7 +8,18 @@
 # -DDALI_DIR expects them.
 set -euo pipefail
 
-DALI_VERSION="${DALI_VERSION:-1.50.0}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Load versions from versions.env unless the caller pinned one explicitly
+if [ -z "${DALI_VERSION:-}" ] && [ -f "${ROOT_DIR}/versions.env" ]; then
+    source "${ROOT_DIR}/versions.env"
+fi
+
+if [ -z "${DALI_VERSION:-}" ]; then
+    echo "Error: DALI_VERSION is not set and versions.env was not found" >&2
+    exit 1
+fi
 DEPENDENCY_ROOT="${DEPENDENCY_ROOT:-$HOME/dependencies}"
 TARGET="${1:-$DEPENDENCY_ROOT/dali}"
 

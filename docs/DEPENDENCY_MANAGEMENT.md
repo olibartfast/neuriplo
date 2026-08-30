@@ -270,11 +270,27 @@ sudo apt-get install -y libopencv-dev libopencv-contrib-dev
 ./scripts/setup_ggml.sh
 ```
 
-**TensorRT** — manual download required (NVIDIA login):
-1. Download from [NVIDIA Developer](https://developer.nvidia.com/tensorrt).
-2. Extract to `$HOME/dependencies/TensorRT-<VERSION>`.
-3. Ensure CUDA is installed.
-4. Run: `./scripts/setup_tensorrt.sh`
+**TensorRT** — requires a working CUDA installation:
+```bash
+./scripts/setup_tensorrt.sh
+```
+The script downloads and extracts the `TENSORRT_VERSION` pinned in `versions.env`
+into `$HOME/dependencies/TensorRT-<VERSION>`, using the same tarball URL as
+`docker/Dockerfile.tensorrt`.
+
+TensorRT ships a separate build per CUDA line, and a build for CUDA 13 will not
+run against a CUDA 12 toolkit. `CUDA_VERSION` in `versions.env` is the line the CI
+images use; the script prefers the CUDA it detects locally via `nvcc` and reports
+when the two differ. Override it explicitly with `TRT_CUDA_VERSION`:
+
+```bash
+TRT_CUDA_VERSION=12.9 ./scripts/setup_tensorrt.sh
+```
+
+To use an installation that is already on disk, point the build at it with
+`-DTENSORRT_DIR=/path/to/TensorRT-<VERSION>`; CMake reads the real version out of
+`NvInferVersion.h` and warns when it differs from the one declared in
+`versions.env`.
 
 **OpenVINO**:
 1. Download from [Intel Developer Zone](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html).
