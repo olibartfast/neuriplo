@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libgoogle-glog-dev \
     libgtest-dev \
-    libopencv-dev \
     python3 \
     wget \
     && rm -rf /var/lib/apt/lists/*

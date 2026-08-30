@@ -12,8 +12,10 @@
 
 ## Dependencies
 - C++17
-- OpenCV
 - glog
+
+OpenCV is required only by the OpenCV DNN backend. Every other backend
+configures and builds without it installed.
 
 ### Supported Backends (Inside [versions.env](versions.env) file, versions tested in this project):
 * OpenCV DNN module

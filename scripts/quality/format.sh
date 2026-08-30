@@ -34,7 +34,7 @@ CFMT="$(quality_clang_format)" || {
 
 mapfile -t FILES < <(quality_cpp_sources "$ROOT")
 if [[ ${#FILES[@]} -eq 0 ]]; then
-    echo "No C++ sources found under src/, include/, backends/." >&2
+    echo "No C++ sources found under src/, include/, backends/, test/." >&2
     exit 1
 fi
 

@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/ExecuTorchInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 list(APPEND CMAKE_PREFIX_PATH "${EXECUTORCH_DIR}")
@@ -16,7 +15,6 @@ target_include_directories(ExecuTorchInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/executorch/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
@@ -27,7 +25,6 @@ target_link_libraries(ExecuTorchInferTest PRIVATE
     extension_tensor
     portable_ops_lib
     portable_kernels
-    ${OpenCV_LIBS}
     gtest
     gtest_main
     glog::glog

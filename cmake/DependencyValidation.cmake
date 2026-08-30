@@ -172,14 +172,6 @@ endfunction()
 function(validate_system_dependencies)
     # When used as subdirectory, make these checks optional
     if(NOT PROJECT_IS_TOP_LEVEL)
-        # Try to find OpenCV but don't require it
-        find_package(OpenCV QUIET)
-        if(OpenCV_FOUND)
-            message(STATUS "✓ OpenCV ${OpenCV_VERSION} found")
-        else()
-            message(STATUS "OpenCV not found - parent project should handle OpenCV")
-        endif()
-        
         # Try to find glog but don't require it
         find_package(Glog QUIET)
         if(Glog_FOUND)
@@ -190,13 +182,6 @@ function(validate_system_dependencies)
         
         return()
     endif()
-    
-    # Validate OpenCV
-    find_package(OpenCV REQUIRED)
-    if(OpenCV_VERSION VERSION_LESS OPENCV_MIN_VERSION)
-        message(FATAL_ERROR "OpenCV version ${OpenCV_VERSION} is too old. Minimum required: ${OPENCV_MIN_VERSION}")
-    endif()
-    message(STATUS "✓ OpenCV ${OpenCV_VERSION} found")
     
     # Validate glog
     find_package(Glog REQUIRED)
@@ -275,15 +260,17 @@ endfunction()
 # Function to validate OpenCV DNN
 function(validate_opencv_dnn)
     if("OPENCV_DNN" IN_LIST NEURIPLO_REQUESTED_BACKENDS)
-        # OpenCV is already validated in validate_system_dependencies()
-        # Just check that DNN module is available
+        # The only OpenCV check left in the tree. It used to live in
+        # validate_system_dependencies(), which runs for every build, so a
+        # backend that never touches OpenCV still could not configure without
+        # it. Guarded on the requested backend, it costs the other 13 nothing.
         find_package(OpenCV REQUIRED)
-        
-        # Check if OpenCV was compiled with DNN support
-        if(NOT OpenCV_FOUND)
-            message(FATAL_ERROR "OpenCV not found. OpenCV DNN backend requires OpenCV.")
+        # Guarded on OpenCV_FOUND so that a failed find reports only that, and
+        # not a second, misleading "version is too old" from an empty version.
+        if(OpenCV_FOUND AND OpenCV_VERSION VERSION_LESS OPENCV_MIN_VERSION)
+            message(FATAL_ERROR "OpenCV version ${OpenCV_VERSION} is too old. Minimum required: ${OPENCV_MIN_VERSION}")
         endif()
-        
+        message(STATUS "✓ OpenCV ${OpenCV_VERSION} found")
         message(STATUS "✓ OpenCV DNN validation passed")
     endif()
 endfunction()

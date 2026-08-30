@@ -6,6 +6,7 @@ on:
       - feature/windows-support
       - develop
       - 'feature/**'
+      - 'refactor/**'
   pull_request:
     branches:
       - develop
@@ -15,10 +16,67 @@ on:
       - include/**
       - src/**
       - backends/**
+      - test/public-headers/**
       - .github/workflows/windows-build.yml
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+
+  # ── Public headers without OpenCV ──────────────────────────────────
+  # OpenCV belongs to the opencv-dnn backend alone. This job configures
+  # test/public-headers, a standalone project that compiles the public headers
+  # with glog and nothing else, on a runner where OpenCV is never installed.
+  #
+  # It has to run on MSVC to be worth much. The same project on libstdc++
+  # catches a re-added <opencv2/...> include, but not a std header the tree
+  # relies on OpenCV to supply transitively -- there <iostream> quietly covers
+  # for it. MSVC does not, so this is where that class of breakage shows up.
+  headers-without-opencv:
+    name: Windows / headers without OpenCV
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          # glog only. Installing OpenCV here would defeat the point of the job;
+          # the project's configure step asserts it is unreachable.
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            glog:x64-windows
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S test/public-headers -B build-headers `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build-headers
 
   # ── OpenCV DNN ─────────────────────────────────────────────────────
   build-windows-opencvdnn:
@@ -53,8 +111,8 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B build `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DDEFAULT_BACKEND=OPENCV_DNN `
@@ -63,7 +121,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build --parallel
 
   # ── ONNX Runtime ───────────────────────────────────────────────────
   build-windows-onnxruntime:
@@ -90,8 +148,9 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
+          # No OpenCV: the ONNX Runtime backend does not use it, and leaving
+          # it out is what proves so.
           & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
-            opencv4[core,dnn]:x64-windows `
             glog:x64-windows `
             gtest:x64-windows
 
@@ -128,8 +187,8 @@ jobs:
         shell: pwsh
         run: |
           cmake -S . -B build `
-            -G "Visual Studio 17 2022" `
-            -A x64 `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DDEFAULT_BACKEND=ONNX_RUNTIME `
@@ -138,11 +197,14 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel
+          cmake --build build --parallel
 
       - name: Run tests
         shell: pwsh
         run: |
-          # ONNX Runtime DLL must be on PATH for tests to load it
-          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-${env:ONNX_RUNTIME_VERSION}\lib;$env:Path"
-          ctest --test-dir build --build-config Release --output-on-failure
+          # ONNX Runtime and the vcpkg DLLs (glog, gtest) must be on PATH for
+          # the tests to load. Under the Visual Studio generator vcpkg's MSBuild
+          # integration copied the latter next to the executables; Ninja gets no
+          # such step, so name the directory instead of relying on it.
+          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-${env:ONNX_RUNTIME_VERSION}\lib;$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\bin;$env:Path"
+          ctest --test-dir build --output-on-failure

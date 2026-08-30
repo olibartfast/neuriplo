@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/TensorFlowInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 # Add cmake modules path to find our custom FindTensorFlow.cmake
@@ -16,7 +15,6 @@ target_include_directories(TensorFlowInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
     ${TensorFlow_INCLUDE_DIR}
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
@@ -24,7 +22,6 @@ target_link_libraries(TensorFlowInferTest PRIVATE
     neuriplo
     ${TensorFlow_FRAMEWORK_LIBRARY}
     ${TensorFlow_CC_LIBRARY}
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     glog::glog
     gtest

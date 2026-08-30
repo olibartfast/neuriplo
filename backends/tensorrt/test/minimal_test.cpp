@@ -1,9 +1,11 @@
 #include "Logger.hpp"
 
 #include <NvInfer.h>
+#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 int main() {

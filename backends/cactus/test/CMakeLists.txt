@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/CactusInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 add_executable(CactusInferTest ${TEST_SOURCES})
@@ -11,14 +10,12 @@ target_include_directories(CactusInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/cactus/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
     ${CACTUS_DIR}/include
 )
 
 target_link_libraries(CactusInferTest PRIVATE
     neuriplo
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     ${CACTUS_DIR}/lib/libcactus.so
     gtest

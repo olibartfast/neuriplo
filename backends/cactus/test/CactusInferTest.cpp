@@ -1,5 +1,6 @@
 #include "CactusInfer.hpp"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>

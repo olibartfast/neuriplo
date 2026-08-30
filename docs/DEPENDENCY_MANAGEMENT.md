@@ -42,7 +42,8 @@ backend IDs and their CMake metadata:
 
 `cmake/DependencyValidation.cmake` validates at configure time:
 
-- **System dependencies**: OpenCV, glog, minimum CMake version
+- **System dependencies**: glog, minimum CMake version
+- **OpenCV**: validated only when `OPENCV_DNN` is among the requested backends.
 - **Selected backend only**: the `DEFAULT_BACKEND` is validated; others are
   ignored.
 - **GPU support**: CUDA presence checked for GPU-enabled backends.
