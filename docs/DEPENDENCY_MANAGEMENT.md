@@ -299,6 +299,28 @@ sudo apt-get install -y libopencv-dev libopencv-contrib-dev
 ./scripts/setup_libtorch.sh
 ```
 
+PyTorch publishes LibTorch as separate CPU and CUDA builds, and which one is
+installed decides device placement: with a CPU-only build
+`torch::cuda::is_available()` is false, so the backend runs on the CPU whatever
+`use_gpu` was set to, and the only symptom is that inference is slow. The script
+therefore picks the variant deliberately — it keeps the family of an existing
+installation (a CUDA LibTorch is never replaced by a CPU one as a side effect of
+an upgrade), and otherwise selects the newest CUDA build PyTorch publishes for
+this release that the local driver supports, falling back to CPU only when no
+CUDA is present. Which CUDA builds exist differs per release — 2.3.0 ships
+`cu118` and `cu121` but no `cu120` — so the choice is made against what the
+server actually publishes rather than derived from the local CUDA version.
+
+Override it explicitly with `LIBTORCH_VARIANT`:
+
+```bash
+LIBTORCH_VARIANT=cu121 ./scripts/setup_libtorch.sh   # a specific CUDA build
+LIBTORCH_VARIANT=cpu   ./scripts/setup_libtorch.sh   # deliberately CPU-only
+```
+
+The variant is reported at configure time as `LibTorch build: <version>+<variant>`,
+and a CPU-only installation on a machine with CUDA available is warned about.
+
 **GGML**:
 ```bash
 ./scripts/setup_ggml.sh

@@ -230,6 +230,36 @@ function(validate_libtorch)
         report_version_drift("LibTorch" "${PYTORCH_VERSION}" "${detected_version}" "${LIBTORCH_DIR}"
             "Re-run ./scripts/setup_libtorch.sh to install the declared version.")
 
+        # build-version also names the compute variant ("2.3.0+cpu",
+        # "2.3.0+cu121"). versions.env pins only a version, so the variant has
+        # no pin to drift against -- but it decides device placement, and
+        # getting it wrong fails silently: with a CPU-only build
+        # torch::cuda::is_available() is false, so LibtorchInfer puts every
+        # tensor on the CPU however the caller set use_gpu, and the only symptom
+        # is that inference is slow. Say so instead.
+        set(libtorch_build "")
+        if(EXISTS "${LIBTORCH_DIR}/build-version")
+            file(STRINGS "${LIBTORCH_DIR}/build-version" libtorch_build_lines LIMIT_COUNT 1)
+            if(libtorch_build_lines)
+                list(GET libtorch_build_lines 0 libtorch_build)
+                string(STRIP "${libtorch_build}" libtorch_build)
+            endif()
+        endif()
+        if(libtorch_build)
+            message(STATUS "LibTorch build: ${libtorch_build}")
+            if(libtorch_build MATCHES "\\+cpu$")
+                find_package(CUDAToolkit QUIET)
+                if(CUDAToolkit_FOUND)
+                    message(WARNING
+                        "LibTorch at ${LIBTORCH_DIR} is a CPU-only build (${libtorch_build}), but CUDA "
+                        "${CUDAToolkit_VERSION} is available here. torch::cuda::is_available() will be "
+                        "false, so the LibTorch backend will run on the CPU whatever use_gpu is set to. "
+                        "Re-run ./scripts/setup_libtorch.sh with FORCE=true to install a CUDA build, or "
+                        "set LIBTORCH_VARIANT=cpu to make the CPU-only choice explicit.")
+                endif()
+            endif()
+        endif()
+
         message(STATUS "✓ LibTorch validation passed")
     endif()
 endfunction()
