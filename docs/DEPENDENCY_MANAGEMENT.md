@@ -48,6 +48,40 @@ backend IDs and their CMake metadata:
   ignored.
 - **GPU support**: CUDA presence checked for GPU-enabled backends.
 - **Installation completeness**: required headers and libraries must exist.
+- **Version drift**: the version *inside* an installation is compared against
+  the pin in `versions.env`, and a mismatch is reported as a warning naming the
+  version the build will actually use.
+
+#### Version drift and version stamps
+
+A dependency directory's name is not evidence of what is in it. Several
+`*_DIR` paths carry no version at all, and any of them can be redirected with
+`-D<DEP>_DIR`, so validation reads the version out of the installation itself:
+
+| Backend | Read from |
+| --- | --- |
+| TensorRT | `include/NvInferVersion.h` |
+| LibTorch | `build-version` |
+| ONNX Runtime | `VERSION_NUMBER` |
+| OpenVINO | `runtime/version.txt` |
+| GGML, TVM, Cactus, llama.cpp, ExecuTorch, LiteRT | `neuriplo-version.txt` |
+
+The last row is the source-built group. Upstream leaves nothing behind that
+names a version, so `scripts/lib/version_stamp.sh` writes `neuriplo-version.txt`
+into the install directory, recording the `versions.env` pin the tree was built
+from. It is written only after the build and install succeed, so a stamp always
+describes a usable installation.
+
+**If you add a source-built backend**, source the helper in its setup script,
+gate the "already installed?" check on `neuriplo_stamp_matches`, and call
+`neuriplo_write_stamp` after a successful install. Checking only that a library
+file exists is what let these installations drift: any past build answers that
+question yes, so bumping the pin in `versions.env` silently did nothing.
+
+An installation predating the stamp is reported as unstamped rather than assumed
+current, and is rebuilt with `FORCE=true`. Setup scripts never replace a
+mismatched installation on their own — they say what they found and stop, since
+replacing one deletes a working tree.
 
 ### Setup Scripts
 

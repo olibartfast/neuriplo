@@ -15,16 +15,23 @@ else
     exit 1
 fi
 
+source "${SCRIPT_DIR}/lib/version_stamp.sh"
+
 INSTALL_DIR="${HOME}/dependencies/llamacpp"
 if [[ "${1:-}" == "--install-dir" ]]; then
     INSTALL_DIR="${2:?--install-dir requires a path argument}"
 fi
 
 SRC_DIR="/tmp/llamacpp-src"
+FORCE="${FORCE:-false}"
 
 # ── Already installed? ────────────────────────────────────────────────────────
-if [ -f "${INSTALL_DIR}/lib/libllama.so" ] && [ -f "${INSTALL_DIR}/include/llama.h" ]; then
-    echo "✓ llama.cpp ${LLAMACPP_VERSION} already installed at ${INSTALL_DIR}"
+# libllama.so existing does not say which build tag produced it, and
+# INSTALL_DIR carries no version, so any past build satisfied every later pin.
+if [ -f "${INSTALL_DIR}/lib/libllama.so" ] && [ -f "${INSTALL_DIR}/include/llama.h" ] && [ "${FORCE}" != "true" ]; then
+    if neuriplo_stamp_matches "${INSTALL_DIR}" "${LLAMACPP_VERSION}" "llama.cpp"; then
+        echo "✓ llama.cpp ${LLAMACPP_VERSION} already installed at ${INSTALL_DIR}"
+    fi
     exit 0
 fi
 
@@ -56,6 +63,9 @@ cmake --build build -j"$(nproc)"
 cmake --install build
 
 rm -rf "${SRC_DIR}"
+
+# Only now that the install is complete: a stamp always describes a usable tree.
+neuriplo_write_stamp "${INSTALL_DIR}" "${LLAMACPP_VERSION}"
 
 echo ""
 echo "✓ llama.cpp ${LLAMACPP_VERSION} installed to ${INSTALL_DIR}"
