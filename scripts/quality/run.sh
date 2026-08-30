@@ -2,9 +2,10 @@
 # Run local code-quality checks (fast subset by default).
 #
 # Usage:
-#   ./scripts/quality/run.sh              # format + cppcheck
-#   ./scripts/quality/run.sh --all        # format + cppcheck + clang-tidy + sanitizers
+#   ./scripts/quality/run.sh              # format + includes + cppcheck
+#   ./scripts/quality/run.sh --all        # the above + clang-tidy + sanitizers
 #   ./scripts/quality/run.sh --format     # format check only
+#   ./scripts/quality/run.sh --includes   # missing-include check only
 #   ./scripts/quality/run.sh --fix        # clang-format -i
 #   ./scripts/quality/run.sh --sanitizers # ASan+UBSan build+test (OPENCV_DNN default)
 set -euo pipefail
@@ -12,6 +13,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RUN_FORMAT=0
+RUN_INCLUDES=0
 RUN_CPPCHECK=0
 RUN_TIDY=0
 RUN_SAN=0
@@ -20,6 +22,7 @@ BUILD_DIR=build
 
 if [[ $# -eq 0 ]]; then
     RUN_FORMAT=1
+    RUN_INCLUDES=1
     RUN_CPPCHECK=1
 fi
 
@@ -27,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --all)
             RUN_FORMAT=1
+            RUN_INCLUDES=1
             RUN_CPPCHECK=1
             RUN_TIDY=1
             RUN_SAN=1
@@ -38,6 +42,7 @@ while [[ $# -gt 0 ]]; do
             FORMAT_MODE=fix
             shift
             ;;
+        --includes) RUN_INCLUDES=1; shift ;;
         --cppcheck) RUN_CPPCHECK=1; shift ;;
         --clang-tidy)
             RUN_TIDY=1
@@ -49,7 +54,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -h | --help)
-            sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -65,6 +70,13 @@ if [[ "$RUN_FORMAT" -eq 1 ]]; then
     else
         "${SCRIPT_DIR}/format.sh" --check
     fi
+fi
+
+# Cheap enough (a fraction of a second, no compiler, no SDKs) to run before
+# anything that needs a toolchain.
+if [[ "$RUN_INCLUDES" -eq 1 ]]; then
+    echo "[includes] Checking for std symbols used without their header ..."
+    python3 "${SCRIPT_DIR}/check_includes.py"
 fi
 
 if [[ "$RUN_CPPCHECK" -eq 1 ]]; then
