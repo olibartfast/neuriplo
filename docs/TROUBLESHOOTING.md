@@ -196,3 +196,41 @@ cancels the remaining backend matrix jobs.
 
 **Key insight:** **Retry Buildx setup, not just the image build.** The build step already
 had retry; the bootstrap pull did not.
+
+## TensorRT tests pass in seconds without touching the GPU
+
+**Symptom:** `ctest` reports `TensorRTInferTest ... Passed` in well under a second, and
+the suite is green on a machine (or CI job) where TensorRT was never exercised.
+
+**Cause:** every GPU test calls `GTEST_SKIP()` when no engine file is present, and a
+skipped test still exits 0. Engine generation needs `trtexec`, which lives inside the
+TensorRT installation and was not on `PATH`, so the default state was "skip everything
+and report success".
+
+**Fix:**
+- `generate_trt_engine.sh` is configured with `@TENSORRT_DIR@` and puts that
+  installation's `bin/` on `PATH`, so the engine is generated automatically.
+- The test resolves its engine relative to the directory CMake built it into, not the
+  caller's working directory.
+- Set `NEURIPLO_REQUIRE_TENSORRT_TESTS=1` to turn the skip into a failure. The
+  `--gpus all` container in `docker/run_tensorrt_tests.sh` sets it.
+
+**Key insight:** **A suite that skips everything is not a passing suite.** A real run of
+`TensorRTInferTest` takes ~60s (engine build included); a sub-second "pass" means it
+tested nothing.
+
+## Segfault inside libnvinfer on the second TensorRT call
+
+**Symptom:** SIGSEGV with a backtrace whose innermost frame is a nonsense address (e.g.
+`vtable for std::basic_streambuf`) below several `libnvinfer.so` frames. It appears only
+once TensorRT has something to report — a shape mismatch, say — and never on the happy
+path.
+
+**Cause:** `nvinfer1::createInferRuntime(logger)` stores the `ILogger` *reference*, and
+TensorRT keeps using it for the life of the runtime, engine and execution context. A
+logger declared as a local (or as a member of an object that is copied or moved) dies
+first, and the next diagnostic calls through a freed vtable.
+
+**Key insight:** **TensorRT's logger must outlive every TensorRT object built from it.**
+`TRTInfer` uses a function-local `static Logger`, which is immune to both scope exit and
+copy/move of the owning object.

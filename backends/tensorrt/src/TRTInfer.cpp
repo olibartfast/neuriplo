@@ -2,6 +2,7 @@
 
 #include <cuda_fp16.h> // For __half if using half-precision
 #include <fstream>
+#include <sstream>
 
 namespace {
 
@@ -74,8 +75,15 @@ TRTInfer::~TRTInfer() {
 }
 
 void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vector<std::vector<int64_t>>& input_sizes) {
-    // Create TensorRT runtime
-    Logger logger;
+    // Create TensorRT runtime.
+    // TensorRT keeps the ILogger reference for the lifetime of the runtime and of
+    // every engine and execution context built from it, and calls back into it
+    // from arbitrary threads. A stack or member logger would therefore dangle as
+    // soon as this function returned (or the TRTInfer was copied/moved), and the
+    // next TensorRT diagnostic would call through a freed vtable. The logger is
+    // stateless, so a single function-local static outlives every TensorRT object
+    // and is safe to share.
+    static Logger logger;
     runtime_ = nvinfer1::createInferRuntime(logger);
 
     // Load engine file
@@ -177,7 +185,21 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
                 }
 
                 if (!context_->setInputShape(tensor_name.c_str(), input_dims)) {
-                    LOG(WARNING) << "Failed to set input shape for " << tensor_name << " in allocation phase";
+                    // Preserve the existing fallback (the engine's own shape is used
+                    // below) but say so explicitly: silently serving a different
+                    // shape than the caller asked for is otherwise invisible.
+                    nvinfer1::Dims engine_shape = engine_->getTensorShape(tensor_name.c_str());
+                    std::ostringstream requested, actual;
+                    for (int k = 0; k < input_dims.nbDims; ++k) {
+                        requested << (k ? "x" : "") << input_dims.d[k];
+                    }
+                    for (int k = 0; k < engine_shape.nbDims; ++k) {
+                        actual << (k ? "x" : "") << engine_shape.d[k];
+                    }
+                    LOG(WARNING) << "Failed to set input shape " << requested.str() << " for " << tensor_name
+                                 << " in allocation phase; this engine does not support it. Falling back to the "
+                                 << "engine's shape " << actual.str() << " -- the requested batch size of "
+                                 << batch_size_ << " is being ignored.";
                 }
             }
             num_inputs_++;
