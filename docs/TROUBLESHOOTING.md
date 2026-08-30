@@ -234,3 +234,29 @@ first, and the next diagnostic calls through a freed vtable.
 **Key insight:** **TensorRT's logger must outlive every TensorRT object built from it.**
 `TRTInfer` uses a function-local `static Logger`, which is immune to both scope exit and
 copy/move of the owning object.
+
+## Docker build breaks after a setup script gains a shared helper
+
+**Symptom:** one backend's image fails immediately at its `RUN /app/scripts/setup_*.sh`
+step with `/app/scripts/lib/version_stamp.sh: No such file or directory`, while the same
+script runs fine on a developer machine and every other backend image still builds.
+
+**Cause:** most backend Dockerfiles stage the whole tree (`COPY . .`), so any file a
+setup script sources is already there. `Dockerfile.litert` instead copies its inputs one
+by one, to keep the dependency layer cacheable across source edits. Factoring shared
+logic into `scripts/lib/` gave `setup_litert.sh` a second input that no `COPY` line
+mentioned, so the file existed in the build context but never in the image.
+
+**Fix:** copy the helper alongside the script it serves:
+
+```dockerfile
+COPY scripts/lib/version_stamp.sh /app/scripts/lib/version_stamp.sh
+COPY scripts/setup_litert.sh /app/scripts/setup_litert.sh
+```
+
+**Key insight:** **a selective `COPY` is a hand-maintained dependency list.** When a
+script that a Dockerfile names explicitly starts sourcing something new, the Dockerfile
+has to learn about it too — the build context hides the omission, because the file is
+there, just not in the layer. The failure also cascades: with `fail-fast` on, one broken
+image cancels every other job in the matrix, so a run that looks like a wholesale CI
+outage can come down to a single missing `COPY`.
