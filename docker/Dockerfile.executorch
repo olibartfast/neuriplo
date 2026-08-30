@@ -24,6 +24,7 @@ RUN apt-get update && apt-get upgrade -y && \
     libopenblas-dev \
     libgoogle-glog-dev \
     libgtest-dev \
+    libgmock-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY versions.env /tmp/versions.env
