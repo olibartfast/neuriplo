@@ -18,7 +18,7 @@ elseif (backend STREQUAL "ONNX_RUNTIME")
         ${ONNX_RUNTIME_DIR}/lib/Release
         ${ONNX_RUNTIME_DIR}/lib/Debug)
     target_link_libraries(${target} PRIVATE onnxruntime)
-    if(WIN32 AND CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+    if(WIN32)
         # Linking onnxruntime.lib imports onnxruntime.dll by bare name, and the
         # loader resolves that from the executable's own directory and then the
         # system directory before it ever reads PATH. Putting the download on
@@ -26,16 +26,28 @@ elseif (backend STREQUAL "ONNX_RUNTIME")
         # onnxruntime.dll already installed on the machine outranks it, and one
         # older than these headers makes GetApi(ORT_API_VERSION) return nullptr,
         # which the ONNX Runtime C++ API dereferences unchecked on its first
-        # call. Staging the intended DLLs into the directory the executables are
-        # built into is what settles the choice, exactly as putting the runtime
-        # artifacts in one directory settles it for neuriplo.dll.
+        # call. Staging the intended DLLs beside the binaries is what settles the
+        # choice, exactly as putting the runtime artifacts in one directory
+        # settles it for neuriplo.dll.
         file(GLOB _neuriplo_ort_dlls
             "${ONNX_RUNTIME_DIR}/lib/*.dll"
             "${ONNX_RUNTIME_DIR}/lib/Release/*.dll"
             "${ONNX_RUNTIME_DIR}/bin/*.dll"
             "${ONNX_RUNTIME_DIR}/bin/Release/*.dll")
         if(_neuriplo_ort_dlls)
-            file(COPY ${_neuriplo_ort_dlls} DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+            # Copying into CMAKE_RUNTIME_OUTPUT_DIRECTORY at configure time would
+            # only be right for a single-configuration generator. Visual Studio,
+            # Xcode and Ninja Multi-Config append the configuration to that
+            # directory, so the binaries land in bin/Release while the copy went
+            # to bin -- leaving the executable's own directory without the DLL,
+            # which is the search-order slot that decides this. Attach the copy
+            # to the target instead and let $<TARGET_FILE_DIR:> name wherever the
+            # binaries are actually written.
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        ${_neuriplo_ort_dlls} "$<TARGET_FILE_DIR:${target}>"
+                COMMAND_EXPAND_LISTS
+                VERBATIM)
         else()
             message(WARNING
                 "No ONNX Runtime DLLs found under ${ONNX_RUNTIME_DIR}; the executables may load an "
