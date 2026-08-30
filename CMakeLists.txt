@@ -124,6 +124,11 @@ include(SetCompilerFlags)
 # Include directories for tests
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include ${gtest_SOURCE_DIR}/include)
 option(BUILD_INFERENCE_ENGINE_TESTS "Build tests (optional)" ON)
+
+# BackendTestTemplate.hpp / MockInferenceInterface.hpp are compile-checked by a
+# target that needs GTest::gmock. Missing gmock only warns, so gtest alone still
+# configures; CI sets this ON so the check cannot be silently skipped there.
+option(NEURIPLO_REQUIRE_GMOCK "Fail configuration when GTest::gmock is unavailable" OFF)
 if(BUILD_INFERENCE_ENGINE_TESTS)
     include(SetupTests)
 endif(BUILD_INFERENCE_ENGINE_TESTS)
