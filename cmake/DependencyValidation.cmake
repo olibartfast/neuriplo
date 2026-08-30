@@ -62,8 +62,82 @@ function(validate_onnx_runtime)
             "${ONNX_RUNTIME_DIR}/bin/Release/onnxruntime.dll"
         )
         
+        read_version_from_file(detected_version "${ONNX_RUNTIME_DIR}/VERSION_NUMBER")
+        report_version_drift("ONNX Runtime" "${ONNX_RUNTIME_VERSION}" "${detected_version}"
+            "${ONNX_RUNTIME_DIR}" "Re-run ./scripts/setup_onnx_runtime.sh to install the declared version.")
+
         message(STATUS "✓ ONNX Runtime validation passed")
     endif()
+endfunction()
+
+# --- Installed-version verification -------------------------------------------
+# A dependency directory's name is not proof of what is inside it: several of the
+# *_DIR paths carry no version at all, and even a versioned path can be pointed
+# elsewhere with -D<DEP>_DIR. Read the version out of the installation and say so
+# when it disagrees with versions.env, rather than silently building against
+# whatever happens to be on disk.
+
+# Pull the first "<major>.<minor>.<patch>" out of a version stamp file.
+function(read_version_from_file out_var file_path)
+    set(${out_var} "" PARENT_SCOPE)
+    if(NOT EXISTS "${file_path}")
+        return()
+    endif()
+    file(READ "${file_path}" contents)
+    if(contents MATCHES "([0-9]+\\.[0-9]+\\.[0-9]+)")
+        set(${out_var} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+# Compare an installation against its pin. `detected` empty means the version
+# could not be read, which is reported but is not itself an error.
+function(report_version_drift dependency_name declared detected location remedy)
+    if(NOT detected)
+        message(STATUS "  (${dependency_name} version could not be read from ${location}; "
+                       "declared ${declared})")
+        return()
+    endif()
+    if(detected VERSION_EQUAL declared)
+        return()
+    endif()
+    message(WARNING
+        "${dependency_name} version drift: versions.env declares ${declared} but ${location} "
+        "contains ${detected}. The build will use ${detected}. ${remedy}")
+endfunction()
+
+# Read the actual TensorRT version from the installed headers. The declared
+# TENSORRT_VERSION only names a directory, so without this a build silently
+# links against whatever runtime happens to be on disk.
+function(detect_tensorrt_version out_var include_dir)
+    set(${out_var} "" PARENT_SCOPE)
+
+    set(version_header "${include_dir}/NvInferVersion.h")
+    if(NOT EXISTS "${version_header}")
+        return()
+    endif()
+
+    file(READ "${version_header}" version_header_contents)
+
+    set(detected "")
+    foreach(component MAJOR MINOR PATCH BUILD)
+        # TensorRT 10.x indirects through TRT_<component>_ENTERPRISE; earlier
+        # releases define NV_TENSORRT_<component> as a literal.
+        if(version_header_contents MATCHES "define[ \t]+TRT_${component}_ENTERPRISE[ \t]+([0-9]+)")
+            set(component_value "${CMAKE_MATCH_1}")
+        elseif(version_header_contents MATCHES "define[ \t]+NV_TENSORRT_${component}[ \t]+([0-9]+)")
+            set(component_value "${CMAKE_MATCH_1}")
+        else()
+            return()
+        endif()
+
+        if(detected STREQUAL "")
+            set(detected "${component_value}")
+        else()
+            set(detected "${detected}.${component_value}")
+        endif()
+    endforeach()
+
+    set(${out_var} "${detected}" PARENT_SCOPE)
 endfunction()
 
 # Function to validate TensorRT
@@ -92,6 +166,14 @@ function(validate_tensorrt)
             "${TENSORRT_DIR}/lib/Release/nvinfer.dll"
         )
         
+        detect_tensorrt_version(detected_version "${TENSORRT_DIR}/include")
+        if(detected_version)
+            set(TENSORRT_ACTUAL_VERSION "${detected_version}" CACHE INTERNAL
+                "TensorRT version detected from the installed headers")
+        endif()
+        report_version_drift("TensorRT" "${TENSORRT_VERSION}" "${detected_version}" "${TENSORRT_DIR}"
+            "Re-run ./scripts/setup_tensorrt.sh to install the declared version, or point -DTENSORRT_DIR at it.")
+
         message(STATUS "✓ TensorRT validation passed")
     endif()
 endfunction()
@@ -106,6 +188,12 @@ function(validate_libtorch)
             message(FATAL_ERROR "LibTorch CMake configuration not found. Please ensure LibTorch is properly installed.")
         endif()
         
+        # LIBTORCH_DIR carries no version, so without this a stale libtorch is
+        # completely invisible to the build.
+        read_version_from_file(detected_version "${LIBTORCH_DIR}/build-version")
+        report_version_drift("LibTorch" "${PYTORCH_VERSION}" "${detected_version}" "${LIBTORCH_DIR}"
+            "Re-run ./scripts/setup_libtorch.sh to install the declared version.")
+
         message(STATUS "✓ LibTorch validation passed")
     endif()
 endfunction()
@@ -136,6 +224,10 @@ function(validate_openvino)
             "${OPENVINO_DIR}/runtime/bin/Release/openvino.dll"
         )
         
+        read_version_from_file(detected_version "${OPENVINO_DIR}/runtime/version.txt")
+        report_version_drift("OpenVINO" "${OPENVINO_VERSION}" "${detected_version}" "${OPENVINO_DIR}"
+            "Re-run ./scripts/setup_openvino.sh to install the declared version.")
+
         message(STATUS "✓ OpenVINO validation passed")
     endif()
 endfunction()

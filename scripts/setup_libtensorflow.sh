@@ -7,6 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SETUP_PIP_SCRIPT="$SCRIPT_DIR/setup_tensorflow_pip.sh"
 
+# Load versions from versions.env so the default version matches the pin
+if [ -f "$PROJECT_ROOT/versions.env" ]; then
+    source "$PROJECT_ROOT/versions.env"
+else
+    echo "Error: versions.env file not found" >&2
+    exit 1
+fi
+
 # Parse arguments
 CLEAN_INSTALL=false
 FORCE=false
@@ -18,7 +26,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help) 
             echo "Usage: $0 [-v VERSION] [-c] [-f] [-h]"
             echo "Options:"
-            echo "  -v, --version VERSION  TensorFlow version (default: from cmake/versions.cmake)"
+            echo "  -v, --version VERSION  TensorFlow version (default: from versions.env)"
             echo "  -c, --clean            Clean install (remove existing installation)"
             echo "  -f, --force            Force reinstall even if already installed"
             echo "  -h, --help             Show this help message"
