@@ -48,8 +48,8 @@ target_link_libraries(GGMLInferTest PRIVATE
     ${GGML_BASE_LIBRARY}
     ${GGML_CPU_LIBRARY}
     ${GGML_BLAS_LIBRARY}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

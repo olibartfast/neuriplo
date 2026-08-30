@@ -45,8 +45,8 @@ target_link_libraries(TensorRTInferTest PRIVATE
     CUDA::cudart
     ${GLOG_LIBRARIES}
     glog::glog
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
 )
 
 add_test(NAME TensorRTInferTest COMMAND TensorRTInferTest)
