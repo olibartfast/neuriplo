@@ -23,8 +23,8 @@ target_include_directories(PatternsTest PRIVATE
 target_link_libraries(PatternsTest PRIVATE
     neuriplo
     ${GLOG_LIBRARIES}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 
@@ -48,8 +48,8 @@ if(NEURIPLO_PLUGIN_BACKENDS)
     target_link_libraries(PluginLoaderTest PRIVATE
         neuriplo
         ${GLOG_LIBRARIES}
-        gtest
-        gtest_main
+        GTest::gtest
+        GTest::gtest_main
         glog::glog
     )
 

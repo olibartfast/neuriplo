@@ -18,8 +18,8 @@ target_link_libraries(CactusInferTest PRIVATE
     neuriplo
     ${GLOG_LIBRARIES}
     ${CACTUS_DIR}/lib/libcactus.so
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

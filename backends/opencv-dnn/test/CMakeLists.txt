@@ -22,8 +22,8 @@ target_link_libraries(OCVDNNInferTest PRIVATE
     ${TORCH_LIBRARIES}
     ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 
