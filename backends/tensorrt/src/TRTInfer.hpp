@@ -52,6 +52,13 @@ class TRTInfer : public InferenceInterface {
     void populateInferenceMetadata(const std::vector<std::vector<int64_t>>& input_sizes);
     ~TRTInfer();
 
+    // The destructor cudaFree()s every entry of buffers_ and deletes context_
+    // and runtime_, so a copy would leave two owners of the same device
+    // pointers and free them twice. Callers hold backends by pointer through
+    // InferenceInterface, so nothing needs to copy one.
+    TRTInfer(const TRTInfer&) = delete;
+    TRTInfer& operator=(const TRTInfer&) = delete;
+
   private:
     // Validates and uploads inputs, binds every tensor address, enqueues, and
     // waits for completion. Shared by both result paths so upload and binding
