@@ -24,6 +24,7 @@ RUN apt-get update && apt-get upgrade -y && \
     ninja-build \
     libgoogle-glog-dev \
     libgtest-dev \
+    libgmock-dev \
     libtbb12 \
     && rm -rf /var/lib/apt/lists/*
 

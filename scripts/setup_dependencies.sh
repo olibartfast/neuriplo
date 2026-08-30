@@ -52,8 +52,8 @@ install_system_deps() {
         extra_rpm="tbb"
     fi
     case $os in
-        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopenblas-dev $extra ;;
-        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config openblas-devel $extra_rpm ;;
+        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopenblas-dev libgtest-dev libgmock-dev $extra ;;
+        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config openblas-devel gtest-devel gmock-devel $extra_rpm ;;
         *) echo "Warning: Unsupported OS: $os. Install dependencies manually." ;;
     esac
 }

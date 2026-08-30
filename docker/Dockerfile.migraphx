@@ -20,6 +20,7 @@ RUN apt-get update && apt-get upgrade -y && \
     python3-venv \
     libgoogle-glog-dev \
     libgtest-dev \
+    libgmock-dev \
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
 

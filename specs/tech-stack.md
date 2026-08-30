@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Library | C++17 shared library | Do not raise the language standard without an explicit compatibility decision. |
 | Build | CMake 3.10 or newer | `CMakeLists.txt` and `cmake/` define backend selection, validation, compilation, linking, tests, and plugins. |
-| Required libraries | OpenCV and glog | They are required for the common library; backend SDKs remain selection-dependent. |
+| Required libraries | glog | Required by the common library. OpenCV is **not**: it is required only by the `OPENCV_DNN` backend and is linked from there (`cmake/LinkBackend.cmake`), so the other 13 backends build and test with no OpenCV installed. Backend SDKs remain selection-dependent. |
 | Backends | 14 registered runtime or pipeline backends | `cmake/BackendRegistry.cmake` is the CMake-visible backend-ID authority. |
 | Tests | GoogleTest and CTest | Backend-agnostic contract tests and selected-backend tests are enabled by `BUILD_INFERENCE_ENGINE_TESTS`. |
 | Automation | Bash, Python 3, Docker, GitHub Actions | Scripts should be reproducible locally; CI supplies backend-specific environments. |
