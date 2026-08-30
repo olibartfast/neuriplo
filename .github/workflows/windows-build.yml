@@ -7,6 +7,19 @@ on:
       - develop
       - 'feature/**'
       - 'refactor/**'
+    # The same paths as pull_request below. Without this, every push to develop
+    # or any feature/** branch ran the whole Windows matrix whatever it touched:
+    # the PR #32 merge started a Windows run while changing no Windows file.
+    # Keep the two lists identical, so a change that is worth a Windows check on
+    # a PR is worth one on the merge that follows it.
+    paths:
+      - CMakeLists.txt
+      - cmake/**
+      - include/**
+      - src/**
+      - backends/**
+      - test/public-headers/**
+      - .github/workflows/windows-build.yml
   pull_request:
     branches:
       - develop
@@ -118,9 +131,10 @@ jobs:
   build-windows-opencvdnn:
     name: Windows / OPENCV_DNN
     runs-on: windows-latest
-    # Generous only because the first run on a cold vcpkg cache builds OpenCV
-    # from source (~22 minutes); cached runs finish in a few.
-    timeout-minutes: 45
+    # Generous only because a cold vcpkg cache builds OpenCV from source, which
+    # was observed taking 40 minutes; cached runs finish in a few. Kept above
+    # that worst case so a cache miss is not mistaken for a hang.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
