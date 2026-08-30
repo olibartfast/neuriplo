@@ -55,12 +55,27 @@ if (major, minor) < (3, 10):
 EOF
 
 # ── Clone ─────────────────────────────────────────────────────────────────────
+# SRC_DIR cannot carry the version the way the other setup scripts' source
+# directories do (v1.2.0 requires this exact name), so a cached checkout is
+# whatever tag the last run built. Left alone it would be built as-is while the
+# stamp written at the end of this script claims EXECUTORCH_VERSION -- handing
+# the drift detection a tree it never saw and getting a pass for it. Move the
+# existing checkout to the pinned tag instead.
 if [ ! -d "${SRC_DIR}/.git" ]; then
     git clone \
         --branch "${EXECUTORCH_VERSION}" \
         --depth 1 \
         https://github.com/pytorch/executorch.git \
         "${SRC_DIR}"
+else
+    echo "Reusing ${SRC_DIR}; checking out ${EXECUTORCH_VERSION}"
+    # The cached clone is shallow and was made with --branch, so it holds only
+    # the tag it was cloned at: the pinned one has to be fetched before it can
+    # be checked out. --force lets the fetch move a tag that already exists and
+    # the checkout discard whatever the previous build left behind.
+    git -C "${SRC_DIR}" fetch --depth 1 --force origin \
+        "refs/tags/${EXECUTORCH_VERSION}:refs/tags/${EXECUTORCH_VERSION}"
+    git -C "${SRC_DIR}" checkout --force "${EXECUTORCH_VERSION}"
 fi
 
 cd "${SRC_DIR}"

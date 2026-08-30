@@ -12,6 +12,12 @@ on:
     # the PR #32 merge started a Windows run while changing no Windows file.
     # Keep the two lists identical, so a change that is worth a Windows check on
     # a PR is worth one on the merge that follows it.
+    #
+    # versions.env is in the list because it decides what these jobs build
+    # against: the ONNX job reads ONNX_RUNTIME_VERSION from it to form the
+    # download URL, and cmake/versions.cmake consumes the rest. Without it a
+    # dependency bump -- the change most likely to break a Windows build --
+    # would be the one change that never gets a Windows check.
     paths:
       - CMakeLists.txt
       - cmake/**
@@ -19,6 +25,7 @@ on:
       - src/**
       - backends/**
       - test/public-headers/**
+      - versions.env
       - .github/workflows/windows-build.yml
   pull_request:
     branches:
@@ -30,6 +37,7 @@ on:
       - src/**
       - backends/**
       - test/public-headers/**
+      - versions.env
       - .github/workflows/windows-build.yml
   workflow_dispatch:
 
