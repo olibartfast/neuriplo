@@ -135,7 +135,12 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
     }
 
     // Common test input creation
-    std::vector<std::vector<uint8_t>> CreateTestInput() { return neuriplo::testing::zero_blob_tensors(); }
+    // The gray (128) image this used to build, already through blobFromImage's
+    // 1/255 scaling -- not zeros. A backend that special-cases an all-zero
+    // input would otherwise be benchmarked on a path the old tests never took.
+    std::vector<std::vector<uint8_t>> CreateTestInput() {
+        return neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized);
+    }
 
     // Performance benchmarking
     PerformanceMetrics RunPerformanceBenchmark(size_t num_iterations = 100) {
@@ -231,8 +236,16 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
             EXPECT_THROW(mock_interface->get_infer_results(empty_input), std::invalid_argument);
         }
 
-        // Test with very large input
-        const auto large_input = neuriplo::testing::zero_blob_tensors(1, 3, 1024, 1024);
+        // Test with very large input.
+        //
+        // The tensor is 224x224 on purpose. This case built a 1024x1024 image,
+        // but passed cv::Size(224, 224) to blobFromImage, which resized before
+        // the backend ever saw it -- so what reached get_infer_results was the
+        // ordinary 1x3x224x224 blob, and the size assertion below is about the
+        // resize having happened, not about a large tensor being accepted.
+        // Feeding a real 1x3x1024x1024 tensor instead would make EXPECT_NO_THROW
+        // wrong for any backend with a fixed 224x224 input.
+        const auto large_input = neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized);
         if (has_real_model && backend_instance) {
             EXPECT_NO_THROW(backend_instance->get_infer_results(large_input));
         } else {
