@@ -19,8 +19,8 @@ target_link_libraries(OpenVINOInferTest PRIVATE
     openvino::runtime
     ${GLOG_LIBRARIES}
     glog::glog
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
 )
 
 add_test(NAME OpenVINOInferTest COMMAND OpenVINOInferTest)

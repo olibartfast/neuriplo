@@ -21,8 +21,8 @@ target_link_libraries(LiteRTInferTest PRIVATE
     neuriplo
     ${LITERT_LINK_LIBRARIES}
     ${GLOG_LIBRARIES}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

@@ -29,8 +29,8 @@ target_include_directories(ONNXRuntimeInferTest PRIVATE
 target_link_libraries(ONNXRuntimeInferTest PRIVATE
     neuriplo
     ${ONNX_RUNTIME_LIBRARY}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     ${GLOG_LIBRARIES}
     glog::glog
 )

@@ -4,12 +4,25 @@
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 
 namespace {
+
+// Ort::Session takes a const ORTCHAR_T*, which is wchar_t on Windows and char
+// everywhere else, so a std::string model path does not convert on both. Let
+// std::filesystem::path carry out the widening: it is the one standard type
+// that already holds a path in the platform's native character type.
+std::basic_string<ORTCHAR_T> to_ort_path(const std::string& path) {
+#ifdef _WIN32
+    return std::filesystem::path(path).wstring();
+#else
+    return path;
+#endif
+}
 
 std::string trim_copy(const std::string& value) {
     const auto first =
@@ -257,7 +270,7 @@ ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     }
 
     try {
-        session_ = Ort::Session(env_, model_path.c_str(), session_options);
+        session_ = Ort::Session(env_, to_ort_path(model_path).c_str(), session_options);
     } catch (const Ort::Exception& ex) {
         LOG(ERROR) << "Failed to load the ONNX model: " << ex.what();
         state_ = BackendState::Failed;

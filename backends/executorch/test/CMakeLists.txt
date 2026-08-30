@@ -25,8 +25,8 @@ target_link_libraries(ExecuTorchInferTest PRIVATE
     extension_tensor
     portable_ops_lib
     portable_kernels
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

@@ -36,8 +36,8 @@ target_link_libraries(TVMInferTest PRIVATE
     neuriplo
     ${GLOG_LIBRARIES}
     ${TVM_RUNTIME_LIBRARY}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

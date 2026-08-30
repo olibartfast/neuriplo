@@ -24,8 +24,8 @@ target_link_libraries(TensorFlowInferTest PRIVATE
     ${TensorFlow_CC_LIBRARY}
     ${GLOG_LIBRARIES}
     glog::glog
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
 )
 
 add_test(NAME TensorFlowInferTest COMMAND TensorFlowInferTest)
