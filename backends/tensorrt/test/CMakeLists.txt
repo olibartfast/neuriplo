@@ -49,7 +49,16 @@ target_link_libraries(TensorRTInferTest PRIVATE
     GTest::gtest_main
 )
 
-add_test(NAME TensorRTInferTest COMMAND TensorRTInferTest)
+# Without an explicit working directory the test only finds (or generates) its
+# engine when it happens to be launched from this directory.
+add_test(NAME TensorRTInferTest COMMAND TensorRTInferTest
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+target_compile_definitions(TensorRTInferTest PRIVATE
+    TRT_TEST_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}")
 
 # Copy scripts to the build directory
-configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_trt_engine.sh  ${CMAKE_CURRENT_BINARY_DIR}/generate_trt_engine.sh FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
+# @ONLY: the script is shell, so only @TENSORRT_DIR@ may be substituted -- a bare
+# ${...} substitution would eat its shell variable expansions.
+configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_trt_engine.sh  ${CMAKE_CURRENT_BINARY_DIR}/generate_trt_engine.sh
+               @ONLY FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
