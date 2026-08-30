@@ -1,28 +1,55 @@
 #include "OCVDNNInfer.hpp"
 
 #include <cstring>
+#include <fstream>
+#include <opencv2/core/version.hpp> // CV_VERSION, CV_VERSION_MAJOR
+#include <stdexcept>
+#include <string>
+
+namespace {
+
+// The Darknet importer is the one piece of the OpenCV DNN API this backend
+// uses that 5.x removed -- along with the Caffe and Torch importers, leaving
+// readNet() with *.pb, *.onnx and OpenVINO *.bin/*.xml. Everything else here is
+// source-compatible across 4.6 and 5.x: readNet()'s added `engine` parameter is
+// defaulted, and the Backend/Target enums, getUnconnectedOutLayers() and
+// MatSize all kept their signatures.
+cv::dnn::Net load_net(const std::string& model_path) {
+    const size_t weights_pos = model_path.find(".weights");
+    if (weights_pos == std::string::npos) {
+        return cv::dnn::readNet(model_path);
+    }
+
+#if CV_VERSION_MAJOR >= 5
+    // readNet() would take a .weights file and fail with "can't load the
+    // model", which points at the file rather than at the missing importer.
+    throw std::runtime_error("OpenCV " CV_VERSION " has no Darknet importer, so " + model_path +
+                             " cannot be loaded. Convert the model to ONNX, or build this backend "
+                             "against OpenCV 4.x.");
+#else
+    const std::string config = model_path.substr(0, weights_pos) + ".cfg";
+    if (!std::ifstream(config)) {
+        throw std::runtime_error("Can't find the configuration file " + config + " for the model: " + model_path);
+    }
+    return cv::dnn::readNetFromDarknet(config, model_path);
+#endif
+}
+
+} // namespace
 
 OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                          const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
-    // check if model path has .weights extension
-    std::string modelConfiguration = "";
-    if (model_path.find(".weights") != std::string::npos) {
-        // get the name without extension
-        modelConfiguration = model_path.substr(0, model_path.find(".weights")) + ".cfg";
-
-        // check if .cfg file exists
-        if (!std::ifstream(modelConfiguration))
-            throw std::runtime_error("Can't find the configuration file " + modelConfiguration +
-                                     " for the model: " + model_path);
-    }
     LOG(INFO) << "Running using OpenCV DNN runtime: " << model_path;
-    net_ = modelConfiguration.empty() ? cv::dnn::readNet(model_path)
-                                      : cv::dnn::readNetFromDarknet(modelConfiguration, model_path);
+    net_ = load_net(model_path);
     if (net_.empty()) {
         throw std::runtime_error("Can't load the model: " + model_path);
     }
 
+    // Both enums survive into 5.x, so this compiles either way. On 5.x it may
+    // still fall back to CPU at runtime: readNet() defaults to ENGINE_AUTO,
+    // which resolves to the rewritten ENGINE_OPENCV, and that engine does not
+    // support non-CPU backends yet.
     if (use_gpu && isCudaBuildEnabled()) {
         net_.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
         net_.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
