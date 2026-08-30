@@ -94,6 +94,25 @@ set(SOURCES
 
 include(SelectBackend)
 
+# Windows has no RPATH. On Linux CMake writes a build RUNPATH into every test
+# executable pointing back at the directory holding libneuriplo.so, so the
+# add_subdirectory() layout -- library in build/, tests in
+# build/backends/src/test/ -- resolves at run time. The Windows loader has no
+# equivalent: it searches the executable's own directory and PATH, finds
+# neuriplo.dll in neither, and reports the failure as a modal error box rather
+# than a non-zero exit. Nobody can dismiss a dialog on a CI runner, so the
+# process never exits and ctest never times out -- that is what left the Windows
+# ONNX_RUNTIME job hanging for 100 minutes on run 33312346674, having printed
+# "Start 1: PatternsTest" and nothing more.
+#
+# Putting the runtime artifacts in one directory is the standard fix: the DLL
+# then sits next to every executable that needs it. Windows-only on purpose --
+# on Linux the RUNPATH already works and relocating the binaries would break the
+# paths the test and packaging scripts expect.
+if(WIN32)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+endif()
+
 # Create the inference engines library
 add_library(neuriplo SHARED ${SOURCES})
 if(WIN32)
