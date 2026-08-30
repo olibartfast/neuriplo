@@ -47,6 +47,19 @@ jobs:
           pip install pyyaml --quiet
           python3 scripts/gen_backend_docs.py --check
 
+  # Catches a std symbol used without the header that declares it -- the class
+  # of bug that only shows up on the strictest toolchain in the matrix, and
+  # then 30 minutes in, one backend at a time. Needs no compiler and no SDKs,
+  # so it lands its verdict in the first few seconds of the run.
+  include-audit:
+    name: Include Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for std symbols used without their header
+        run: python3 scripts/quality/check_includes.py
+
   cppcheck:
     name: Cppcheck
     runs-on: ubuntu-latest
