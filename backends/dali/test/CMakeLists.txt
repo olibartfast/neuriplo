@@ -24,8 +24,8 @@ target_link_libraries(DALIInferTest PRIVATE
     dali
     dali_operators
     ${GLOG_LIBRARIES}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

@@ -20,8 +20,8 @@ target_include_directories(MIGraphXInferTest PRIVATE
 target_link_libraries(MIGraphXInferTest PRIVATE
     neuriplo
     migraphx::c
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

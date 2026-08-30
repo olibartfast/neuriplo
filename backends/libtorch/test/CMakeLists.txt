@@ -17,8 +17,8 @@ target_include_directories(LibtorchInferTest PRIVATE
 target_link_libraries(LibtorchInferTest PRIVATE
     neuriplo
     ${TORCH_LIBRARIES}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     ${GLOG_LIBRARIES}
     glog::glog
 )

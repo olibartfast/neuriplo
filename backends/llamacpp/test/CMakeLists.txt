@@ -24,8 +24,8 @@ target_link_libraries(LlamaCppInferTest PRIVATE
     ${GLOG_LIBRARIES}
     llama
     ${LLAMACPP_GGML_LIB}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 
