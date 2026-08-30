@@ -12,8 +12,14 @@ on:
 # whole matrix twice for every branch with an open PR. head_ref is the branch
 # name on pull_request and empty on push, so this collapses both onto the
 # branch name and lets cancel-in-progress do its job.
+#
+# The head repository is part of the key too: two PRs from different forks can
+# share a branch name, and keying on the name alone would let one cancel the
+# other's whole matrix. github.event.pull_request is null on push, so that
+# falls back to this repository.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -248,7 +254,8 @@ jobs:
               ${{ matrix.cmake_args || '' }} \
               -DSANITIZERS=ON \
               -DCMAKE_BUILD_TYPE=Debug \
-              -DBUILD_INFERENCE_ENGINE_TESTS=ON >/dev/null 2>&1
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+              -DNEURIPLO_REQUIRE_GMOCK=ON >/dev/null 2>&1
             cmake --build /app/build --clean-first --parallel
             export LSAN_OPTIONS=suppressions=/app/scripts/quality/lsan-suppressions.txt:print_suppressions=0
             ctest --test-dir /app/build --output-on-failure
