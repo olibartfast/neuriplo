@@ -18,6 +18,30 @@ elseif (backend STREQUAL "ONNX_RUNTIME")
         ${ONNX_RUNTIME_DIR}/lib/Release
         ${ONNX_RUNTIME_DIR}/lib/Debug)
     target_link_libraries(${target} PRIVATE onnxruntime)
+    if(WIN32 AND CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+        # Linking onnxruntime.lib imports onnxruntime.dll by bare name, and the
+        # loader resolves that from the executable's own directory and then the
+        # system directory before it ever reads PATH. Putting the download on
+        # PATH therefore does not decide which runtime loads -- any
+        # onnxruntime.dll already installed on the machine outranks it, and one
+        # older than these headers makes GetApi(ORT_API_VERSION) return nullptr,
+        # which the ONNX Runtime C++ API dereferences unchecked on its first
+        # call. Staging the intended DLLs into the directory the executables are
+        # built into is what settles the choice, exactly as putting the runtime
+        # artifacts in one directory settles it for neuriplo.dll.
+        file(GLOB _neuriplo_ort_dlls
+            "${ONNX_RUNTIME_DIR}/lib/*.dll"
+            "${ONNX_RUNTIME_DIR}/lib/Release/*.dll"
+            "${ONNX_RUNTIME_DIR}/bin/*.dll"
+            "${ONNX_RUNTIME_DIR}/bin/Release/*.dll")
+        if(_neuriplo_ort_dlls)
+            file(COPY ${_neuriplo_ort_dlls} DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+        else()
+            message(WARNING
+                "No ONNX Runtime DLLs found under ${ONNX_RUNTIME_DIR}; the executables may load an "
+                "unrelated onnxruntime.dll from the system directory.")
+        endif()
+    endif()
 elseif (backend STREQUAL "LIBTORCH")
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/libtorch/src)
     target_link_libraries(${target} PRIVATE ${TORCH_LIBRARIES})
