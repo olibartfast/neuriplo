@@ -28,7 +28,9 @@ backends:
     dir_default: null
     dockerfile: docker/Dockerfile.opencvdnn
     test_exe: OCVDNNInferTest
-    model_format: "ONNX, Darknet"
+    # OpenCV 5 removed the Darknet importer, so .weights models load only when
+    # this backend is built against OpenCV 4.x.
+    model_format: "ONNX, Darknet (OpenCV 4.x only)"
     model_source: "`scripts/setup_test_models.sh`"
     arch: [x86_64, arm64]
     gpu: false

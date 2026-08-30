@@ -35,9 +35,10 @@ add_test(NAME PatternsTest COMMAND PatternsTest)
 # translation unit includes them, so nothing type-checked them until now.
 #
 # GTest::gmock comes from GTestConfig.cmake's OPTIONAL include of
-# GMockTargets.cmake, i.e. from libgmock-dev alongside libgtest-dev. The guard
-# keeps a consumer that has gtest but not gmock configuring, at the cost of
-# silently skipping this target -- hence the message.
+# GMockTargets.cmake, i.e. from libgmock-dev alongside libgtest-dev. CMake's own
+# FindGTest module only defines the target from 3.23, so on an older CMake it is
+# absent even when gmock is installed.
+#
 # Debian/Ubuntu split GoogleTest: libgtest-dev installs the gtest binaries but
 # ships the full sources (googlemock included) under /usr/src/googletest, while
 # only libgmock-dev installs the gmock binaries. When gmock is missing, build it
@@ -57,16 +58,27 @@ if(NOT TARGET GTest::gmock AND NOT TARGET gmock AND CMAKE_PROJECT_NAME STREQUAL 
         set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
         add_subdirectory(${NEURIPLO_GOOGLETEST_SOURCE_DIR}
                          ${CMAKE_CURRENT_BINARY_DIR}/_googletest EXCLUDE_FROM_ALL)
+        # That add_subdirectory defines its own GTest::gmock alias, so testing
+        # for the target below can no longer tell the two GoogleTests apart.
+        # Record which route was taken instead.
+        set(NEURIPLO_GMOCK_FROM_SOURCE TRUE)
     endif()
 endif()
 
 # Link one GoogleTest build or the other, never a mix: the source-built gmock
 # carries its own gtest, so pairing it with the imported GTest::gtest would put
 # two copies of gtest in the same binary.
-if(TARGET GTest::gmock)
-    set(NEURIPLO_GMOCK_LIBS GTest::gtest GTest::gtest_main GTest::gmock)
-elseif(TARGET gmock_main)
+#
+# If neither route yields gmock this only warns: it must not turn a normal build
+# of this repo into one that needs a package it did not need before. CI
+# configures with -DNEURIPLO_REQUIRE_GMOCK=ON, where the Dockerfiles do install
+# libgmock-dev, so the check still cannot be skipped unnoticed there.
+if(NEURIPLO_GMOCK_FROM_SOURCE)
+    # gmock_main pulls the source-built gtest with it; GTest::gtest here would
+    # be the imported system one, and the binary would get two gtests.
     set(NEURIPLO_GMOCK_LIBS gmock_main)
+elseif(TARGET GTest::gmock)
+    set(NEURIPLO_GMOCK_LIBS GTest::gtest GTest::gtest_main GTest::gmock)
 else()
     set(NEURIPLO_GMOCK_LIBS "")
 endif()
@@ -88,19 +100,16 @@ if(NEURIPLO_GMOCK_LIBS)
     )
 
     add_test(NAME TestTemplateCompileTest COMMAND TestTemplateCompileTest)
-elseif(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    # Building neuriplo itself: a silent skip here is how the header went
-    # unchecked in the first place, so refuse rather than warn.
+elseif(NEURIPLO_REQUIRE_GMOCK)
     message(FATAL_ERROR
         "GTest::gmock not found and no GoogleTest sources to build it from, so "
-        "BackendTestTemplate.hpp cannot be compile-checked. Install libgmock-dev "
-        "alongside libgtest-dev, point -DCMAKE_PREFIX_PATH at a GoogleTest that "
-        "provides gmock, or configure with -DBUILD_INFERENCE_ENGINE_TESTS=OFF.")
+        "BackendTestTemplate.hpp cannot be compile-checked, and NEURIPLO_REQUIRE_GMOCK "
+        "is ON. Install libgmock-dev alongside libgtest-dev (CMake 3.23+ is needed for "
+        "the module-mode target), point -DCMAKE_PREFIX_PATH at a GoogleTest that "
+        "provides gmock, or configure with -DNEURIPLO_REQUIRE_GMOCK=OFF.")
 else()
-    # Embedded in a larger project: do not break a consumer that has gtest but
-    # not gmock; they are not the ones maintaining this header.
     message(WARNING "GTest::gmock not found: BackendTestTemplate.hpp will not be compile-checked. "
-                    "Install libgmock-dev (or the gmock half of your GoogleTest package).")
+                    "Install libgmock-dev (or the gmock half of your GoogleTest package) to enable it.")
 endif()
 
 # Plugin loader tests: only meaningful when this build produces plugins.

@@ -408,7 +408,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 <!-- GEN:test-models-table -->
 | Backend | Model format | How it is obtained |
 |---|---|---|
-| OpenCV DNN | ONNX, Darknet | `scripts/setup_test_models.sh` |
+| OpenCV DNN | ONNX, Darknet (OpenCV 4.x only) | `scripts/setup_test_models.sh` |
 | ONNX Runtime | ONNX | `scripts/model_downloader.py` |
 | LibTorch | TorchScript (.pt) | `backends/libtorch/test/generate_model.sh` |
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
