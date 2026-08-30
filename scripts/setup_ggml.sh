@@ -81,7 +81,6 @@ if cmake .. \
     
     echo "Building GGML with BLAS support..."
     make -j$(nproc)
-    make install
 else
     echo "BLAS not found, building GGML without BLAS support..."
     cmake .. \
@@ -96,8 +95,21 @@ else
         -DGGML_FMA=ON
     
     make -j$(nproc)
-    make install
 fi
+
+# Installing merges into whatever GGML_DIR already holds, so a rebuild after a
+# version change would leave the previous tag's libraries in place and the stamp
+# below would certify the mixture as the new version. ggml splits and renames
+# libraries across releases -- libggml.so became the libggml-base/libggml-cpu
+# pair -- and cmake/LinkBackend.cmake would still find the stale one alongside
+# the new ABI. Install into a staging tree and swap, so GGML_DIR only ever holds
+# one build; both configure branches above install the same way, so this runs
+# once for either.
+GGML_STAGE_DIR="${GGML_DIR}.incoming"
+rm -rf "$GGML_STAGE_DIR"
+cmake --install . --prefix "$GGML_STAGE_DIR"
+rm -rf "$GGML_DIR"
+mv "$GGML_STAGE_DIR" "$GGML_DIR"
 
 # Verify installation
 if [ -f "$GGML_DIR/lib/libggml.so" ] && [ -f "$GGML_DIR/include/ggml.h" ]; then
