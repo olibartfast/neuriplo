@@ -60,7 +60,20 @@ cmake -S . -B build \
     -DLLAMA_BUILD_EXAMPLES=OFF \
     -DLLAMA_BUILD_SERVER=OFF
 cmake --build build -j"$(nproc)"
-cmake --install build
+
+# cmake --install merges into whatever the prefix already holds, so a forced
+# rebuild after a version change would leave the previous tag's libraries in
+# place and the stamp below would certify the mixture as the new version.
+# llama.cpp does rename libraries across releases -- libggml.so became the split
+# libggml-base/libggml-cpu pair -- and cmake/LinkBackend.cmake would still find
+# the stale one alongside the new ABI. Install into a staging tree and swap, so
+# INSTALL_DIR only ever holds one build; staging also means a failed build
+# leaves the existing installation untouched rather than half-replaced.
+STAGE_DIR="${INSTALL_DIR}.incoming"
+rm -rf "${STAGE_DIR}"
+cmake --install build --prefix "${STAGE_DIR}"
+rm -rf "${INSTALL_DIR}"
+mv "${STAGE_DIR}" "${INSTALL_DIR}"
 
 rm -rf "${SRC_DIR}"
 

@@ -129,6 +129,17 @@ else
             exit 1
         fi
         if ! variant="$(newest_published_cuda_variant "$cuda_release")"; then
+            # A failed probe is not proof that no CUDA build exists -- it is
+            # also what an offline machine or a CDN hiccup looks like, because
+            # variant_published decides by fetching. When the pinned version is
+            # already installed as a CUDA build, nothing here needs the network
+            # at all, so keep that installation rather than failing a run that
+            # had no work to do.
+            if [[ -d "$dir" && "$FORCE" != "true" && "$installed_version" = "$version" && "$installed_variant" == cu* ]]; then
+                echo "✓ LibTorch ${installed_version}+${installed_variant} already installed at $dir"
+                echo "  (could not reach the download server to check for a newer CUDA variant)"
+                exit 0
+            fi
             # Falling back to CPU here is exactly the silent downgrade this
             # selection exists to prevent, so stop and let a human decide.
             echo "Error: LibTorch $version publishes no CUDA build for CUDA $cuda_release or older." >&2
