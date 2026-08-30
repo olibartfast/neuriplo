@@ -6,6 +6,15 @@ set -e
 
 echo "Generating TensorRT Engine for testing..."
 
+# trtexec ships inside the TensorRT installation the build was configured
+# against, so look there before falling back to whatever is on PATH. Without
+# this the engine is never generated and every GPU test silently skips.
+TENSORRT_DIR="@TENSORRT_DIR@"
+if [ -x "${TENSORRT_DIR}/bin/trtexec" ]; then
+    export PATH="${TENSORRT_DIR}/bin:$PATH"
+    export LD_LIBRARY_PATH="${TENSORRT_DIR}/lib:${LD_LIBRARY_PATH:-}"
+fi
+
 # Check if trtexec is available
 if ! command -v trtexec &> /dev/null; then
     echo "trtexec not found. Please ensure TensorRT is properly installed and in PATH."
