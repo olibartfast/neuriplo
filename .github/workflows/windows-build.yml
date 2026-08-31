@@ -107,9 +107,13 @@ jobs:
           # vcpkg caches each built package here as a content-addressed archive.
           # Restoring it turns "build OpenCV from source" into "unzip it".
           path: ~\AppData\Local\vcpkg\archives
-          # The pinned vcpkg tag fixes the port versions; hashing this file
-          # invalidates the cache whenever the package list changes.
-          key: vcpkg-${{ env.VCPKG_VERSION }}-headers-${{ hashFiles('.github/workflows/windows-build.yml') }}
+          # The pinned vcpkg tag fixes the port versions, so the only other
+          # thing the archives depend on is the package list -- which is named
+          # in the key. Hashing the whole workflow file instead, as this did,
+          # rotated the key on edits that changed no package at all (a trigger
+          # path, a comment), leaving a fresh key to save under on every such
+          # edit and another entry competing for the repository's cache budget.
+          key: vcpkg-${{ env.VCPKG_VERSION }}-headers-glog
           restore-keys: |
             vcpkg-${{ env.VCPKG_VERSION }}-headers-
 
@@ -168,9 +172,13 @@ jobs:
           # vcpkg caches each built package here as a content-addressed archive.
           # Restoring it turns "build OpenCV from source" into "unzip it".
           path: ~\AppData\Local\vcpkg\archives
-          # The pinned vcpkg tag fixes the port versions; hashing this file
-          # invalidates the cache whenever the package list changes.
-          key: vcpkg-${{ env.VCPKG_VERSION }}-opencvdnn-${{ hashFiles('.github/workflows/windows-build.yml') }}
+          # The pinned vcpkg tag fixes the port versions, so the only other
+          # thing the archives depend on is the package list -- which is named
+          # in the key. Hashing the whole workflow file instead, as this did,
+          # rotated the key on edits that changed no package at all (a trigger
+          # path, a comment), leaving a fresh key to save under on every such
+          # edit and another entry competing for the repository's cache budget.
+          key: vcpkg-${{ env.VCPKG_VERSION }}-opencvdnn-opencv4-core-dnn+glog
           restore-keys: |
             vcpkg-${{ env.VCPKG_VERSION }}-opencvdnn-
 
@@ -227,9 +235,13 @@ jobs:
           # vcpkg caches each built package here as a content-addressed archive.
           # Restoring it turns "build OpenCV from source" into "unzip it".
           path: ~\AppData\Local\vcpkg\archives
-          # The pinned vcpkg tag fixes the port versions; hashing this file
-          # invalidates the cache whenever the package list changes.
-          key: vcpkg-${{ env.VCPKG_VERSION }}-onnxruntime-${{ hashFiles('.github/workflows/windows-build.yml') }}
+          # The pinned vcpkg tag fixes the port versions, so the only other
+          # thing the archives depend on is the package list -- which is named
+          # in the key. Hashing the whole workflow file instead, as this did,
+          # rotated the key on edits that changed no package at all (a trigger
+          # path, a comment), leaving a fresh key to save under on every such
+          # edit and another entry competing for the repository's cache budget.
+          key: vcpkg-${{ env.VCPKG_VERSION }}-onnxruntime-glog+gtest
           restore-keys: |
             vcpkg-${{ env.VCPKG_VERSION }}-onnxruntime-
 
