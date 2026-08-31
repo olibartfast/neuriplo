@@ -47,17 +47,22 @@ fi
 #
 # Override with LIBTORCH_VARIANT=cpu|cu118|cu121|... to pin an exact build.
 
-# The highest CUDA release this machine can run. The driver decides, not the
-# toolkit: the shared-with-deps archives bundle their own CUDA runtime, so a
-# cu121 LibTorch runs against a 12.0 toolkit but not against a driver too old
-# for it. Fall back to the toolkit version when nvidia-smi is unavailable.
+# The highest CUDA release this machine can run. Only the driver decides: the
+# shared-with-deps archives bundle their own CUDA runtime, so a cu121 LibTorch
+# runs against a 12.0 toolkit but not against a driver too old for it.
+#
+# nvcc is deliberately not consulted as a fallback. It reports the installed
+# toolkit, which says nothing about what the driver can execute -- a machine
+# with a toolkit and no usable driver (a build host, a container without the
+# GPU passed through) would be read as CUDA-capable, receive a CUDA LibTorch,
+# and then fall back to the CPU at runtime in LibtorchInfer.cpp with nothing
+# failing. Silently losing the GPU is the failure this selection exists to
+# prevent, so a question the driver cannot answer is left unanswered here and
+# the caller is asked for LIBTORCH_VARIANT instead.
 detect_cuda_release() {
     local release=""
     if command -v nvidia-smi > /dev/null 2>&1; then
         release="$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: *\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
-    fi
-    if [ -z "$release" ] && command -v nvcc > /dev/null 2>&1; then
-        release="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
     fi
     printf '%s' "$release"
 }
@@ -151,6 +156,14 @@ else
     else
         variant="cpu"
         echo "Using LibTorch variant cpu ($reason)"
+        # A toolkit without a driver answer is the case most likely to be a
+        # mistake rather than a CPU-only machine, so name it instead of leaving
+        # the CPU build to be discovered later.
+        if [ -z "$cuda_release" ] && command -v nvcc > /dev/null 2>&1; then
+            echo "  A CUDA toolkit is installed here, but nvidia-smi reported no driver"
+            echo "  capability, so this machine is treated as CPU-only. If it does have a"
+            echo "  working GPU, pick the build explicitly with LIBTORCH_VARIANT=cuXYZ."
+        fi
     fi
 fi
 
