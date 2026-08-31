@@ -1,0 +1,124 @@
+name: Cache Prune
+
+# BuildKit's gha backend writes one cache entry per layer and never removes
+# one, and `--cache-to mode=max` across the backend matrix exports every
+# intermediate stage. Those blobs reached 8.3 GB of the repository's 10 GB
+# budget -- 100% of everything stored -- so GitHub began evicting by least
+# recent use, and what it evicted were the Windows vcpkg archives.
+#
+# That is a priority inversion. A missing layer blob costs one cached Docker
+# step; a missing vcpkg archive costs ~40 minutes rebuilding OpenCV from source
+# on a Windows runner, which is how `Windows / OPENCV_DNN` went from 58s back
+# to ~40 minutes. Keep BuildKit inside a budget so the cheap-to-regenerate
+# entries cannot crowd out the expensive ones.
+#
+# Age alone does not work here: one pass of the matrix fills most of the budget
+# in a day, so everything is always "recent". Oldest-first eviction down to a
+# budget is what actually bounds it.
+#
+# Only BuildKit's own entries are considered. vcpkg archives are never deleted:
+# they are the thing this exists to protect.
+
+on:
+  workflow_call:
+    inputs:
+      budget_mb:
+        type: number
+        required: false
+        default: 6000
+  workflow_dispatch:
+    inputs:
+      budget_mb:
+        description: 'Keep BuildKit entries under this many MB'
+        required: false
+        default: '6000'
+      dry_run:
+        description: 'List what would be deleted without deleting it'
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    # Only fires once this file reaches the default branch; the call from ci.yml
+    # is what keeps the budget honest on develop in the meantime.
+    - cron: '17 4 * * *'
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Trim BuildKit layer caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Trim BuildKit cache entries to budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BUDGET_MB: ${{ inputs.budget_mb || 6000 }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          budget=$(( BUDGET_MB * 1048576 ))
+
+          # --paginate: the listing runs to several hundred entries once the
+          # matrix has been through a few times.
+          gh api --paginate "/repos/${REPO}/actions/caches" \
+            --jq '.actions_caches[] | [.id, .created_at, .size_in_bytes, .key] | @tsv' > all.tsv
+
+          # Oldest first, so eviction takes the least useful layers. created_at
+          # is ISO-8601 UTC, which sorts correctly as text.
+          sort -t$'\t' -k2,2 all.tsv > sorted.tsv
+
+          buildkit_bytes=0
+          other_bytes=0
+          while IFS=$'\t' read -r _ _ size key; do
+            case "$key" in
+              buildkit-blob-*|index-docker-*) buildkit_bytes=$((buildkit_bytes + size)) ;;
+              *) other_bytes=$((other_bytes + size)) ;;
+            esac
+          done < sorted.tsv
+
+          echo "BuildKit: $((buildkit_bytes / 1048576))MB   other: $((other_bytes / 1048576))MB   budget: ${BUDGET_MB}MB"
+
+          deleted=0
+          freed=0
+          running=$buildkit_bytes
+          while IFS=$'\t' read -r id created size key; do
+            [ "$running" -le "$budget" ] && break
+            case "$key" in
+              buildkit-blob-*|index-docker-*) ;;
+              *) continue ;;
+            esac
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "would delete: ${key:0:52} ($((size / 1048576))MB, ${created:0:10})"
+            elif gh api -X DELETE "/repos/${REPO}/actions/caches/${id}" > /dev/null 2>&1; then
+              echo "deleted: ${key:0:52} ($((size / 1048576))MB)"
+            else
+              # A concurrent run may have removed it already; not a failure.
+              echo "already gone: ${key:0:52}"
+              running=$((running - size))
+              continue
+            fi
+            running=$((running - size))
+            deleted=$((deleted + 1))
+            freed=$((freed + size))
+          done < sorted.tsv
+
+          {
+            echo "### Cache prune"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| BuildKit before | $((buildkit_bytes / 1048576)) MB |"
+            echo "| BuildKit after | $((running / 1048576)) MB (budget ${BUDGET_MB} MB) |"
+            echo "| Entries removed | ${deleted} |"
+            echo "| Freed | $((freed / 1048576)) MB |"
+            echo "| Protected (vcpkg and other non-BuildKit) | $((other_bytes / 1048576)) MB |"
+          } >> "$GITHUB_STEP_SUMMARY"
