@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY versions.env /app/versions.env
+COPY scripts/lib/version_stamp.sh /app/scripts/lib/version_stamp.sh
 COPY scripts/setup_litert.sh /app/scripts/setup_litert.sh
 RUN /app/scripts/setup_litert.sh
 

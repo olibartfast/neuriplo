@@ -15,10 +15,14 @@ else
     exit 1
 fi
 
+source "${SCRIPT_DIR}/lib/version_stamp.sh"
+
 INSTALL_DIR="${HOME}/dependencies/executorch"
 if [[ "${1:-}" == "--install-dir" ]]; then
     INSTALL_DIR="${2:?--install-dir requires a path argument}"
 fi
+
+FORCE="${FORCE:-false}"
 
 # v1.2.0 requires the source directory to be named exactly "executorch"
 SRC_DIR="/tmp/executorch"
@@ -26,8 +30,12 @@ SRC_DIR="/tmp/executorch"
 # ── Already installed? ────────────────────────────────────────────────────────
 # Require the XNNPACK backend lib too: a core-only install from an older run
 # would fail to link the EXECUTORCH backend, so treat it as not installed.
-if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ]; then
-    echo "✓ ExecuTorch ${EXECUTORCH_VERSION} already installed at ${INSTALL_DIR}"
+# INSTALL_DIR carries no version either, so the archives existing does not mean
+# they came from the pinned tag.
+if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ] && [ "${FORCE}" != "true" ]; then
+    if neuriplo_stamp_matches "${INSTALL_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch"; then
+        echo "✓ ExecuTorch ${EXECUTORCH_VERSION} already installed at ${INSTALL_DIR}"
+    fi
     exit 0
 fi
 
@@ -47,12 +55,27 @@ if (major, minor) < (3, 10):
 EOF
 
 # ── Clone ─────────────────────────────────────────────────────────────────────
+# SRC_DIR cannot carry the version the way the other setup scripts' source
+# directories do (v1.2.0 requires this exact name), so a cached checkout is
+# whatever tag the last run built. Left alone it would be built as-is while the
+# stamp written at the end of this script claims EXECUTORCH_VERSION -- handing
+# the drift detection a tree it never saw and getting a pass for it. Move the
+# existing checkout to the pinned tag instead.
 if [ ! -d "${SRC_DIR}/.git" ]; then
     git clone \
         --branch "${EXECUTORCH_VERSION}" \
         --depth 1 \
         https://github.com/pytorch/executorch.git \
         "${SRC_DIR}"
+else
+    echo "Reusing ${SRC_DIR}; checking out ${EXECUTORCH_VERSION}"
+    # The cached clone is shallow and was made with --branch, so it holds only
+    # the tag it was cloned at: the pinned one has to be fetched before it can
+    # be checked out. --force lets the fetch move a tag that already exists and
+    # the checkout discard whatever the previous build left behind.
+    git -C "${SRC_DIR}" fetch --depth 1 --force origin \
+        "refs/tags/${EXECUTORCH_VERSION}:refs/tags/${EXECUTORCH_VERSION}"
+    git -C "${SRC_DIR}" checkout --force "${EXECUTORCH_VERSION}"
 fi
 
 cd "${SRC_DIR}"
@@ -93,7 +116,21 @@ cmake -S . -B cmake-out \
 
 # ── Build & install ───────────────────────────────────────────────────────────
 cmake --build cmake-out --config Release -j"$(nproc)"
-cmake --install cmake-out
+
+# cmake --install merges into whatever the prefix already holds, so a forced
+# rebuild after a version change would leave the previous tag's artifacts in
+# place and the stamp below would certify the mixture as the new version. Give
+# INSTALL_DIR one build at a time by installing into a staging tree and
+# swapping; staging also means a failed build leaves the existing installation
+# intact rather than half-replaced.
+STAGE_DIR="${INSTALL_DIR}.incoming"
+rm -rf "${STAGE_DIR}"
+cmake --install cmake-out --prefix "${STAGE_DIR}"
+rm -rf "${INSTALL_DIR}"
+mv "${STAGE_DIR}" "${INSTALL_DIR}"
+
+# Only now that the install is complete: a stamp always describes a usable tree.
+neuriplo_write_stamp "${INSTALL_DIR}" "${EXECUTORCH_VERSION}"
 
 echo ""
 echo "✓ ExecuTorch ${EXECUTORCH_VERSION} installed to ${INSTALL_DIR}"

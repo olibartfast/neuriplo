@@ -105,6 +105,42 @@ function(report_version_drift dependency_name declared detected location remedy)
         "contains ${detected}. The build will use ${detected}. ${remedy}")
 endfunction()
 
+# The source-built backends ship no version file of their own, so their setup
+# scripts write one (scripts/lib/version_stamp.sh). Read it back.
+function(read_stamped_version out_var install_dir)
+    set(${out_var} "" PARENT_SCOPE)
+    set(stamp "${install_dir}/neuriplo-version.txt")
+    if(NOT EXISTS "${stamp}")
+        return()
+    endif()
+    file(STRINGS "${stamp}" stamp_lines LIMIT_COUNT 1)
+    if(NOT stamp_lines)
+        return()
+    endif()
+    list(GET stamp_lines 0 stamped)
+    string(STRIP "${stamped}" stamped)
+    set(${out_var} "${stamped}" PARENT_SCOPE)
+endfunction()
+
+# Same intent as report_version_drift(), but for pins that are git refs rather
+# than version numbers -- v0.11.0, v1.14, b9085. VERSION_EQUAL parses a leading
+# non-digit as nothing, so it reports "v1.14" VERSION_EQUAL "v1.15" and "b9085"
+# VERSION_EQUAL "b9086" as true -- it would pass every drift these pins can have.
+# Compare them as the strings they are.
+function(report_tag_drift dependency_name declared detected location remedy)
+    if(NOT detected)
+        message(STATUS "  (${dependency_name} at ${location} carries no version stamp; "
+                       "declared ${declared}. Re-run its setup script to record one.)")
+        return()
+    endif()
+    if(detected STREQUAL declared)
+        return()
+    endif()
+    message(WARNING
+        "${dependency_name} version drift: versions.env declares ${declared} but ${location} "
+        "was built from ${detected}. The build will use ${detected}. ${remedy}")
+endfunction()
+
 # Read the actual TensorRT version from the installed headers. The declared
 # TENSORRT_VERSION only names a directory, so without this a build silently
 # links against whatever runtime happens to be on disk.
@@ -193,6 +229,36 @@ function(validate_libtorch)
         read_version_from_file(detected_version "${LIBTORCH_DIR}/build-version")
         report_version_drift("LibTorch" "${PYTORCH_VERSION}" "${detected_version}" "${LIBTORCH_DIR}"
             "Re-run ./scripts/setup_libtorch.sh to install the declared version.")
+
+        # build-version also names the compute variant ("2.3.0+cpu",
+        # "2.3.0+cu121"). versions.env pins only a version, so the variant has
+        # no pin to drift against -- but it decides device placement, and
+        # getting it wrong fails silently: with a CPU-only build
+        # torch::cuda::is_available() is false, so LibtorchInfer puts every
+        # tensor on the CPU however the caller set use_gpu, and the only symptom
+        # is that inference is slow. Say so instead.
+        set(libtorch_build "")
+        if(EXISTS "${LIBTORCH_DIR}/build-version")
+            file(STRINGS "${LIBTORCH_DIR}/build-version" libtorch_build_lines LIMIT_COUNT 1)
+            if(libtorch_build_lines)
+                list(GET libtorch_build_lines 0 libtorch_build)
+                string(STRIP "${libtorch_build}" libtorch_build)
+            endif()
+        endif()
+        if(libtorch_build)
+            message(STATUS "LibTorch build: ${libtorch_build}")
+            if(libtorch_build MATCHES "\\+cpu$")
+                find_package(CUDAToolkit QUIET)
+                if(CUDAToolkit_FOUND)
+                    message(WARNING
+                        "LibTorch at ${LIBTORCH_DIR} is a CPU-only build (${libtorch_build}), but CUDA "
+                        "${CUDAToolkit_VERSION} is available here. torch::cuda::is_available() will be "
+                        "false, so the LibTorch backend will run on the CPU whatever use_gpu is set to. "
+                        "Re-run ./scripts/setup_libtorch.sh with FORCE=true to install a CUDA build, or "
+                        "set LIBTORCH_VARIANT=cpu to make the CPU-only choice explicit.")
+                endif()
+            endif()
+        endif()
 
         message(STATUS "✓ LibTorch validation passed")
     endif()
@@ -432,6 +498,10 @@ function(validate_ggml)
             "${GGML_DIR}/lib/Release/ggml-blas.lib"
         )
         
+        read_stamped_version(detected_version "${GGML_DIR}")
+        report_tag_drift("GGML" "${GGML_VERSION}" "${detected_version}" "${GGML_DIR}"
+            "Re-run ./scripts/setup_ggml.sh with FORCE=true to rebuild it from the declared version.")
+
         message(STATUS "✓ GGML validation passed")
     endif()
 endfunction()
@@ -471,6 +541,10 @@ function(validate_tvm)
             "${TVM_DIR}/build/Release/tvm.lib"
         )
         
+        read_stamped_version(detected_version "${TVM_DIR}")
+        report_tag_drift("TVM" "${TVM_VERSION}" "${detected_version}" "${TVM_DIR}"
+            "Re-run ./scripts/setup_tvm.sh with FORCE=true to rebuild it from the declared version.")
+
         message(STATUS "✓ TVM validation passed")
     endif()
 endfunction()
@@ -498,6 +572,10 @@ function(validate_llamacpp)
             message(FATAL_ERROR "llama.cpp installation incomplete. Missing libggml.so or libggml-base.so in ${LLAMACPP_DIR}/lib")
         endif()
 
+        read_stamped_version(detected_version "${LLAMACPP_DIR}")
+        report_tag_drift("llama.cpp" "${LLAMACPP_VERSION}" "${detected_version}" "${LLAMACPP_DIR}"
+            "Re-run ./scripts/setup_llamacpp.sh with FORCE=true to rebuild it from the declared version.")
+
         message(STATUS "✓ llama.cpp validation passed")
     endif()
 endfunction()
@@ -517,6 +595,10 @@ function(validate_executorch)
                 message(FATAL_ERROR "ExecuTorch installation incomplete. Missing: ${file}\nRun: ./scripts/setup_executorch.sh")
             endif()
         endforeach()
+
+        read_stamped_version(detected_version "${EXECUTORCH_DIR}")
+        report_tag_drift("ExecuTorch" "${EXECUTORCH_VERSION}" "${detected_version}" "${EXECUTORCH_DIR}"
+            "Re-run ./scripts/setup_executorch.sh with FORCE=true to rebuild it from the declared version.")
 
         message(STATUS "✓ ExecuTorch validation passed")
     endif()
@@ -540,6 +622,10 @@ function(validate_litert)
         endforeach()
 
         set(LITERT_LIBRARY "${LITERT_DIR}/lib/libtensorflowlite.so" CACHE FILEPATH "LiteRT shared library")
+
+        read_stamped_version(detected_version "${LITERT_DIR}")
+        report_tag_drift("LiteRT" "${LITERT_VERSION}" "${detected_version}" "${LITERT_DIR}"
+            "Re-run ./scripts/setup_litert.sh with FORCE=true to rebuild it from the declared version.")
 
         message(STATUS "✓ LiteRT validation passed")
     endif()
@@ -587,6 +673,10 @@ function(validate_cactus)
                 message(FATAL_ERROR "Cactus installation incomplete. Missing: ${file}")
             endif()
         endforeach()
+
+        read_stamped_version(detected_version "${CACTUS_DIR}")
+        report_tag_drift("Cactus" "${CACTUS_VERSION}" "${detected_version}" "${CACTUS_DIR}"
+            "Re-run ./scripts/setup_cactus.sh with FORCE=true to rebuild it from the declared version.")
 
         message(STATUS "✓ Cactus validation passed")
     endif()

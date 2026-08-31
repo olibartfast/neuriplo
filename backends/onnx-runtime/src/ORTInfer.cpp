@@ -220,9 +220,40 @@ void configure_explicit_providers(Ort::SessionOptions& session_options, const st
 
 } // namespace
 
+// ONNX Runtime sets its API table during static initialisation, from
+// OrtGetApiBase()->GetApi(ORT_API_VERSION), which is documented to return
+// nullptr "when using a runtime older than the version created with this header
+// file". Nothing fails at load time when that happens: Ort::GetApi() is
+// `return *Global<void>::api_;`, an unchecked dereference marked noexcept, so
+// the first use faults instead of throwing and no catch clause here can
+// intercept it.
+//
+// OrtGetApiBase() is a plain exported function and GetVersionString() hangs off
+// the base struct rather than the versioned API table, so both remain callable
+// once the version handshake has failed -- which makes them the only way to
+// name the runtime that actually loaded.
+ORTRuntimeApiGuard::ORTRuntimeApiGuard() {
+    const OrtApiBase* api_base = OrtGetApiBase();
+    if (api_base != nullptr && api_base->GetApi(ORT_API_VERSION) != nullptr) {
+        return;
+    }
+
+    const char* loaded_version = (api_base != nullptr) ? api_base->GetVersionString() : nullptr;
+    std::ostringstream oss;
+    oss << "ONNX Runtime ABI mismatch: this build was compiled against headers requesting API version "
+        << ORT_API_VERSION << ", but the ONNX Runtime library loaded into this process ("
+        << (loaded_version != nullptr ? loaded_version : "version unknown")
+        << ") does not implement it. A different ONNX Runtime is being loaded than the one this build was "
+           "configured against; place the intended library next to the executable, because the loader "
+           "consults the executable's directory and the system directory ahead of PATH.";
+    throw ModelLoadException(oss.str());
+}
+
 ORTInfer::ORTInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                    const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
+    // ORTRuntimeApiGuard has already established that the API table is usable.
+    LOG(INFO) << "ONNX Runtime library version: " << OrtGetApiBase()->GetVersionString();
     env_ = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "Onnx Runtime Inference");
     Ort::SessionOptions session_options;
     const char* ep_env = std::getenv("NEURIPLO_ORT_EP");
