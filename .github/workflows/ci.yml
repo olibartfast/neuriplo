@@ -424,3 +424,32 @@ jobs:
               --cache-from type=gha,scope=docker-EXECUTORCH \
               ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-EXECUTORCH' || '' }} \
               .
+
+  # ── Cache budget ───────────────────────────────────────────────────────────
+  # The six jobs above are the ones that write `--cache-to type=gha,mode=max`,
+  # and between them they exported 8.3 GB of BuildKit layer blobs -- the whole
+  # of the repository's 10 GB cache budget. GitHub then evicted by least recent
+  # use and took the Windows vcpkg archives with it, turning a 58s
+  # `Windows / OPENCV_DNN` back into a ~40 minute build of OpenCV from source.
+  #
+  # Trim right where the pressure is made, rather than on a schedule: a
+  # `schedule:` trigger only fires from the default branch, which is `master`
+  # and release-only, so a scheduled-only prune would sit dormant on `develop`
+  # for as long as a release takes.
+  #
+  # if: always() because the blobs are written whether or not the build that
+  # wrote them passed, and only on push because that is the event `--cache-to`
+  # is gated on above.
+  prune-caches:
+    name: Prune BuildKit caches
+    needs:
+      - clang-tidy
+      - build-warnings
+      - sanitizers
+      - build-and-test-cpu
+      - build-tensorrt
+      - build-executorch
+    if: always() && github.event_name == 'push'
+    permissions:
+      actions: write
+    uses: ./.github/workflows/cache-prune.yml
