@@ -234,3 +234,73 @@ first, and the next diagnostic calls through a freed vtable.
 **Key insight:** **TensorRT's logger must outlive every TensorRT object built from it.**
 `TRTInfer` uses a function-local `static Logger`, which is immune to both scope exit and
 copy/move of the owning object.
+
+## Docker build breaks after a setup script gains a shared helper
+
+**Symptom:** one backend's image fails immediately at its `RUN /app/scripts/setup_*.sh`
+step with `/app/scripts/lib/version_stamp.sh: No such file or directory`, while the same
+script runs fine on a developer machine and every other backend image still builds.
+
+**Cause:** most backend Dockerfiles stage the whole tree (`COPY . .`), so any file a
+setup script sources is already there. `Dockerfile.litert` instead copies its inputs one
+by one, to keep the dependency layer cacheable across source edits. Factoring shared
+logic into `scripts/lib/` gave `setup_litert.sh` a second input that no `COPY` line
+mentioned, so the file existed in the build context but never in the image.
+
+**Fix:** copy the helper alongside the script it serves:
+
+```dockerfile
+COPY scripts/lib/version_stamp.sh /app/scripts/lib/version_stamp.sh
+COPY scripts/setup_litert.sh /app/scripts/setup_litert.sh
+```
+
+**Key insight:** **a selective `COPY` is a hand-maintained dependency list.** When a
+script that a Dockerfile names explicitly starts sourcing something new, the Dockerfile
+has to learn about it too — the build context hides the omission, because the file is
+there, just not in the layer. The failure also cascades: with `fail-fast` on, one broken
+image cancels every other job in the matrix, so a run that looks like a wholesale CI
+outage can come down to a single missing `COPY`.
+
+## Access violation constructing an ONNX Runtime backend on Windows
+
+**Symptom:** `PatternsTest` dies with `SEH exception with code 0xc0000005 thrown in the
+test body` and an empty stack trace, in the first test that builds a real backend
+(`EngineOptionsSetupTest.ExplicitDefaultIdMatchesEmptyIdDispatch`). Every other test in
+the binary passes, including the ONNX Runtime ones — those only exercise the static
+provider-name helpers, or `GTEST_SKIP()` without a model file. Linux is unaffected.
+
+**Cause:** two defects compounding.
+
+The ONNX Runtime C++ header sets its API table during static initialisation:
+
+```cpp
+const OrtApi* Global<T>::api_ = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+inline const OrtApi& GetApi() noexcept { return *Global<void>::api_; }
+```
+
+`GetApi(version)` is documented to return `nullptr` "when using a runtime older than the
+version created with this header file", and `Ort::GetApi()` dereferences the result
+unchecked — and is `noexcept`. A runtime older than the headers therefore fails at
+neither load time nor with an exception: it leaves the table null and the first ONNX
+Runtime call faults on it, past any `catch`.
+
+Which library satisfies the import is not decided by `PATH`. Linking `onnxruntime.lib`
+imports `onnxruntime.dll` by bare name, and the loader searches the executable's own
+directory and the system directory *before* `PATH`, so putting the downloaded runtime on
+`PATH` does not stop another `onnxruntime.dll` on the machine from winning. Linux never
+hits this: `libonnxruntime.so` carries versioned symbols (`VERS_1.19.2`), so a mismatched
+runtime is rejected at load time instead of silently answering the handshake with null.
+
+**Fix:**
+- `cmake/LinkBackend.cmake` stages the configured runtime's DLLs into
+  `CMAKE_RUNTIME_OUTPUT_DIRECTORY`, the directory the loader consults first.
+- `ORTRuntimeApiGuard` checks the handshake and throws `ModelLoadException` naming the
+  version that actually loaded, so a mismatch is reported rather than dereferenced.
+
+**Key insight:** **`Ort::Env` and `Ort::Session` cannot be destroyed once the API table is
+null.** `Base::~Base` is `{ OrtRelease(p_); }` and `OrtRelease` is
+`GetApi().ReleaseX(ptr)` — `GetApi()` is evaluated even for a null handle. So a check at
+the top of the *constructor body* still crashes: the throw unwinds past the
+default-constructed `Ort::` members and faults in their destructors. The check has to
+finish before those members exist, which is why it is a base class rather than the first
+statement of the constructor.

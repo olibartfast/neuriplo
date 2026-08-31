@@ -48,6 +48,40 @@ backend IDs and their CMake metadata:
   ignored.
 - **GPU support**: CUDA presence checked for GPU-enabled backends.
 - **Installation completeness**: required headers and libraries must exist.
+- **Version drift**: the version *inside* an installation is compared against
+  the pin in `versions.env`, and a mismatch is reported as a warning naming the
+  version the build will actually use.
+
+#### Version drift and version stamps
+
+A dependency directory's name is not evidence of what is in it. Several
+`*_DIR` paths carry no version at all, and any of them can be redirected with
+`-D<DEP>_DIR`, so validation reads the version out of the installation itself:
+
+| Backend | Read from |
+| --- | --- |
+| TensorRT | `include/NvInferVersion.h` |
+| LibTorch | `build-version` |
+| ONNX Runtime | `VERSION_NUMBER` |
+| OpenVINO | `runtime/version.txt` |
+| GGML, TVM, Cactus, llama.cpp, ExecuTorch, LiteRT | `neuriplo-version.txt` |
+
+The last row is the source-built group. Upstream leaves nothing behind that
+names a version, so `scripts/lib/version_stamp.sh` writes `neuriplo-version.txt`
+into the install directory, recording the `versions.env` pin the tree was built
+from. It is written only after the build and install succeed, so a stamp always
+describes a usable installation.
+
+**If you add a source-built backend**, source the helper in its setup script,
+gate the "already installed?" check on `neuriplo_stamp_matches`, and call
+`neuriplo_write_stamp` after a successful install. Checking only that a library
+file exists is what let these installations drift: any past build answers that
+question yes, so bumping the pin in `versions.env` silently did nothing.
+
+An installation predating the stamp is reported as unstamped rather than assumed
+current, and is rebuilt with `FORCE=true`. Setup scripts never replace a
+mismatched installation on their own — they say what they found and stop, since
+replacing one deletes a working tree.
 
 ### Setup Scripts
 
@@ -264,6 +298,28 @@ sudo apt-get install -y libopencv-dev libopencv-contrib-dev
 ```bash
 ./scripts/setup_libtorch.sh
 ```
+
+PyTorch publishes LibTorch as separate CPU and CUDA builds, and which one is
+installed decides device placement: with a CPU-only build
+`torch::cuda::is_available()` is false, so the backend runs on the CPU whatever
+`use_gpu` was set to, and the only symptom is that inference is slow. The script
+therefore picks the variant deliberately — it keeps the family of an existing
+installation (a CUDA LibTorch is never replaced by a CPU one as a side effect of
+an upgrade), and otherwise selects the newest CUDA build PyTorch publishes for
+this release that the local driver supports, falling back to CPU only when no
+CUDA is present. Which CUDA builds exist differs per release — 2.3.0 ships
+`cu118` and `cu121` but no `cu120` — so the choice is made against what the
+server actually publishes rather than derived from the local CUDA version.
+
+Override it explicitly with `LIBTORCH_VARIANT`:
+
+```bash
+LIBTORCH_VARIANT=cu121 ./scripts/setup_libtorch.sh   # a specific CUDA build
+LIBTORCH_VARIANT=cpu   ./scripts/setup_libtorch.sh   # deliberately CPU-only
+```
+
+The variant is reported at configure time as `LibTorch build: <version>+<variant>`,
+and a CPU-only installation on a machine with CUDA available is warned about.
 
 **GGML**:
 ```bash

@@ -17,35 +17,183 @@ fi
 
 # Default installation directory
 version="$PYTORCH_VERSION"
+DEPENDENCY_ROOT="${DEPENDENCY_ROOT:-$HOME/dependencies}"
 dir="$DEPENDENCY_ROOT/libtorch"
 
 # The install directory carries no version, so "does the directory exist" is
 # satisfied by any LibTorch forever and the pin can never take effect -- that is
 # how an install drifts away from versions.env unnoticed. Compare the version
 # LibTorch stamps in build-version instead.
+#
+# build-version looks like "2.3.0+cpu" or "2.0.1+cu118": a version and the
+# compute variant it was built for. Both halves matter, so read both.
 installed_version=""
+installed_variant=""
 if [ -f "$dir/build-version" ]; then
-    # build-version looks like "2.3.0+cpu" or "2.0.1+cu118".
-    installed_version="$(tr -d '[:space:]' < "$dir/build-version" | cut -d+ -f1)"
+    installed_build="$(tr -d '[:space:]' < "$dir/build-version")"
+    installed_version="${installed_build%%+*}"
+    if [ "$installed_build" != "$installed_version" ]; then
+        installed_variant="${installed_build#*+}"
+    fi
 fi
 
+# ── Compute variant ───────────────────────────────────────────────────────────
+# PyTorch publishes LibTorch as separate CPU and CUDA builds. This script always
+# downloaded the CPU one, so on a GPU machine "install the pinned LibTorch"
+# quietly produced a build in which torch::cuda::is_available() is false --
+# LibtorchInfer then places every tensor on the CPU no matter what the caller
+# asked for (backends/libtorch/src/LibtorchInfer.cpp:21). Nothing fails; the
+# work just silently stops using the GPU. Choose the variant deliberately.
+#
+# Override with LIBTORCH_VARIANT=cpu|cu118|cu121|... to pin an exact build.
+
+# The highest CUDA release this machine can run. Only the driver decides: the
+# shared-with-deps archives bundle their own CUDA runtime, so a cu121 LibTorch
+# runs against a 12.0 toolkit but not against a driver too old for it.
+#
+# nvcc is deliberately not consulted as a fallback. It reports the installed
+# toolkit, which says nothing about what the driver can execute -- a machine
+# with a toolkit and no usable driver (a build host, a container without the
+# GPU passed through) would be read as CUDA-capable, receive a CUDA LibTorch,
+# and then fall back to the CPU at runtime in LibtorchInfer.cpp with nothing
+# failing. Silently losing the GPU is the failure this selection exists to
+# prevent, so a question the driver cannot answer is left unanswered here and
+# the caller is asked for LIBTORCH_VARIANT instead.
+detect_cuda_release() {
+    local release=""
+    if command -v nvidia-smi > /dev/null 2>&1; then
+        release="$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: *\([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -1)"
+    fi
+    printf '%s' "$release"
+}
+
+libtorch_url() {
+    printf 'https://download.pytorch.org/libtorch/%s/libtorch-cxx11-abi-shared-with-deps-%s%%2B%s.zip' \
+        "$1" "$version" "$1"
+}
+
+variant_published() {
+    wget -q --spider --tries=1 --timeout=20 "$(libtorch_url "$1")" 2> /dev/null
+}
+
+# Which CUDA builds exist differs per PyTorch release -- 2.3.0 ships cu118 and
+# cu121 but no cu120, so deriving the variant from the local CUDA version alone
+# produces a URL that 404s. Ask the server instead: walk down from the release
+# this machine supports and take the newest build it actually publishes.
+newest_published_cuda_variant() {
+    local release="$1" major minor candidate
+    major="${release%%.*}"
+    minor="${release#*.}"
+
+    while [ "$major" -ge 10 ]; do
+        while [ "$minor" -ge 0 ]; do
+            candidate="cu${major}${minor}"
+            if variant_published "$candidate"; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+            minor=$((minor - 1))
+        done
+        major=$((major - 1))
+        minor=9
+    done
+    return 1
+}
+
+cuda_release="$(detect_cuda_release)"
+
+if [ -n "${LIBTORCH_VARIANT:-}" ]; then
+    variant="$LIBTORCH_VARIANT"
+    if ! variant_published "$variant"; then
+        echo "Error: LibTorch $version has no '$variant' build published." >&2
+        echo "  Tried: $(libtorch_url "$variant")" >&2
+        exit 1
+    fi
+    echo "Using LibTorch variant $variant (from LIBTORCH_VARIANT)"
+else
+    # An existing installation's variant is a statement of intent: replacing a
+    # CUDA LibTorch with a CPU one moves every consumer's inference onto the CPU,
+    # and an upgrade must never do that as a side effect. Keep its family.
+    case "$installed_variant" in
+        cu*) want_cuda=true;  reason="the installed build is $installed_variant" ;;
+        cpu) want_cuda=false; reason="the installed build is CPU-only" ;;
+        *)
+            if [ -n "$cuda_release" ]; then
+                want_cuda=true;  reason="CUDA $cuda_release was detected"
+            else
+                want_cuda=false; reason="no CUDA was detected"
+            fi
+            ;;
+    esac
+
+    if [ "$want_cuda" = "true" ]; then
+        if [ -z "$cuda_release" ]; then
+            echo "Error: a CUDA LibTorch is wanted ($reason) but no CUDA was detected here." >&2
+            echo "  Install the CUDA toolkit or driver, or set LIBTORCH_VARIANT explicitly" >&2
+            echo "  (LIBTORCH_VARIANT=cpu to deliberately move to a CPU-only build)." >&2
+            exit 1
+        fi
+        if ! variant="$(newest_published_cuda_variant "$cuda_release")"; then
+            # A failed probe is not proof that no CUDA build exists -- it is
+            # also what an offline machine or a CDN hiccup looks like, because
+            # variant_published decides by fetching. When the pinned version is
+            # already installed as a CUDA build, nothing here needs the network
+            # at all, so keep that installation rather than failing a run that
+            # had no work to do.
+            if [[ -d "$dir" && "$FORCE" != "true" && "$installed_version" = "$version" && "$installed_variant" == cu* ]]; then
+                echo "✓ LibTorch ${installed_version}+${installed_variant} already installed at $dir"
+                echo "  (could not reach the download server to check for a newer CUDA variant)"
+                exit 0
+            fi
+            # Falling back to CPU here is exactly the silent downgrade this
+            # selection exists to prevent, so stop and let a human decide.
+            echo "Error: LibTorch $version publishes no CUDA build for CUDA $cuda_release or older." >&2
+            echo "  Pick one explicitly with LIBTORCH_VARIANT=cuXYZ, or accept a CPU-only" >&2
+            echo "  build with LIBTORCH_VARIANT=cpu." >&2
+            exit 1
+        fi
+        echo "Using LibTorch variant $variant ($reason; CUDA $cuda_release available)"
+    else
+        variant="cpu"
+        echo "Using LibTorch variant cpu ($reason)"
+        # A toolkit without a driver answer is the case most likely to be a
+        # mistake rather than a CPU-only machine, so name it instead of leaving
+        # the CPU build to be discovered later.
+        if [ -z "$cuda_release" ] && command -v nvcc > /dev/null 2>&1; then
+            echo "  A CUDA toolkit is installed here, but nvidia-smi reported no driver"
+            echo "  capability, so this machine is treated as CPU-only. If it does have a"
+            echo "  working GPU, pick the build explicitly with LIBTORCH_VARIANT=cuXYZ."
+        fi
+    fi
+fi
+
+# ── Already installed? ────────────────────────────────────────────────────────
 if [[ -d "$dir" && "$FORCE" != "true" ]]; then
-    if [ "$installed_version" = "$version" ]; then
-        echo "✓ LibTorch $version already installed at $dir"
+    if [ "$installed_version" = "$version" ] && [ "$installed_variant" = "$variant" ]; then
+        echo "✓ LibTorch ${version}+${variant} already installed at $dir"
         exit 0
     fi
-    echo "LibTorch at $dir is ${installed_version:-an unrecognised version}, but versions.env pins $version."
+    echo "LibTorch at $dir is ${installed_build:-an unrecognised build}, but this run wants ${version}+${variant}."
     echo "Re-run with FORCE=true to replace it (this removes the existing $dir)."
     exit 0
 fi
 
-echo "Installing LibTorch $version..."
+echo "Installing LibTorch ${version}+${variant}..."
 
 # Create directory and download
 mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
-wget -q "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-$version%2Bcpu.zip" -O tmp.zip
+wget -q "$(libtorch_url "$variant")" -O tmp.zip
 # Unzip merges into an existing tree, leaving a mix of both versions behind.
 rm -rf "$dir"
 unzip -q tmp.zip && rm tmp.zip
 
-echo "✓ LibTorch $version installed successfully at $dir"
+# The archive is named for the build it should contain, but only build-version
+# says what was actually unpacked. Check, so a mismatch surfaces here rather
+# than as tensors quietly landing on the CPU at inference time.
+unpacked="$(tr -d '[:space:]' < "$dir/build-version" 2> /dev/null || true)"
+if [ "$unpacked" != "${version}+${variant}" ]; then
+    echo "Error: expected LibTorch ${version}+${variant} but ${dir}/build-version says '${unpacked:-nothing}'." >&2
+    exit 1
+fi
+
+echo "✓ LibTorch ${version}+${variant} installed successfully at $dir"
