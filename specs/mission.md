@@ -55,7 +55,7 @@ The project is succeeding when:
   process unexpectedly;
 - performance-sensitive changes include regression evidence appropriate to the
   affected runtime and hardware;
-- a new maintainer or coding agent can discover the project boundaries and run
+- a new maintainer can discover the project boundaries and run
   the required checks from version-controlled files.
 
 ## Boundaries and Non-Goals
@@ -90,3 +90,5 @@ failure behavior without implying coverage that has not been validated.
 
 Until these are resolved, feature specifications must state their own measurable
 performance and compatibility requirements rather than inventing global targets.
+
+_Revision: 2026-09-11 - kept the mission product-facing and removed executor-specific wording._

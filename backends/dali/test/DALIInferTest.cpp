@@ -110,7 +110,7 @@ TEST(DALIInferTest, ReportsEncodedImageInputAndPreprocessedOutputs) {
     ASSERT_EQ(metadata.getInputs().size(), 1u);
     EXPECT_EQ(metadata.getInputs()[0].name, DALIInfer::kEncodedInputName);
     ASSERT_GE(metadata.getOutputs().size(), 1u);
-    EXPECT_EQ(metadata.getOutputs()[0].name, DALIInfer::kPreprocessedOutputName);
+    EXPECT_EQ(metadata.getOutputs()[0].name, "output0");
 }
 
 TEST(DALIInferTest, DecodesAnEncodedImageIntoThePreprocessedTensor) {
@@ -158,6 +158,18 @@ TEST(DALIInferFixtureTest, PreservesInt32RawOutput) {
     ASSERT_EQ(output.size(), 1u);
     EXPECT_EQ(output[0].dtype, TensorDtype::INT32);
     EXPECT_EQ(value_at<int32_t>(output[0], 1), 42);
+}
+TEST(DALIInferFixtureTest, RejectsPartiallyAlignedTypedInputWithMatchingShape) {
+    auto infer = load_fixture("single_int32", {{1}});
+    EXPECT_THROW(infer.get_infer_results_raw({std::vector<uint8_t>(sizeof(int32_t) + 1)}), InferenceExecutionException);
+}
+TEST(DALIInferFixtureTest, RejectsShapeWhoseTypedByteCountOverflows) {
+    auto infer = load_fixture("single_int32", {{int64_t{1} << 62}});
+    EXPECT_THROW(infer.get_infer_results_raw({bytes<int32_t>({1})}), InferenceExecutionException);
+}
+TEST(DALIInferFixtureTest, RejectsElementCountOverflowAsExecutionFailure) {
+    auto infer = load_fixture("single_int32_2d", {{int64_t{1} << 62, 4}});
+    EXPECT_THROW(infer.get_infer_results_raw({bytes<int32_t>({1})}), InferenceExecutionException);
 }
 TEST(DALIInferFixtureTest, PreservesInt64RawOutput) {
     auto infer = load_fixture("single_int64");

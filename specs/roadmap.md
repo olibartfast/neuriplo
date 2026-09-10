@@ -100,8 +100,8 @@ Scope:
   provider/delegate, and fallback policy.
 - Define compatibility behavior for the legacy `bool use_gpu` overload.
 - Define strict failure, explicit fallback, logging, and test expectations.
-- Resolve the open follow-ups in
-  `docs/plans/ort-execution-providers.md` without adding an unapproved SDK.
+- Resolve the open device and fallback questions documented in
+  `docs/ORT_EXECUTION_PROVIDERS.md` without adding an unapproved SDK.
 
 Exit criteria:
 
@@ -179,17 +179,15 @@ Exit criteria:
 - A release can move from `develop` to `master` with a recorded validation
   trail and understandable compatibility notes.
 
-## Operating Rule
+## Specification Rule
 
-Before beginning an incomplete phase, create a dated feature directory:
+Create a dated `specs/YYYY-MM-DD-feature-name/` packet for active work that is
+multi-phase, changes public behavior or architecture, or has low reversibility.
+The packet contains `requirements.md`, `plan.md`, and `validation.md`, with
+validation defined before implementation and evidence recorded after execution.
+Small contained fixes may use a concise PR-level specification; trivial fixes
+need no packet. Do not create speculative packets for inactive roadmap items or
+backfill packets for completed work.
 
-```text
-specs/YYYY-MM-DD-feature-name/
-├── requirements.md
-├── plan.md
-└── validation.md
-```
-
-Write validation before implementation. Update the feature packet, this
-roadmap, and any durable constitution decision in the same branch as the code
-when discovery changes the intended contract.
+_Revision: 2026-09-11 - aligned packet proportionality and active-work scope
+with the spec-driven-development workflow._

@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- `TensorRT`: device buffers are keyed by tensor name instead of assumed
+  all-inputs-first positional indexing. TensorRT does not guarantee that the
+  engine's I/O enumeration groups inputs before outputs, while every buffer
+  read, address assignment, and importantly the new `get_infer_results_raw()`
+  copy did. Interleaved-enumeration engines copied from another tensor's
+  device buffer; these engines now read from their own allocations. Engines
+  with conventional input-then-output enumeration are unaffected, and all six
+  TensorRT GPU tests pass unchanged.
+- `DALI`: advertise external inputs as Int8/Bool where applicable rather than
+  silently falling back to Float32, and reject input types with no metadata
+  representation instead of advertising them as Float32.
+- `DALI`: unnamed outputs are addressed positionally (`output0`, ...) in
+  metadata instead of fabricating `preprocessed`/`IMAGE_SHAPE` names for any
+  pipeline. Use `|outnames=` for semantic names. Consumers that matched
+  `preprocessed`/`IMAGE_SHAPE` in unspecified-pipeline metadata must switch to
+  `outnames=` or positional names.
+- `DALI`: reject rank-1 dynamic inputs whose byte count is not a multiple of
+  the element type's size, and reject declared shapes that overflow a signed
+  element count before DALI receives them.
+- `setup_dependencies.sh`: the DALI install honors `-r/--root` by forwarding
+  the dependency root into `setup_dali.sh`; generated env blocks add `$DALI_DIR`
+  to the shared-library search path, where `setup_dali.sh` actually places
+  `libdali.so`, rather than a nonexistent `lib/` subdirectory.
+- `Readme.md`: DALI output 1 documents `(H, W)` matching the generator and
+  pipeline implementation, and the pipeline-generation command uses the
+  NVIDIA image rather than an impossible-to-import extracted wheel layout.
+
 ## [0.9.0] - 2026-09-10
 
 ### Added
@@ -174,8 +202,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   implementation adapts `get_infer_results()` so all other backends keep
   working unchanged.
 - Optional ccache support to speed up non-release builds.
-- Library roadmap (`specs/roadmap.md`) and the ORT execution-provider plan
-  (`docs/plans/ort-execution-providers.md`).
+- Library roadmap (`specs/roadmap.md`) and the ORT execution-provider guide
+  (`docs/ORT_EXECUTION_PROVIDERS.md`).
 
 ### Changed
 - `setup_inference_engine` no longer lets vendor exceptions (e.g.
@@ -208,7 +236,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `IAllocator`) and a dedicated patterns test suite (`PatternsTest.cpp`).
 - Local code-quality tooling: clang-format, clang-tidy, cppcheck, and sanitizer
   scripts under `scripts/quality/`, pre-commit/pre-push git hooks, and
-  `docs/CODE_QUALITY.md` plus `docs/REFACTOR_DESIGN_PATTERNS.md`.
+  `docs/CODE_QUALITY.md` plus `docs/ARCHITECTURE.md`.
 
 ### Changed
 - `setup_inference_engine` now constructs backends through the Abstract Factory
@@ -216,7 +244,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   return type (cross-repo contract with neuriplo-infer unchanged).
 - Documentation now references the renamed sibling repositories
   (`vision-inference` → `neuriplo-infer`, `vision-core` → `neuriplo-tasks`) in
-  `Readme.md` and `docs/REFACTOR_DESIGN_PATTERNS.md`.
+  `Readme.md` and `docs/ARCHITECTURE.md`.
 
 ### Fixed
 - Backend load failures now set a `Failed` state and throw `ModelLoadException`
