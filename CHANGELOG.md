@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   TensorRT GPU tests pass.
 - `TensorRT`: reinitialization now stages replacement resources and preserves
   the working engine when loading or allocating the replacement fails.
+  `initializeBuffers()` also rebuilds `InferenceMetadata` for the replacement
+  engine and restores the previous metadata if replacement fails, so metadata
+  no longer describes the engine from the initial construction.
 - `DALI`: advertise external inputs as Int8/Bool where applicable rather than
   silently falling back to Float32, and reject input types with no metadata
   representation instead of advertising them as Float32.
@@ -26,7 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   metadata instead of fabricating `preprocessed`/`IMAGE_SHAPE` names for any
   pipeline. Use `|outnames=` for semantic names. Consumers that matched
   `preprocessed`/`IMAGE_SHAPE` in unspecified-pipeline metadata must switch to
-  `outnames=` or positional names.
+  `outnames=` or positional names. The `kPreprocessedOutputName` and
+  `kImageShapeOutputName` constants remain available for source compatibility,
+  but no longer name runtime metadata.
 - `DALI`: reject rank-1 dynamic inputs whose byte count is not a multiple of
   the element type's size, and reject declared shapes that overflow a signed
   element count before DALI receives them.

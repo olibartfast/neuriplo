@@ -208,6 +208,11 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
 TEST_F(TensorRTInferTest, ReinitializationReplacesOwnedBuffers) {
     TRTInfer infer(model_path, true);
     ASSERT_NO_THROW(infer.initializeBuffers(model_path, {}));
+    // Metadata must be rebuilt for the replacement engine, not left from the
+    // constructor's load (and not wiped without being repopulated).
+    const auto metadata = infer.get_inference_metadata();
+    ASSERT_FALSE(metadata.getInputs().empty());
+    ASSERT_FALSE(metadata.getOutputs().empty());
     const auto [outputs, shapes] = infer.get_infer_results(neuriplo::testing::zero_blob_tensors());
     ASSERT_FALSE(outputs.empty());
     ASSERT_FALSE(shapes.empty());
