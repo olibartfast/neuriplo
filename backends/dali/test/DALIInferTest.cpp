@@ -159,6 +159,14 @@ TEST(DALIInferFixtureTest, PreservesInt32RawOutput) {
     EXPECT_EQ(output[0].dtype, TensorDtype::INT32);
     EXPECT_EQ(value_at<int32_t>(output[0], 1), 42);
 }
+TEST(DALIInferFixtureTest, RejectsPartiallyAlignedTypedInputWithMatchingShape) {
+    auto infer = load_fixture("single_int32", {{1}});
+    EXPECT_THROW(infer.get_infer_results_raw({std::vector<uint8_t>(sizeof(int32_t) + 1)}), InferenceExecutionException);
+}
+TEST(DALIInferFixtureTest, RejectsShapeWhoseTypedByteCountOverflows) {
+    auto infer = load_fixture("single_int32", {{int64_t{1} << 62}});
+    EXPECT_THROW(infer.get_infer_results_raw({bytes<int32_t>({1})}), InferenceExecutionException);
+}
 TEST(DALIInferFixtureTest, PreservesInt64RawOutput) {
     auto infer = load_fixture("single_int64");
     const auto output =

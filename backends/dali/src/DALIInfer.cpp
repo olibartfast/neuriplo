@@ -296,6 +296,10 @@ struct DALIInfer::Impl {
             }
             const auto type = external_input_types[i];
             const size_t element_size = dali_type_size(type);
+            if (inputs[i].size() % element_size != 0) {
+                throw InferenceExecutionException("DALI external input '" + external_inputs[i] +
+                                                  "' byte count is not aligned to its datatype");
+            }
 
             // DALI asserts on rank, so the sample shape must match the rank the
             // external source declares. A caller-declared shape is trimmed of
@@ -330,7 +334,13 @@ struct DALIInfer::Impl {
             // pointer with no length argument, so a shape that outruns the
             // buffer is an out-of-bounds read inside the library with no
             // diagnostic. Fail here instead, where the names are still known.
-            const size_t required = static_cast<size_t>(element_count(sample_shape)) * element_size;
+            const auto count = static_cast<uint64_t>(element_count(sample_shape));
+            if (count > std::numeric_limits<size_t>::max() ||
+                static_cast<size_t>(count) > std::numeric_limits<size_t>::max() / element_size) {
+                throw InferenceExecutionException("DALI external input '" + external_inputs[i] +
+                                                  "' declared shape overflows its byte count");
+            }
+            const size_t required = static_cast<size_t>(count) * element_size;
             if (required > inputs[i].size()) {
                 throw InferenceExecutionException("DALI external input '" + external_inputs[i] + "' needs " +
                                                   std::to_string(required) + " bytes for the declared shape but only " +

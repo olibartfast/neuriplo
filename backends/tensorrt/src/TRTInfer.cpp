@@ -75,6 +75,23 @@ TRTInfer::~TRTInfer() {
 }
 
 void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vector<std::vector<int64_t>>& input_sizes) {
+    for (void* buffer : buffers_) {
+        if (buffer != nullptr) {
+            CHECK_CUDA(cudaFree(buffer));
+        }
+    }
+    buffers_.clear();
+    buffer_by_name_.clear();
+    if (context_ != nullptr) {
+        delete context_;
+        context_ = nullptr;
+    }
+    engine_.reset();
+    if (runtime_ != nullptr) {
+        delete runtime_;
+        runtime_ = nullptr;
+    }
+
     // Create TensorRT runtime.
     // TensorRT keeps the ILogger reference for the lifetime of the runtime and of
     // every engine and execution context built from it, and calls back into it
@@ -142,6 +159,17 @@ TensorDataType TRTInfer::toTensorDataType(nvinfer1::DataType type) {
 }
 
 void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int64_t>>& input_sizes) {
+    for (void* buffer : buffers_) {
+        if (buffer != nullptr) {
+            CHECK_CUDA(cudaFree(buffer));
+        }
+    }
+    buffers_.clear();
+    buffer_by_name_.clear();
+    if (context_ != nullptr) {
+        delete context_;
+        context_ = nullptr;
+    }
     context_ = engine_->createExecutionContext();
     int num_tensors = engine_->getNbIOTensors();
     buffers_.resize(num_tensors);
@@ -254,7 +282,7 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
         // Buffers land in engine enumeration order; record the address under
         // the tensor name so consumers never assume all inputs precede
         // outputs.
-        buffer_by_name_.emplace(tensor_name, buffers_[i]);
+        buffer_by_name_[tensor_name] = buffers_[i];
     }
 }
 
