@@ -97,6 +97,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   of `use_gpu`).
 
 ### Fixed
+- `DALI`: reject serialized pipelines with maximum batch sizes other than one,
+  decode INT32/INT64 legacy results without loss, and report every output's
+  actual datatype and batch-inclusive shape. Output-name counts are checked.
+  Older pipelines without datatype declarations require a successful inference
+  before metadata retrieval; regenerate metadata-first deployments with explicit
+  `output_dtype` declarations. The preprocessing generator supplies them.
 - `DALI` integration test: expect the current preprocessing generator's INT64
   `(height, width)` output rather than the obsolete three-element INT32 shape.
 - `OPENCV_DNN` integration test: pass the fixture's input dimensions when

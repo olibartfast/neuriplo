@@ -31,9 +31,9 @@ class DALIInfer : public InferenceInterface {
     // `|plugin=<path.so>` for pipelines built on custom DALI operators (GPU
     // postprocessing plugins are the case that needs it).
     //
-    // `input_sizes[0]` declares the pipeline's first output shape (for example
-    // {3, 640, 640}); DALI cannot report output shapes before a run, and callers
-    // need them to advertise model metadata at load.
+    // `input_sizes` declares the pipeline's input shapes. DALI cannot report
+    // output shapes before a run; an optional `out=` model-path suffix supplies
+    // the first output shape for metadata at load.
     DALIInfer(const std::string& model_path, bool use_gpu = true, size_t batch_size = 1,
               const std::vector<std::vector<int64_t>>& input_sizes = {});
     ~DALIInfer() override;
@@ -52,7 +52,7 @@ class DALIInfer : public InferenceInterface {
     // generator in export/dali/. Pipelines may declare any inputs they like:
     // the backend discovers them and feeds them in declaration order.
     static constexpr const char* kEncodedInputName = "IMAGE";
-    // Output 0: the model input tensor. Output 1: the source image shape (HWC),
+    // Output 0: the model input tensor. Output 1: the source image shape (H, W),
     // which postprocessing needs to map results back onto the original frame.
     static constexpr const char* kPreprocessedOutputName = "preprocessed";
     static constexpr const char* kImageShapeOutputName = "IMAGE_SHAPE";
@@ -60,8 +60,8 @@ class DALIInfer : public InferenceInterface {
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-    // Declared shapes for the pipeline's inputs and first output, supplied by
-    // the caller because DALI reports neither before a run.
+    // Declared shapes for the pipeline inputs, supplied by the caller because
+    // DALI reports neither before a run.
     std::vector<std::vector<int64_t>> input_sizes_;
     std::vector<std::vector<int64_t>> input_shapes_;
 };

@@ -216,4 +216,3 @@ backends:
     model_source: "serialized offline by `export/dali/generate_yolo_pipeline.py`"
     arch: [x86_64]
     gpu: true
-
