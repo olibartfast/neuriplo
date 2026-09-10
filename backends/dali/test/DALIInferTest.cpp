@@ -167,6 +167,10 @@ TEST(DALIInferFixtureTest, RejectsShapeWhoseTypedByteCountOverflows) {
     auto infer = load_fixture("single_int32", {{int64_t{1} << 62}});
     EXPECT_THROW(infer.get_infer_results_raw({bytes<int32_t>({1})}), InferenceExecutionException);
 }
+TEST(DALIInferFixtureTest, RejectsElementCountOverflowAsExecutionFailure) {
+    auto infer = load_fixture("single_int32_2d", {{int64_t{1} << 62, 4}});
+    EXPECT_THROW(infer.get_infer_results_raw({bytes<int32_t>({1})}), InferenceExecutionException);
+}
 TEST(DALIInferFixtureTest, PreservesInt64RawOutput) {
     auto infer = load_fixture("single_int64");
     const auto output =
