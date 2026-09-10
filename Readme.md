@@ -254,16 +254,9 @@ metadata (`output0`, `output1`, ...) because the serialized pipeline format
 carries no output names; pass `|outnames=preprocessed,IMAGE_SHAPE` on the
 model path when a deployment installs semantic names.
 
-`model_path` is a serialized `.dali` pipeline, authored offline. The generator
-imports `nvidia.dali`, which the extracted wheel layout does not install as a
-Python package, so run it inside the NVIDIA image (exactly how the container
-tests do):
-
-```bash
-docker run --rm -v "$PWD:/out" --entrypoint python3 \
-    nvcr.io/nvidia/tritonserver:25.12-py3 \
-    /out/export/dali/generate_yolo_pipeline.py --size 640 --output /out/yolo_pre_640.dali
-```
+`model_path` is a serialized `.dali` pipeline, authored offline. See the
+[DALI dependency guide](docs/DEPENDENCY_MANAGEMENT.md#dali-pipeline-metadata-and-validation)
+for artifact-generation and container instructions.
 
 Nothing runs Python at inference time -- the pipeline is deserialized and
 executed entirely in C++ through the DALI C API.

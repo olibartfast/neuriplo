@@ -497,6 +497,15 @@ be one. `input_sizes` describes external inputs; the optional `|out=3x640x640`
 suffix is only a pre-inference hint for output zero. `|outnames=A,B,...` must
 provide exactly one name per pipeline output.
 
+The generator imports `nvidia.dali`, which the extracted wheel layout does
+not install as a Python package. Run it inside the NVIDIA image:
+
+```bash
+docker run --rm -v "$PWD:/out" --entrypoint python3 \
+    nvcr.io/nvidia/tritonserver:25.12-py3 \
+    /out/export/dali/generate_yolo_pipeline.py --size 640 --output /out/yolo_pre_640.dali
+```
+
 Declare `output_dtype` and `output_ndim` when serializing pipelines. The YOLO
 preprocessing generator declares FP32 CHW and INT64 `(height, width)` outputs.
 For older artifacts without output datatype declarations, construction and
