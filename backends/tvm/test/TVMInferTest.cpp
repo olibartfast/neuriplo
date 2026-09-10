@@ -1,12 +1,14 @@
 #include "TVMInfer.hpp"
 
+#include "testing/TestBlob.hpp"
+
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
-#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
@@ -73,13 +75,7 @@ class TVMInferTest : public ::testing::Test {
 
 // Test basic functionality - works with both real model and mock
 TEST_F(TVMInferTest, BasicInference) {
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3); // ResNet-18 expects 224x224 input
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     std::vector<std::vector<TensorElement>> output_vectors;
     std::vector<std::vector<int64_t>> shape_vectors;
@@ -122,13 +118,7 @@ TEST_F(TVMInferTest, IntegrationTest) {
     }
 
     // Test with real model
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     auto [output_vectors, shape_vectors] = real_infer->get_infer_results(input_tensors);
 
@@ -149,10 +139,7 @@ TEST_F(TVMInferTest, MockUnitTest) {
         GTEST_SKIP() << "Skipping mock unit test - real TVM model is available";
     }
 
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    std::vector<uint8_t> input_data(input.total() * input.elemSize());
-    memcpy(input_data.data(), input.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
 
@@ -179,13 +166,7 @@ TEST_F(TVMInferTest, GPUTest) {
         auto gpu_infer = std::make_unique<TVMInfer>(model_path, true, 1, input_sizes);
 
         // If we got here, GPU is available, test inference
-        cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::Mat blob;
-        cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-        std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-        memcpy(input_data.data(), blob.data, input_data.size());
-        std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+        std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
         auto [output_vectors, shape_vectors] = gpu_infer->get_infer_results(input_tensors);
 

@@ -78,7 +78,7 @@ The Dockerfile uses a multi-stage build approach:
 
 ### Stage 1: Base Dependencies
 - Ubuntu 24.04 base image
-- System dependencies (CMake, build tools, OpenCV, glog)
+- System dependencies (CMake, build tools, glog)
 - Python 3 and development tools
 
 ### Stage 2: OpenVINO Installation

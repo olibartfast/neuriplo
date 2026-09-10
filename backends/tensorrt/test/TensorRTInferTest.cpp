@@ -1,4 +1,5 @@
 #include "TRTInfer.hpp"
+#include "testing/TestBlob.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -6,9 +7,16 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
-#include <opencv2/opencv.hpp>
+#include <memory>
 
 namespace fs = std::filesystem;
+
+// Directory CMake builds this test into; also where generate_trt_engine.sh and
+// the engine it produces live.
+#ifndef TRT_TEST_BINARY_DIR
+#define TRT_TEST_BINARY_DIR "."
+#endif
+constexpr const char* kTestBinaryDir = TRT_TEST_BINARY_DIR;
 
 // Mock logger for atomic testing
 class MockLogger {
@@ -27,32 +35,55 @@ class TensorRTInferTest : public ::testing::Test {
         if (model_path.empty()) {
             model_path = GenerateModelPath();
         }
+        if (model_path.empty()) {
+            // A skipped test still exits 0, so a suite that skips everything reports
+            // success having never touched the GPU. An environment that is meant to
+            // exercise TensorRT sets NEURIPLO_REQUIRE_TENSORRT_TESTS=1 and gets a
+            // failure instead of that false green.
+            const char* required = std::getenv("NEURIPLO_REQUIRE_TENSORRT_TESTS");
+            if (required != nullptr && std::string(required) != "0") {
+                FAIL() << "NEURIPLO_REQUIRE_TENSORRT_TESTS is set, but no TensorRT engine could be found "
+                          "or generated. Engine generation needs trtexec from the TensorRT installation "
+                          "this build was configured against (-DTENSORRT_DIR).";
+            }
+            GTEST_SKIP() << "TensorRT engine file not found and scripted generation is unavailable on this platform";
+        }
     }
 
     static std::string GenerateModelPath() {
-        // Get the current working directory
-        fs::path current_path = fs::current_path();
-
-        // Look for existing TensorRT engine file
-        std::vector<std::string> possible_paths = {"resnet18.engine", "../resnet18.engine", "test_model.engine"};
-
-        for (const auto& path : possible_paths) {
-            if (fs::exists(path)) {
-                return path;
+        // Anchor on the directory CMake placed this binary and its generator script
+        // in, so the engine is found no matter what the caller's working directory
+        // is, and fall back to the working directory for hand-placed engines.
+        const std::vector<fs::path> search_roots = {fs::path(kTestBinaryDir), fs::current_path(),
+                                                    fs::current_path().parent_path()};
+        const std::vector<std::string> names = {"resnet18.engine", "resnet18.plan", "test_model.engine",
+                                                "test_model.plan"};
+        for (const auto& name : names) {
+            for (const auto& root : search_roots) {
+                const fs::path candidate = root / name;
+                if (fs::exists(candidate)) {
+                    return candidate.string();
+                }
             }
         }
 
         // Try to generate engine from ONNX model
-        fs::path script_path = current_path / "generate_trt_engine.sh";
+#ifndef _WIN32
+        const fs::path script_path = fs::path(kTestBinaryDir) / "generate_trt_engine.sh";
         if (fs::exists(script_path)) {
-            std::string script = script_path.string();
-            if (system(script.c_str()) == 0) {
-                return "resnet18.engine";
+            // Run from the test directory so the engine lands beside the script.
+            const std::string command =
+                "cd \"" + std::string(kTestBinaryDir) + "\" && \"" + script_path.string() + "\"";
+            if (std::system(command.c_str()) == 0) {
+                const fs::path generated = fs::path(kTestBinaryDir) / "resnet18.engine";
+                if (fs::exists(generated)) {
+                    return generated.string();
+                }
             }
         }
+#endif
 
-        // As a fallback for testing without actual engine
-        throw std::runtime_error("TensorRT engine file not found. Please create a test engine first.");
+        return {};
     }
 };
 
@@ -63,7 +94,6 @@ std::string TensorRTInferTest::model_path;
 TEST_F(TensorRTInferTest, InitializationGPU) {
     ASSERT_NO_THROW({
         TRTInfer infer(model_path, true); // TensorRT always uses GPU
-        // Don't call get_inference_metadata() to avoid crash
         std::cout << "TRTInfer object created successfully!" << std::endl;
     });
 }
@@ -73,14 +103,7 @@ TEST_F(TensorRTInferTest, InferenceResults) {
     TRTInfer infer(model_path, true);
 
     // Create test input (ResNet-18 expects 224x224)
-    cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-    cv::Mat blob;
-    cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-    // Convert blob to vector<vector<uint8_t>>
-    std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-    memcpy(input_data.data(), blob.data, input_data.size());
-    std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+    std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
     auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);
 
@@ -107,28 +130,62 @@ TEST_F(TensorRTInferTest, InferenceResults) {
                             [](const TensorElement& element) { return std::holds_alternative<float>(element); }));
 }
 
-// Test metadata retrieval - DISABLED due to crash
+// The crash this test was once disabled for was a dangling ILogger: the runtime
+// was created with a stack-local Logger that died when initializeBuffers()
+// returned, so the next TensorRT diagnostic called through a freed vtable.
+// TRTInfer now uses a logger that outlives the runtime.
 TEST_F(TensorRTInferTest, InferenceMetadataRetrieval) {
     TRTInfer infer(model_path, true);
-    // DISABLED: auto inference_metadata = infer.get_inference_metadata();
+    const auto inference_metadata = infer.get_inference_metadata();
 
-    // Just verify the object was created successfully
-    std::cout << "TRTInfer object created for metadata test" << std::endl;
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+    ASSERT_FALSE(inference_metadata.getOutputs().empty());
+}
 
-    // Skip the actual metadata retrieval for now
-    // TODO: Fix the crash in get_inference_metadata()
+// Reported shapes must include the batch dimension. Without it the same model
+// advertised [3,H,W] through TensorRT and [1,3,H,W] through ONNX Runtime, so a
+// client that worked against one backend was rejected by the other.
+TEST_F(TensorRTInferTest, MetadataShapesIncludeBatchDimension) {
+    const size_t batch_size = 1;
+    const std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
+    TRTInfer infer(model_path, true, batch_size, input_sizes);
+
+    const auto inference_metadata = infer.get_inference_metadata();
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+
+    const auto& input = inference_metadata.getInputs().front();
+    // 3-dimensional input sizes plus the restored batch dimension.
+    EXPECT_EQ(input.shape.size(), input_sizes[0].size() + 1);
+    EXPECT_EQ(input.shape.front(), static_cast<int64_t>(batch_size));
+
+    for (const auto& output : inference_metadata.getOutputs()) {
+        ASSERT_FALSE(output.shape.empty());
+        EXPECT_EQ(output.shape.front(), static_cast<int64_t>(batch_size));
+    }
 }
 
 // Test with different batch sizes
+// A static-batch engine cannot honour a larger batch size. TensorRT rejects the
+// requested shape, TRTInfer falls back to the engine's own shape, and the
+// metadata must then advertise the batch the engine will actually run rather
+// than the one that was asked for -- a client told "2" would send twice the
+// data the engine consumes.
 TEST_F(TensorRTInferTest, BatchSizeHandling) {
-    size_t batch_size = 2;
-    std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
+    const size_t requested_batch_size = 2;
+    const std::vector<std::vector<int64_t>> input_sizes = {{3, 224, 224}};
 
-    ASSERT_NO_THROW({
-        TRTInfer infer(model_path, true, batch_size, input_sizes);
-        // Don't call get_inference_metadata() to avoid crash
-        std::cout << "TRTInfer object created with batch size " << batch_size << std::endl;
-    });
+    std::unique_ptr<TRTInfer> infer;
+    ASSERT_NO_THROW({ infer = std::make_unique<TRTInfer>(model_path, true, requested_batch_size, input_sizes); });
+    ASSERT_NE(infer, nullptr);
+
+    const auto inference_metadata = infer->get_inference_metadata();
+    ASSERT_FALSE(inference_metadata.getInputs().empty());
+
+    const auto& input = inference_metadata.getInputs().front();
+    ASSERT_FALSE(input.shape.empty());
+    EXPECT_EQ(input.shape.front(), 1) << "the resnet18 test engine is built with a static batch of 1, so the "
+                                         "unsupported request for "
+                                      << requested_batch_size << " must not be reported back as satisfied";
 }
 
 // Test CUDA memory management
@@ -138,13 +195,7 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
         TRTInfer infer(model_path, true);
 
         // Multiple inference calls to test memory management
-        cv::Mat input = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::Mat blob;
-        cv::dnn::blobFromImage(input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
-        std::vector<uint8_t> input_data(blob.total() * blob.elemSize());
-        memcpy(input_data.data(), blob.data, input_data.size());
-        std::vector<std::vector<uint8_t>> input_tensors = {input_data};
+        std::vector<std::vector<uint8_t>> input_tensors = neuriplo::testing::zero_blob_tensors();
 
         for (int i = 0; i < 3; ++i) {
             auto [output_vectors, shape_vectors] = infer.get_infer_results(input_tensors);

@@ -64,9 +64,13 @@ run_tests() {
     print_status "Running TensorRT tests in Docker container..."
     
     # Run the container with tests
+    # This container is started with --gpus all, so the TensorRT tests are meant to
+    # execute. Without this the suite skips every GPU test when no engine can be
+    # built and still exits 0, reporting success having tested nothing.
     docker run --rm \
         -v "$(pwd)/test_results:/app/test_results" \
         --gpus all \
+        -e NEURIPLO_REQUIRE_TENSORRT_TESTS=1 \
         neuriplo-tensorrt \
         bash -c "
             echo 'Running TensorRT backend tests...'

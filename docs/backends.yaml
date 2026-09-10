@@ -28,7 +28,9 @@ backends:
     dir_default: null
     dockerfile: docker/Dockerfile.opencvdnn
     test_exe: OCVDNNInferTest
-    model_format: "ONNX, Darknet"
+    # OpenCV 5 removed the Darknet importer, so .weights models load only when
+    # this backend is built against OpenCV 4.x.
+    model_format: "ONNX, Darknet (OpenCV 4.x only)"
     model_source: "`scripts/setup_test_models.sh`"
     arch: [x86_64, arm64]
     gpu: false
@@ -200,3 +202,17 @@ backends:
     model_source: "manual or app-provided `.tflite` model"
     arch: [x86_64, arm64]
     gpu: false
+
+  - id: DALI
+    name: NVIDIA DALI
+    version_var: DALI_VERSION
+    setup_script: setup_dali.sh
+    setup_note: "GPU preprocessing, not an inference engine - extracts the C++ distribution from the nvidia-dali wheel"
+    dir_var: DALI_DIR
+    dir_default: "$DEPENDENCY_ROOT/dali"
+    dockerfile: docker/Dockerfile.dali
+    test_exe: DALIInferTest
+    model_format: ".dali"
+    model_source: "serialized offline by `export/dali/generate_yolo_pipeline.py`"
+    arch: [x86_64]
+    gpu: true

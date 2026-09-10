@@ -1,11 +1,13 @@
 #include "MIGraphXInfer.hpp"
 
+#include "testing/TestBlob.hpp"
+
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <memory>
-#include <opencv2/opencv.hpp>
 
 namespace fs = std::filesystem;
 
@@ -58,14 +60,7 @@ class MIGraphXInferTest : public ::testing::Test {
             mock_infer = std::make_unique<MockMIGraphXInfer>();
     }
 
-    std::vector<std::vector<uint8_t>> make_input_tensors() {
-        cv::Mat img = cv::Mat::zeros(224, 224, CV_32FC3);
-        cv::Mat blob;
-        cv::dnn::blobFromImage(img, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-        std::vector<uint8_t> data(blob.total() * blob.elemSize());
-        std::memcpy(data.data(), blob.data, data.size());
-        return {data};
-    }
+    std::vector<std::vector<uint8_t>> make_input_tensors() { return neuriplo::testing::zero_blob_tensors(); }
 };
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Code Quality
 
-Local tooling mirrors the CI jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): formatting, static analysis (cppcheck, clang-tidy), warnings-as-errors, and AddressSanitizer + UndefinedBehaviorSanitizer (ASan/UBSan).
+Local tooling mirrors the CI jobs in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml): formatting, missing-include auditing, static analysis (cppcheck, clang-tidy), warnings-as-errors, and AddressSanitizer + UndefinedBehaviorSanitizer (ASan/UBSan).
 
 ## Quick setup
 
@@ -39,10 +39,32 @@ Skip hooks when needed: `git commit --no-verify` or `SKIP=clang-format-check-all
 
 # Individual tools
 ./scripts/quality/format.sh --check    # or --fix
+./scripts/quality/check_includes.py    # std symbols used without their header
 ./scripts/quality/cppcheck.sh
 ./scripts/quality/clang_tidy.sh build  # needs compile_commands.json
 ./scripts/quality/sanitizers.sh        # ASan+UBSan build + ctest (default OPENCV_DNN)
 ```
+
+### Include audit
+
+`check_includes.py` flags a standard-library symbol used in a file that never
+includes the header declaring it. Such a file still compiles wherever another
+header happens to drag the declaration in, so the bug surfaces only on the
+strictest toolchain in the matrix -- late, and one backend at a time. This is
+how the tree came to rely on `<opencv2/...>` for `<cassert>`, `<cmath>` and
+`<cstdlib>`: removing OpenCV from the backends that never used it turned a set
+of long-standing missing includes into compile errors.
+
+The check resolves each file's project-header closure and credits every system
+header reached through it, so a symbol obtained via the project's own headers
+is fine. What it does not credit is one std header pulling in another -- the
+guarantee no standard makes. It needs no compiler and no SDKs and finishes in
+well under a second.
+
+An include that resolves to no file on disk is itself an error: it would
+silently truncate the closure and produce findings for includes that are in
+fact present. Fix it by adding the directory to `INCLUDE_ROOTS`, or the SDK
+prefix to `EXTERNAL_QUOTED_PREFIXES`, in the script.
 
 ### clang-tidy
 
@@ -87,6 +109,7 @@ cmake --build build
 | Local script / hook | CI job |
 |---------------------|--------|
 | `format.sh` | `format-check` |
+| `check_includes.py` | `include-audit` |
 | `cppcheck.sh` | `cppcheck` |
 | `clang_tidy.sh` | `clang-tidy` (per backend, Docker) |
 | `sanitizers.sh` | `sanitizers` (per backend, Docker) |

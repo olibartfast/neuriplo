@@ -1,9 +1,10 @@
 #pragma once
 
-// Host-side plugin machinery: discovers libneuriplo_backend_*.so files,
-// dlopen()s them with RTLD_NOW | RTLD_LOCAL (each plugin's framework
-// dependencies stay private to it), and exposes their backends alongside the
-// compiled-in registrations.
+// Host-side plugin machinery: discovers libneuriplo_backend_* modules (.so on
+// POSIX, .dll on Windows), loads each one so that its framework dependencies
+// stay private to it -- dlopen() with RTLD_NOW | RTLD_LOCAL, LoadLibraryEx()
+// with LOAD_WITH_ALTERED_SEARCH_PATH -- and exposes their backends alongside
+// the compiled-in registrations.
 
 #include "InferenceInterface.hpp"
 #include "neuriplo/plugin_abi.h"
@@ -21,7 +22,7 @@ struct PluginBackendDescriptor {
     const neuriplo_plugin_api_v1* api = nullptr;
 };
 
-// Loads every libneuriplo_backend_*.so under `directory`. Idempotent per
+// Loads every libneuriplo_backend_* module under `directory`. Idempotent per
 // library path; incompatible or broken plugins are skipped with a logged
 // reason, never a failure. Returns the number of newly loaded plugins.
 size_t load_backend_plugins(const std::string& directory);

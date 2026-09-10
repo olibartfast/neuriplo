@@ -49,6 +49,7 @@ Main testing script that builds and tests each backend individually.
 - `LLAMACPP` - llama.cpp GGUF runtime
 - `EXECUTORCH` - ExecuTorch edge runtime
 - `LITERT` - LiteRT / TensorFlow Lite FlatBuffer runtime
+- `DALI` - NVIDIA DALI GPU preprocessing pipeline (not an inference engine)
 
 **Examples:**
 ```bash
@@ -163,6 +164,12 @@ Each backend includes specialized tests:
 - Interpreter metadata inspection
 - Skips when no real `.tflite` model is available
 
+**DALI (`DALIInferTest`)**
+- Serialized `.dali` pipeline loading and rejection of non-pipeline files
+- Encoded-image input contract and the batch-size-1 restriction
+- Preprocessed tensor plus `IMAGE_SHAPE` output shapes
+- Skips the run cases when no pipeline/GPU is available
+
 ## Test Models
 
 Neuriplo currently uses two test-model families:
@@ -179,6 +186,7 @@ Neuriplo currently uses two test-model families:
 - `*.gguf` - GGUF test model for Cactus and llama.cpp backends
 - `*.pte` - ExecuTorch program (ExecuTorch)
 - `*.tflite` - LiteRT FlatBuffer model (LiteRT)
+- `*.dali` - serialized DALI pipeline (DALI), from `export/dali/generate_yolo_pipeline.py`
 
 ## Test Results
 

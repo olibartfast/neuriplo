@@ -5,7 +5,14 @@ set -euo pipefail
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-TENSORFLOW_VERSION=$(grep -m1 "set(TENSORFLOW_VERSION" "$PROJECT_ROOT/cmake/versions.cmake" | grep -o '"[^"]*"' | sed 's/"//g' || echo "${TF_VERSION:-2.19.0}")
+# Load versions from versions.env (the single source of truth). cmake/versions.cmake
+# only re-exports these as cache variables, so it cannot be scraped for a literal.
+if [ -f "$PROJECT_ROOT/versions.env" ]; then
+    source "$PROJECT_ROOT/versions.env"
+else
+    echo "Error: versions.env file not found" >&2
+    exit 1
+fi
 DEPENDENCIES_DIR="${DEPENDENCIES_DIR:-$HOME/dependencies}"
 TENSORFLOW_DIR="$DEPENDENCIES_DIR/tensorflow"
 VENV_DIR="$DEPENDENCIES_DIR/tensorflow_env"

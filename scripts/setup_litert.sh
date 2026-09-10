@@ -12,15 +12,21 @@ else
     exit 1
 fi
 
+source "$SCRIPT_DIR/lib/version_stamp.sh"
+
 DEPENDENCY_ROOT="${DEPENDENCY_ROOT:-$HOME/dependencies}"
 INSTALL_DIR="${LITERT_DIR:-$DEPENDENCY_ROOT/litert}"
 SOURCE_DIR="$DEPENDENCY_ROOT/tensorflow-src-$LITERT_VERSION"
 BUILD_DIR="$SOURCE_DIR/litert-build"
 FORCE="${FORCE:-false}"
 
+# SOURCE_DIR is versioned but INSTALL_DIR is not, so "the directory exists" was
+# answered yes by a tree built from any earlier LITERT_VERSION.
 if [ -d "$INSTALL_DIR" ] && [ "$FORCE" != "true" ]; then
-    echo "LiteRT already exists at $INSTALL_DIR"
-    echo "Set FORCE=true to rebuild."
+    if neuriplo_stamp_matches "$INSTALL_DIR" "$LITERT_VERSION" "LiteRT"; then
+        echo "LiteRT $LITERT_VERSION already exists at $INSTALL_DIR"
+        echo "Set FORCE=true to rebuild."
+    fi
     exit 0
 fi
 
@@ -69,6 +75,9 @@ if [ ! -f "$INSTALL_DIR/lib/libtensorflow-lite.so" ]; then
 fi
 ln -sf libtensorflow-lite.so "$INSTALL_DIR/lib/libtensorflowlite.so"
 
-echo "LiteRT installed to $INSTALL_DIR"
+# Only now that the install is complete: a stamp always describes a usable tree.
+neuriplo_write_stamp "$INSTALL_DIR" "$LITERT_VERSION"
+
+echo "LiteRT $LITERT_VERSION installed to $INSTALL_DIR"
 echo "Configure with:"
 echo "  cmake -S . -B build -DDEFAULT_BACKEND=LITERT -DLITERT_DIR=$INSTALL_DIR -DBUILD_INFERENCE_ENGINE_TESTS=ON"

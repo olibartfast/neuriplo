@@ -1,6 +1,13 @@
 #include "PluginLoader.hpp"
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
+
 #include <filesystem>
 #include <glog/logging.h>
 #include <mutex>
@@ -10,6 +17,71 @@
 namespace {
 
 constexpr size_t kErrorBufferSize = 1024;
+
+// Dynamic loading, spelled for both platforms. The operation is the same shape
+// either way; the one behavioural difference worth naming is that dlerror()
+// latches its message until read, while GetLastError() is overwritten by the
+// next API call -- so on Windows the message has to be taken at the failure
+// site, before anything else runs.
+#ifdef _WIN32
+
+using PluginHandle = HMODULE;
+
+// LOAD_WITH_ALTERED_SEARCH_PATH looks for the plugin's dependencies in the
+// plugin's own directory first, the nearest Windows equivalent of a .so
+// resolving the framework libraries shipped beside it. It is only honoured for
+// an absolute path, which is what callers pass -- the path is made canonical
+// before it gets here.
+PluginHandle plugin_open(const std::string& path) {
+    return LoadLibraryExA(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+}
+
+neuriplo_plugin_get_api_v1_fn plugin_entry(PluginHandle handle) {
+    return reinterpret_cast<neuriplo_plugin_get_api_v1_fn>(GetProcAddress(handle, NEURIPLO_PLUGIN_ENTRY_SYMBOL));
+}
+
+void plugin_close(PluginHandle handle) { FreeLibrary(handle); }
+
+std::string plugin_error() {
+    const DWORD code = GetLastError();
+    char* buffer = nullptr;
+    const DWORD length =
+        FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                       nullptr, code, 0, reinterpret_cast<LPSTR>(&buffer), 0, nullptr);
+    std::string message = length != 0 ? std::string(buffer, length) : "error " + std::to_string(code);
+    LocalFree(buffer);
+    // FormatMessage terminates system messages with CRLF.
+    while (!message.empty() && (message.back() == '\r' || message.back() == '\n')) {
+        message.pop_back();
+    }
+    return message;
+}
+
+constexpr const char* kPluginExtension = ".dll";
+
+#else
+
+using PluginHandle = void*;
+
+// RTLD_LOCAL keeps the plugin's framework symbols (ORT, TensorRT, ggml, ...)
+// out of the global namespace so plugins cannot collide with each other or
+// with compiled-in backends.
+PluginHandle plugin_open(const std::string& path) { return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL); }
+
+neuriplo_plugin_get_api_v1_fn plugin_entry(PluginHandle handle) {
+    return reinterpret_cast<neuriplo_plugin_get_api_v1_fn>(dlsym(handle, NEURIPLO_PLUGIN_ENTRY_SYMBOL));
+}
+
+void plugin_close(PluginHandle handle) { dlclose(handle); }
+
+std::string plugin_error() {
+    const char* message = dlerror();
+    return message != nullptr ? message : "unknown error";
+}
+
+constexpr const char* kPluginExtension = ".so";
+
+#endif
 
 TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
     switch (dtype) {
@@ -25,7 +97,7 @@ TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
     return TensorDataType::Float32;
 }
 
-// Plugin handles are intentionally never dlclose()d: backend objects and the
+// Plugin handles are intentionally never unloaded: backend objects and the
 // api structs they hand out must stay valid for the process lifetime.
 struct PluginState {
     std::mutex mutex;
@@ -67,38 +139,35 @@ bool load_plugin_locked(PluginState& state, const std::string& library_path) {
         return true;
     }
 
-    // RTLD_LOCAL keeps the plugin's framework symbols (ORT, TensorRT, ggml,
-    // ...) out of the global namespace so plugins cannot collide with each
-    // other or with compiled-in backends.
-    void* handle = dlopen(canonical.c_str(), RTLD_NOW | RTLD_LOCAL);
+    PluginHandle handle = plugin_open(canonical);
     if (handle == nullptr) {
-        LOG(WARNING) << "skipping plugin " << canonical << ": " << dlerror();
+        LOG(WARNING) << "skipping plugin " << canonical << ": " << plugin_error();
         return false;
     }
 
-    auto entry = reinterpret_cast<neuriplo_plugin_get_api_v1_fn>(dlsym(handle, NEURIPLO_PLUGIN_ENTRY_SYMBOL));
+    const neuriplo_plugin_get_api_v1_fn entry = plugin_entry(handle);
     if (entry == nullptr) {
         LOG(WARNING) << "skipping plugin " << canonical << ": missing " << NEURIPLO_PLUGIN_ENTRY_SYMBOL;
-        dlclose(handle);
+        plugin_close(handle);
         return false;
     }
 
     const neuriplo_plugin_api_v1* api = entry();
     if (api == nullptr) {
         LOG(WARNING) << "skipping plugin " << canonical << ": entry point returned null";
-        dlclose(handle);
+        plugin_close(handle);
         return false;
     }
     if (api->abi_version != NEURIPLO_PLUGIN_ABI_VERSION) {
         LOG(WARNING) << "skipping plugin " << canonical << ": ABI version " << api->abi_version << " != host "
                      << NEURIPLO_PLUGIN_ABI_VERSION;
-        dlclose(handle);
+        plugin_close(handle);
         return false;
     }
     if (api->backend_id == nullptr || api->create == nullptr || api->destroy == nullptr || api->infer == nullptr ||
         api->get_metadata == nullptr || api->release_outputs == nullptr) {
         LOG(WARNING) << "skipping plugin " << canonical << ": incomplete api table";
-        dlclose(handle);
+        plugin_close(handle);
         return false;
     }
 
@@ -106,7 +175,7 @@ bool load_plugin_locked(PluginState& state, const std::string& library_path) {
         if (existing.id == api->backend_id) {
             LOG(WARNING) << "skipping plugin " << canonical << ": backend id '" << api->backend_id
                          << "' already provided by " << existing.library_path;
-            dlclose(handle);
+            plugin_close(handle);
             return false;
         }
     }
@@ -265,7 +334,7 @@ size_t load_backend_plugins(const std::string& directory) {
             continue;
         }
         const std::string filename = entry.path().filename().string();
-        if (filename.rfind("libneuriplo_backend_", 0) != 0 || entry.path().extension() != ".so") {
+        if (filename.rfind("libneuriplo_backend_", 0) != 0 || entry.path().extension() != kPluginExtension) {
             continue;
         }
         const size_t before = state.descriptors.size();

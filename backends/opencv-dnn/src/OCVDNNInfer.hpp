@@ -1,6 +1,9 @@
 #pragma once
 #include "InferenceInterface.hpp"
 
+#include <opencv2/core/utility.hpp> // cv::getBuildInformation
+#include <opencv2/dnn.hpp>
+
 // Adapter: exposes the OpenCV DNN runtime through the common InferenceInterface contract.
 class OCVDNNInfer : public InferenceInterface {
   private:

@@ -32,7 +32,7 @@ From `REPO_META.yaml` and `AGENTS.md`:
 - `protect_fallback_behavior: true` — provider/device fallback stays explicit and
   logged, never silent.
 - `new-dependency` **forbidden** — no new third-party libs; everything below is
-  internal C++17 + existing deps (glog, OpenCV).
+  internal C++17 + existing deps (glog; OpenCV only in the opencv-dnn backend).
 - `inference-logic-change` / `perf-critical-kernel-change` **forbidden** — the
   numeric path inside `get_infer_results` must not change. Structural extraction
   is allowed; altering math/quantization defaults is **not** (see `QuantizedBackend`
@@ -246,6 +246,7 @@ parallel. Each step:
 | S2.11 | LLAMACPP | `backends/llamacpp/src/LlamaCppInfer.{hpp,cpp}` | K |
 | S2.12 | EXECUTORCH | `backends/executorch/src/ExecuTorchInfer.{hpp,cpp}` | L |
 | S2.13 | LITERT | `backends/litert/src/LiteRTInfer.{hpp,cpp}` | M |
+| S2.14 | DALI | `backends/dali/src/DALIInfer.{hpp,cpp}` | M |
 
 - Per-step accept: `cmake -S . -B build -DDEFAULT_BACKEND=<ID> -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build && ctest --test-dir build` (only for backends whose deps are installed; otherwise configure-only).
 - **Device-placement guard:** S2.2 (ORT) and S2.5 (TRT) must keep CUDA→ROCm probe,
