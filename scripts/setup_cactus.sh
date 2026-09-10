@@ -32,16 +32,23 @@ else
     exit 1
 fi
 
+source "${SCRIPT_DIR}/lib/version_stamp.sh"
+
 INSTALL_DIR="${HOME}/dependencies/cactus"
 if [[ "${1:-}" == "--install-dir" ]]; then
     INSTALL_DIR="${2:?--install-dir requires a path argument}"
 fi
 
 SRC_DIR="/tmp/cactus-src"
+FORCE="${FORCE:-false}"
 
 # ── Already installed? ────────────────────────────────────────────────────────
-if [ -f "${INSTALL_DIR}/lib/libcactus.so" ] && [ -f "${INSTALL_DIR}/include/cactus.h" ] && [ -f "${INSTALL_DIR}/include/graph/graph.h" ]; then
-    echo "✓ Cactus ${CACTUS_VERSION} already installed at ${INSTALL_DIR}"
+# The libraries existing does not say which tag built them, and INSTALL_DIR
+# carries no version, so a v1.13 tree used to satisfy a v1.14 pin forever.
+if [ -f "${INSTALL_DIR}/lib/libcactus.so" ] && [ -f "${INSTALL_DIR}/include/cactus.h" ] && [ -f "${INSTALL_DIR}/include/graph/graph.h" ] && [ "${FORCE}" != "true" ]; then
+    if neuriplo_stamp_matches "${INSTALL_DIR}" "${CACTUS_VERSION}" "Cactus"; then
+        echo "✓ Cactus ${CACTUS_VERSION} already installed at ${INSTALL_DIR}"
+    fi
     exit 0
 fi
 
@@ -65,7 +72,15 @@ if [ -f "${PATCH_SCRIPT}" ]; then
 fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-mkdir -p "${INSTALL_DIR}/include" "${INSTALL_DIR}/lib"
+# The copies below merge into whatever INSTALL_DIR already holds, so a rebuild
+# after a version change would leave the previous tag's headers and versioned
+# libcactus.so.* in place and the stamp would certify the mixture as the new
+# version. The symlink fallback further down makes that concrete: it picks the
+# first libcactus.so.* it finds, which may be the stale one. Assemble into a
+# staging tree and swap, so INSTALL_DIR only ever holds one build.
+STAGE_DIR="${INSTALL_DIR}.incoming"
+rm -rf "${STAGE_DIR}"
+mkdir -p "${STAGE_DIR}/include" "${STAGE_DIR}/lib"
 mkdir -p "${SRC_DIR}/cactus/build"
 cd "${SRC_DIR}/cactus/build"
 cmake .. \
@@ -75,20 +90,26 @@ make -j"$(nproc)"
 
 # ── Install ───────────────────────────────────────────────────────────────────
 cd "${SRC_DIR}/cactus"
-find . -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t "${INSTALL_DIR}/include/"
+find . -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t "${STAGE_DIR}/include/"
 # Also copy headers from libs directory (e.g. stb) which are referenced by main headers
 cd "${SRC_DIR}"
 if [ -d "libs" ]; then
-    find libs -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t "${INSTALL_DIR}/include/"
+    find libs -name "*.h" -o -name "*.hpp" | xargs -r cp --parents -t "${STAGE_DIR}/include/"
 fi
-find "${SRC_DIR}/cactus/build" -name 'libcactus.so*' -exec cp {} "${INSTALL_DIR}/lib/" \;
+find "${SRC_DIR}/cactus/build" -name 'libcactus.so*' -exec cp {} "${STAGE_DIR}/lib/" \;
 # Ensure the unversioned symlink exists
-if [ ! -f "${INSTALL_DIR}/lib/libcactus.so" ]; then
-    versioned=$(ls "${INSTALL_DIR}/lib/libcactus.so."* 2>/dev/null | head -1)
-    [ -n "${versioned}" ] && ln -s "${versioned}" "${INSTALL_DIR}/lib/libcactus.so"
+if [ ! -f "${STAGE_DIR}/lib/libcactus.so" ]; then
+    versioned=$(ls "${STAGE_DIR}/lib/libcactus.so."* 2>/dev/null | head -1)
+    [ -n "${versioned}" ] && ln -s "$(basename "${versioned}")" "${STAGE_DIR}/lib/libcactus.so"
 fi
 
+rm -rf "${INSTALL_DIR}"
+mv "${STAGE_DIR}" "${INSTALL_DIR}"
+
 rm -rf "${SRC_DIR}"
+
+# Only now that the install is complete: a stamp always describes a usable tree.
+neuriplo_write_stamp "${INSTALL_DIR}" "${CACTUS_VERSION}"
 
 echo ""
 echo "✓ Cactus ${CACTUS_VERSION} installed to ${INSTALL_DIR}"

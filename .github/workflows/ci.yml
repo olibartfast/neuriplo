@@ -2,12 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [master, develop, 'release/**', 'feature/**']
+    branches: [master, develop, 'release/**', 'feature/**', 'refactor/**']
   pull_request:
     branches: [master, develop, 'release/**', 'feature/**']
 
+# github.ref differs between the two events that can start this workflow for
+# one branch -- refs/heads/<branch> on push, refs/pull/<n>/merge on
+# pull_request -- so keying on it put the two in separate groups and ran the
+# whole matrix twice for every branch with an open PR. head_ref is the branch
+# name on pull_request and empty on push, so this collapses both onto the
+# branch name and lets cancel-in-progress do its job.
+#
+# The head repository is part of the key too: two PRs from different forks can
+# share a branch name, and keying on the name alone would let one cancel the
+# other's whole matrix. github.event.pull_request is null on push, so that
+# falls back to this repository.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -41,6 +53,19 @@ jobs:
           pip install pyyaml --quiet
           python3 scripts/gen_backend_docs.py --check
 
+  # Catches a std symbol used without the header that declares it -- the class
+  # of bug that only shows up on the strictest toolchain in the matrix, and
+  # then 30 minutes in, one backend at a time. Needs no compiler and no SDKs,
+  # so it lands its verdict in the first few seconds of the run.
+  include-audit:
+    name: Include Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for std symbols used without their header
+        run: python3 scripts/quality/check_includes.py
+
   cppcheck:
     name: Cppcheck
     runs-on: ubuntu-latest
@@ -54,9 +79,14 @@ jobs:
 
       - name: Run cppcheck
         run: |
+          # TestTemplateCompileTest.cpp is excluded: cppcheck cannot expand
+          # gmock's MOCK_METHOD. Without the gmock headers it reports a syntax
+          # error in that file; with them, one inside gmock's own preprocessor
+          # machinery. It is compiled and run by ctest instead.
           cppcheck --enable=warning --std=c++17 --error-exitcode=1 \
             --suppress=missingIncludeSystem \
             --suppress=unmatchedSuppression \
+            -i backends/src/test/TestTemplateCompileTest.cpp \
             -I include -I backends/src \
             src/ backends/
 
@@ -224,7 +254,8 @@ jobs:
               ${{ matrix.cmake_args || '' }} \
               -DSANITIZERS=ON \
               -DCMAKE_BUILD_TYPE=Debug \
-              -DBUILD_INFERENCE_ENGINE_TESTS=ON >/dev/null 2>&1
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+              -DNEURIPLO_REQUIRE_GMOCK=ON >/dev/null 2>&1
             cmake --build /app/build --clean-first --parallel
             export LSAN_OPTIONS=suppressions=/app/scripts/quality/lsan-suppressions.txt:print_suppressions=0
             ctest --test-dir /app/build --output-on-failure
@@ -393,3 +424,32 @@ jobs:
               --cache-from type=gha,scope=docker-EXECUTORCH \
               ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-EXECUTORCH' || '' }} \
               .
+
+  # ── Cache budget ───────────────────────────────────────────────────────────
+  # The six jobs above are the ones that write `--cache-to type=gha,mode=max`,
+  # and between them they exported 8.3 GB of BuildKit layer blobs -- the whole
+  # of the repository's 10 GB cache budget. GitHub then evicted by least recent
+  # use and took the Windows vcpkg archives with it, turning a 58s
+  # `Windows / OPENCV_DNN` back into a ~40 minute build of OpenCV from source.
+  #
+  # Trim right where the pressure is made, rather than on a schedule: a
+  # `schedule:` trigger only fires from the default branch, which is `master`
+  # and release-only, so a scheduled-only prune would sit dormant on `develop`
+  # for as long as a release takes.
+  #
+  # if: always() because the blobs are written whether or not the build that
+  # wrote them passed, and only on push because that is the event `--cache-to`
+  # is gated on above.
+  prune-caches:
+    name: Prune BuildKit caches
+    needs:
+      - clang-tidy
+      - build-warnings
+      - sanitizers
+      - build-and-test-cpu
+      - build-tensorrt
+      - build-executorch
+    if: always() && github.event_name == 'push'
+    permissions:
+      actions: write
+    uses: ./.github/workflows/cache-prune.yml

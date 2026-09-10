@@ -2,14 +2,19 @@
 
 #include "MockInferenceInterface.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <memory>
-#include <opencv2/opencv.hpp>
+#include <numeric>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -130,8 +135,11 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
     }
 
     // Common test input creation
-    cv::Mat CreateTestInput() {
-        return cv::Mat::ones(224, 224, CV_8UC3) * 128; // Gray image
+    // The gray (128) image this used to build, already through blobFromImage's
+    // 1/255 scaling -- not zeros. A backend that special-cases an all-zero
+    // input would otherwise be benchmarked on a path the old tests never took.
+    std::vector<std::vector<uint8_t>> CreateTestInput() {
+        return neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized);
     }
 
     // Performance benchmarking
@@ -139,16 +147,14 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
         PerformanceMetrics metrics = {};
         std::vector<double> inference_times;
 
-        cv::Mat test_input = CreateTestInput();
-        cv::Mat blob;
-        cv::dnn::blobFromImage(test_input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
+        const auto input_tensors = CreateTestInput();
 
         // Warmup
         for (int i = 0; i < 10; ++i) {
             if (has_real_model && backend_instance) {
-                backend_instance->get_infer_results(blob);
+                backend_instance->get_infer_results(input_tensors);
             } else {
-                mock_interface->get_infer_results(blob);
+                mock_interface->get_infer_results(input_tensors);
             }
         }
 
@@ -157,9 +163,9 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
             auto start = std::chrono::high_resolution_clock::now();
 
             if (has_real_model && backend_instance) {
-                backend_instance->get_infer_results(blob);
+                backend_instance->get_infer_results(input_tensors);
             } else {
-                mock_interface->get_infer_results(blob);
+                mock_interface->get_infer_results(input_tensors);
             }
 
             auto end = std::chrono::high_resolution_clock::now();
@@ -198,15 +204,13 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
         }
 
         // Run many inferences
-        cv::Mat test_input = CreateTestInput();
-        cv::Mat blob;
-        cv::dnn::blobFromImage(test_input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
+        const auto input_tensors = CreateTestInput();
 
         for (size_t i = 0; i < num_iterations; ++i) {
             if (has_real_model && backend_instance) {
-                backend_instance->get_infer_results(blob);
+                backend_instance->get_infer_results(input_tensors);
             } else {
-                mock_interface->get_infer_results(blob);
+                mock_interface->get_infer_results(input_tensors);
             }
         }
 
@@ -225,33 +229,35 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
     // Edge case testing
     void TestEdgeCases() {
         // Test with empty input
-        cv::Mat empty_input;
+        const std::vector<std::vector<uint8_t>> empty_input;
         if (has_real_model && backend_instance) {
             EXPECT_THROW(backend_instance->get_infer_results(empty_input), std::invalid_argument);
         } else {
             EXPECT_THROW(mock_interface->get_infer_results(empty_input), std::invalid_argument);
         }
 
-        // Test with very large input
-        cv::Mat large_input = cv::Mat::ones(1024, 1024, CV_8UC3) * 128;
-        cv::Mat large_blob;
-        cv::dnn::blobFromImage(large_input, large_blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
+        // Test with very large input.
+        //
+        // The tensor is 224x224 on purpose. This case built a 1024x1024 image,
+        // but passed cv::Size(224, 224) to blobFromImage, which resized before
+        // the backend ever saw it -- so what reached get_infer_results was the
+        // ordinary 1x3x224x224 blob, and the size assertion below is about the
+        // resize having happened, not about a large tensor being accepted.
+        // Feeding a real 1x3x1024x1024 tensor instead would make EXPECT_NO_THROW
+        // wrong for any backend with a fixed 224x224 input.
+        const auto large_input = neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized);
         if (has_real_model && backend_instance) {
-            EXPECT_NO_THROW(backend_instance->get_infer_results(large_blob));
+            EXPECT_NO_THROW(backend_instance->get_infer_results(large_input));
         } else {
-            EXPECT_NO_THROW(mock_interface->get_infer_results(large_blob));
+            EXPECT_NO_THROW(mock_interface->get_infer_results(large_input));
         }
 
         // Test with zero input
-        cv::Mat zero_input = cv::Mat::zeros(224, 224, CV_8UC3);
-        cv::Mat zero_blob;
-        cv::dnn::blobFromImage(zero_input, zero_blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
-
+        const auto zero_input = neuriplo::testing::zero_blob_tensors();
         if (has_real_model && backend_instance) {
-            EXPECT_NO_THROW(backend_instance->get_infer_results(zero_blob));
+            EXPECT_NO_THROW(backend_instance->get_infer_results(zero_input));
         } else {
-            EXPECT_NO_THROW(mock_interface->get_infer_results(zero_blob));
+            EXPECT_NO_THROW(mock_interface->get_infer_results(zero_input));
         }
     }
 
@@ -263,16 +269,14 @@ template <typename BackendClass> class BackendHybridTestBase : public AtomicBack
         // Create worker threads
         for (size_t i = 0; i < num_threads; ++i) {
             threads.emplace_back([this, iterations_per_thread, &stop_flag]() {
-                cv::Mat test_input = CreateTestInput();
-                cv::Mat blob;
-                cv::dnn::blobFromImage(test_input, blob, 1.f / 255.f, cv::Size(224, 224), cv::Scalar(), true, false);
+                const auto input_tensors = CreateTestInput();
 
                 for (size_t j = 0; j < iterations_per_thread && !stop_flag; ++j) {
                     try {
                         if (has_real_model && backend_instance) {
-                            backend_instance->get_infer_results(blob);
+                            backend_instance->get_infer_results(input_tensors);
                         } else {
-                            mock_interface->get_infer_results(blob);
+                            mock_interface->get_infer_results(input_tensors);
                         }
                     } catch (const std::exception& e) {
                         stop_flag = true;

@@ -90,3 +90,7 @@ tensorflow_build_env/
 backends/libtensorflow/test/saved_model/
 .cache
 __pycache__/
+
+# Local DALI artifacts (generated, plus vendored operator plugins)
+data/dali/
+data/*.so

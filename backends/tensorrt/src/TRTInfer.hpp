@@ -42,6 +42,29 @@ class TRTInfer : public InferenceInterface {
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
 
+    // Copies device output buffers straight into contiguous host byte buffers.
+    // The inherited default would route through get_infer_results(), which
+    // materialises one 16-byte std::variant per scalar -- for a YOLO26m-seg
+    // engine that is ~2.6M scalars, ~42MB of variant vector built and then
+    // walked again to serialise. This path does one cudaMemcpy per output.
+    std::vector<RawOutputTensor> get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) override;
+
     void populateInferenceMetadata(const std::vector<std::vector<int64_t>>& input_sizes);
     ~TRTInfer();
+
+    // The destructor cudaFree()s every entry of buffers_ and deletes context_
+    // and runtime_, so a copy would leave two owners of the same device
+    // pointers and free them twice. Callers hold backends by pointer through
+    // InferenceInterface, so nothing needs to copy one.
+    TRTInfer(const TRTInfer&) = delete;
+    TRTInfer& operator=(const TRTInfer&) = delete;
+
+  private:
+    // Validates and uploads inputs, binds every tensor address, enqueues, and
+    // waits for completion. Shared by both result paths so upload and binding
+    // semantics cannot drift between them.
+    void uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_tensors);
+
+    // Shape of output `index` from the context when available, else the engine.
+    nvinfer1::Dims outputDims(size_t index) const;
 };

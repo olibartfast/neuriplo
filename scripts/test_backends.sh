@@ -23,7 +23,7 @@ BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP" "EXECUTORCH" "LITERT")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP" "EXECUTORCH" "LITERT" "DALI")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -40,6 +40,7 @@ declare -A BACKEND_DIRS=(
     ["LLAMACPP"]="llamacpp"
     ["EXECUTORCH"]="executorch"
     ["LITERT"]="litert"
+    ["DALI"]="dali"
 )
 
 # Test executable mapping
@@ -57,6 +58,7 @@ declare -A BACKEND_TEST_EXES=(
     ["LLAMACPP"]="LlamaCppInferTest"
     ["EXECUTORCH"]="ExecuTorchInferTest"
     ["LITERT"]="LiteRTInferTest"
+    ["DALI"]="DALIInferTest"
 )
 
 # Helper functions
@@ -390,6 +392,19 @@ check_backend_availability() {
                 return 1
             fi
             ;;
+        "DALI")
+            local dali_dir="${HOME}/dependencies/dali"
+
+            # Both libraries matter: libdali.so does not pull in the operator
+            # library, and pipelines fail at run time without it.
+            if [ -d "$dali_dir" ] && [ -f "$dali_dir/include/dali/c_api.h" ] && [ -f "$dali_dir/libdali.so" ] && [ -f "$dali_dir/libdali_operators.so" ]; then
+                log_success "DALI found in dependencies directory"
+                return 0
+            else
+                log_warning "DALI not found"
+                return 1
+            fi
+            ;;
         *)
             log_error "Unknown backend: $backend"
             return 1
@@ -523,6 +538,8 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DEXECUTORCH_DIR="$HOME/dependencies/executorch" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "LITERT" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DLITERT_DIR="$HOME/dependencies/litert" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "DALI" ]; then
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DDALI_DIR="$HOME/dependencies/dali" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi

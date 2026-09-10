@@ -47,11 +47,9 @@ function(neuriplo_add_backend_plugin backend)
         ${NEURIPLO_PLUGIN_REPO_ROOT}/backends/src
         ${NEURIPLO_PLUGIN_REPO_ROOT}/backends/src/plugin
         ${NEURIPLO_PLUGIN_REPO_ROOT}/${backend_source_dir}
-        ${OpenCV_INCLUDE_DIRS}
         ${GLOG_INCLUDE_DIRS}
     )
     target_link_libraries(${target} PRIVATE
-        ${OpenCV_LIBS}
         ${GLOG_LIBRARIES}
         glog::glog
     )

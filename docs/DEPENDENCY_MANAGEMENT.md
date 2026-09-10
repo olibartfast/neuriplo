@@ -22,6 +22,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `LLAMACPP` | llama.cpp | `b9085` | x86_64, ARM64 | no |
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
+| `DALI` | NVIDIA DALI | `1.50.0` | x86_64 only | yes |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -41,11 +42,46 @@ backend IDs and their CMake metadata:
 
 `cmake/DependencyValidation.cmake` validates at configure time:
 
-- **System dependencies**: OpenCV, glog, minimum CMake version
+- **System dependencies**: glog, minimum CMake version
+- **OpenCV**: validated only when `OPENCV_DNN` is among the requested backends.
 - **Selected backend only**: the `DEFAULT_BACKEND` is validated; others are
   ignored.
 - **GPU support**: CUDA presence checked for GPU-enabled backends.
 - **Installation completeness**: required headers and libraries must exist.
+- **Version drift**: the version *inside* an installation is compared against
+  the pin in `versions.env`, and a mismatch is reported as a warning naming the
+  version the build will actually use.
+
+#### Version drift and version stamps
+
+A dependency directory's name is not evidence of what is in it. Several
+`*_DIR` paths carry no version at all, and any of them can be redirected with
+`-D<DEP>_DIR`, so validation reads the version out of the installation itself:
+
+| Backend | Read from |
+| --- | --- |
+| TensorRT | `include/NvInferVersion.h` |
+| LibTorch | `build-version` |
+| ONNX Runtime | `VERSION_NUMBER` |
+| OpenVINO | `runtime/version.txt` |
+| GGML, TVM, Cactus, llama.cpp, ExecuTorch, LiteRT | `neuriplo-version.txt` |
+
+The last row is the source-built group. Upstream leaves nothing behind that
+names a version, so `scripts/lib/version_stamp.sh` writes `neuriplo-version.txt`
+into the install directory, recording the `versions.env` pin the tree was built
+from. It is written only after the build and install succeed, so a stamp always
+describes a usable installation.
+
+**If you add a source-built backend**, source the helper in its setup script,
+gate the "already installed?" check on `neuriplo_stamp_matches`, and call
+`neuriplo_write_stamp` after a successful install. Checking only that a library
+file exists is what let these installations drift: any past build answers that
+question yes, so bumping the pin in `versions.env` silently did nothing.
+
+An installation predating the stamp is reported as unstamped rather than assumed
+current, and is rebuilt with `FORCE=true`. Setup scripts never replace a
+mismatched installation on their own — they say what they found and stop, since
+replacing one deletes a working tree.
 
 ### Setup Scripts
 
@@ -158,6 +194,7 @@ Per-backend install-path overrides:
 | `LLAMACPP_DIR` | `$DEPENDENCY_ROOT/llamacpp` |
 | `EXECUTORCH_DIR` | `$HOME/dependencies/executorch` |
 | `LITERT_DIR` | `$DEPENDENCY_ROOT/litert` |
+| `DALI_DIR` | `$DEPENDENCY_ROOT/dali` |
 <!-- /GEN:cmake-dir-variables -->
 
 Per-backend version overrides (default from `versions.env`):
@@ -178,6 +215,7 @@ Per-backend version overrides (default from `versions.env`):
 | `LLAMACPP_VERSION` | `b9085` |
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
+| `DALI_VERSION` | `1.50.0` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
@@ -200,6 +238,7 @@ export CACTUS_DIR="$DEPENDENCY_ROOT/cactus"
 export LLAMACPP_DIR="$DEPENDENCY_ROOT/llamacpp"
 export EXECUTORCH_DIR="$HOME/dependencies/executorch"
 export LITERT_DIR="$DEPENDENCY_ROOT/litert"
+export DALI_DIR="$DEPENDENCY_ROOT/dali"
 export LD_LIBRARY_PATH="\
 $ONNX_RUNTIME_DIR/lib:\
 $LIBTORCH_DIR/lib:\
@@ -213,6 +252,7 @@ $CACTUS_DIR/lib:\
 $LLAMACPP_DIR/lib:\
 $EXECUTORCH_DIR/lib:\
 $LITERT_DIR/lib:\
+$DALI_DIR/lib:\
 $LD_LIBRARY_PATH"
 ```
 <!-- /GEN:env-variables -->
@@ -235,8 +275,15 @@ export PYTHONPATH="$TVM_DIR/python:$PYTHONPATH"
 ### Linux (CentOS/RHEL/Fedora)
 - Basic support; uses yum/dnf. May require additional configuration.
 
-### Windows
-- Not supported.
+### Windows (x64, MSVC)
+- GitHub Actions builds `OPENCV_DNN` and `ONNX_RUNTIME` on Windows with
+  Ninja and MSVC; the `ONNX_RUNTIME` job also runs the test suite under `ctest`.
+  The public headers additionally compile as a standalone project with glog
+  and no OpenCV installed, so consumers who do not build `OPENCV_DNN` do not
+  need OpenCV at all.
+- Other backends are not validated by Windows CI.
+- The setup scripts are bash-only; on Windows install dependencies manually
+  (the CI jobs use vcpkg and the ONNX Runtime release archive).
 
 ## Manual Installation
 
@@ -259,16 +306,57 @@ sudo apt-get install -y libopencv-dev libopencv-contrib-dev
 ./scripts/setup_libtorch.sh
 ```
 
+PyTorch publishes LibTorch as separate CPU and CUDA builds, and which one is
+installed decides device placement: with a CPU-only build
+`torch::cuda::is_available()` is false, so the backend runs on the CPU whatever
+`use_gpu` was set to, and the only symptom is that inference is slow. The script
+therefore picks the variant deliberately — it keeps the family of an existing
+installation (a CUDA LibTorch is never replaced by a CPU one as a side effect of
+an upgrade), and otherwise selects the newest CUDA build PyTorch publishes for
+this release that the local driver supports when CUDA is wanted. Without an
+existing variant, no driver capability reported by `nvidia-smi` means CPU is
+selected, even if `nvcc` is installed. An existing CUDA build with no detected
+driver instead requires an explicit variant decision; failed CUDA download
+probes do not silently switch to CPU. Which CUDA builds exist differs per release — 2.3.0 ships
+`cu118` and `cu121` but no `cu120` — so the choice is made against what the
+server actually publishes rather than derived from the local CUDA version.
+
+Override it explicitly with `LIBTORCH_VARIANT`:
+
+```bash
+LIBTORCH_VARIANT=cu121 ./scripts/setup_libtorch.sh   # a specific CUDA build
+LIBTORCH_VARIANT=cpu   ./scripts/setup_libtorch.sh   # deliberately CPU-only
+```
+
+The variant is reported at configure time as `LibTorch build: <version>+<variant>`,
+and a CPU-only installation on a machine with CUDA available is warned about.
+
 **GGML**:
 ```bash
 ./scripts/setup_ggml.sh
 ```
 
-**TensorRT** — manual download required (NVIDIA login):
-1. Download from [NVIDIA Developer](https://developer.nvidia.com/tensorrt).
-2. Extract to `$HOME/dependencies/TensorRT-<VERSION>`.
-3. Ensure CUDA is installed.
-4. Run: `./scripts/setup_tensorrt.sh`
+**TensorRT** — requires a working CUDA installation:
+```bash
+./scripts/setup_tensorrt.sh
+```
+The script downloads and extracts the `TENSORRT_VERSION` pinned in `versions.env`
+into `$HOME/dependencies/TensorRT-<VERSION>`, using the same tarball URL as
+`docker/Dockerfile.tensorrt`.
+
+TensorRT ships a separate build per CUDA line, and a build for CUDA 13 will not
+run against a CUDA 12 toolkit. `CUDA_VERSION` in `versions.env` is the line the CI
+images use; the script prefers the CUDA it detects locally via `nvcc` and reports
+when the two differ. Override it explicitly with `TRT_CUDA_VERSION`:
+
+```bash
+TRT_CUDA_VERSION=12.9 ./scripts/setup_tensorrt.sh
+```
+
+To use an installation that is already on disk, point the build at it with
+`-DTENSORRT_DIR=/path/to/TensorRT-<VERSION>`; CMake reads the real version out of
+`NvInferVersion.h` and warns when it differs from the one declared in
+`versions.env`.
 
 **OpenVINO**:
 1. Download from [Intel Developer Zone](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html).
@@ -386,7 +474,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 <!-- GEN:test-models-table -->
 | Backend | Model format | How it is obtained |
 |---|---|---|
-| OpenCV DNN | ONNX, Darknet | `scripts/setup_test_models.sh` |
+| OpenCV DNN | ONNX, Darknet (OpenCV 4.x only) | `scripts/setup_test_models.sh` |
 | ONNX Runtime | ONNX | `scripts/model_downloader.py` |
 | LibTorch | TorchScript (.pt) | `backends/libtorch/test/generate_model.sh` |
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
@@ -399,7 +487,43 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | llama.cpp | GGUF | downloaded by Dockerfile or mock fallback |
 | ExecuTorch | .pte | `backends/executorch/test/export_executorch_classifier.py` |
 | LiteRT | .tflite | manual or app-provided `.tflite` model |
+| NVIDIA DALI | .dali | serialized offline by `export/dali/generate_yolo_pipeline.py` |
 <!-- /GEN:test-models-table -->
+
+### DALI pipeline metadata and validation
+
+The caller batch size and the serialized pipeline's `max_batch_size` must both
+be one. `input_sizes` describes external inputs; the optional `|out=3x640x640`
+suffix is only a pre-inference hint for output zero. `|outnames=A,B,...` must
+provide exactly one name per pipeline output.
+
+Declare `output_dtype` and `output_ndim` when serializing pipelines. The YOLO
+preprocessing generator declares FP32 CHW and INT64 `(height, width)` outputs.
+For older artifacts without output datatype declarations, construction and
+inference remain supported, but metadata retrieval raises `InferenceException`
+until one successful inference. Regenerate metadata-first deployments with
+explicit declarations, or warm up with valid inputs before requesting metadata.
+No hidden inference is performed by metadata retrieval.
+
+After successful inference, every output reports its actual datatype and
+batch-inclusive shape, superseding shape hints. Failed requests retain the last
+successful metadata. Both result APIs preserve UINT8, INT32, INT64 and FP32;
+other output datatypes are rejected. Outputs are copied into host byte buffers.
+
+Generate artifacts and compile/run their C++ consumer in the same NVIDIA image:
+
+```bash
+bash backends/dali/test/run_container_tests.sh
+```
+
+This offline gate requires the image to exist locally, an NVIDIA GPU with Docker
+GPU support, `/usr/src/googletest`, and glog/gflags development headers. It mounts
+host sources and headers read-only, compiles the actual backend inside the image,
+and rejects skipped tests. Results default to `build-release-dali-container/`.
+`TRITON_IMAGE`, `DALI_TEST_OUTPUT_DIR`, `GTEST_SOURCE_DIR`, `GLOG_INCLUDE_DIR`,
+and `GFLAGS_INCLUDE_DIR` override those defaults. The default Triton 25.12 image
+contains DALI 1.51.2; this is separate from the 1.50.0 dependency pin. Do not mix
+serialized artifacts, custom plugins, and C libraries from different versions.
 
 ## Contributing
 
@@ -430,6 +554,7 @@ time.
 | `setup_llamacpp.sh` | llama.cpp |
 | `setup_executorch.sh` | ExecuTorch — builds from source — do not delete cmake-out after install |
 | `setup_litert.sh` | LiteRT — formerly TensorFlow Lite - builds from TensorFlow source |
+| `setup_dali.sh` | NVIDIA DALI — GPU preprocessing, not an inference engine - extracts the C++ distribution from the nvidia-dali wheel |
 | `build_cactus.sh` | Build the Cactus Docker image (ARM64 only) |
 <!-- /GEN:setup-scripts-table -->
 

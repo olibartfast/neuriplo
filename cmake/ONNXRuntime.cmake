@@ -14,12 +14,11 @@ option(ORT_ENABLE_CANN_EP "Enable explicit ONNX Runtime Huawei CANN Execution Pr
 option(ORT_ENABLE_VITISAI_EP "Enable explicit ONNX Runtime Xilinx Vitis AI Execution Provider selection" OFF)
 
 # Check for CUDA support
-find_package(CUDA QUIET)
-if (CUDA_FOUND)
-    message(STATUS "✓ CUDA found: ${CUDA_VERSION}")
-    set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda)
+find_package(CUDAToolkit QUIET)
+if (CUDAToolkit_FOUND)
+    message(STATUS "✓ CUDA toolkit found")
 else ()
-    message(STATUS "CUDA not found.")
+    message(STATUS "CUDA toolkit not found.")
 endif()
 
 # Check for ROCm support

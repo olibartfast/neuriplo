@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
         -f|--force) FORCE=true; shift ;;
         -h|--help)
             echo "Usage: $0 -b BACKEND [-r PATH] [-f] [-h]"
-            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP, EXECUTORCH, LITERT"
+            echo "Backends: ONNX_RUNTIME, TENSORRT, LIBTORCH, OPENVINO, LIBTENSORFLOW, GGML, TVM, MIGRAPHX, CACTUS, LLAMACPP, EXECUTORCH, LITERT, DALI"
             exit 0 ;;
         *) echo "Error: Unknown option: $1"; exit 1 ;;
     esac
@@ -32,16 +32,28 @@ done
 # Validate backend
 [[ -z "$BACKEND" ]] && { echo "Error: Backend required"; exit 1; }
 case $BACKEND in
-    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM|MIGRAPHX|CACTUS|LLAMACPP|EXECUTORCH|LITERT) ;;
+    ONNX_RUNTIME|TENSORRT|LIBTORCH|OPENVINO|LIBTENSORFLOW|GGML|TVM|MIGRAPHX|CACTUS|LLAMACPP|EXECUTORCH|LITERT|DALI) ;;
     *) echo "Error: Unsupported backend: $BACKEND"; exit 1 ;;
 esac
 
-# Install system dependencies
+# Install system dependencies.
+# No OpenCV here: it is needed only by the OPENCV_DNN backend, which this
+# script does not handle (it takes a system package, not a downloaded SDK, and
+# is rejected by the backend validation above).
 install_system_deps() {
     local os=$(grep -oP '^ID=\K.*' /etc/os-release 2>/dev/null || echo "linux")
+    # libopenvino.so records DT_NEEDED on libtbb.so.12, so OPENVINO needs the
+    # TBB runtime on top of the common set. It used to arrive transitively via
+    # libopencv-dev, which this script no longer installs.
+    local extra=""
+    local extra_rpm=""
+    if [[ "$BACKEND" == "OPENVINO" ]]; then
+        extra="libtbb12"
+        extra_rpm="tbb"
+    fi
     case $os in
-        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopencv-dev libopenblas-dev ;;
-        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config opencv-devel openblas-devel ;;
+        ubuntu|debian) sudo apt-get update && sudo apt-get install -y build-essential cmake git wget curl unzip pkg-config libopenblas-dev libgtest-dev libgmock-dev $extra ;;
+        centos|rhel|fedora) sudo yum groupinstall -y "Development Tools" && sudo yum install -y cmake git wget curl unzip pkg-config openblas-devel gtest-devel gmock-devel $extra_rpm ;;
         *) echo "Warning: Unsupported OS: $os. Install dependencies manually." ;;
     esac
 }
@@ -159,6 +171,8 @@ validate_installation() {
             [[ -f "$DEPENDENCY_ROOT/llamacpp/include/llama.h" && -f "$DEPENDENCY_ROOT/llamacpp/lib/libllama.so" && -f "$DEPENDENCY_ROOT/llamacpp/lib/libggml.so" ]] || { echo "Error: llama.cpp validation failed"; exit 1; } ;;
         LITERT)
             [[ -f "$DEPENDENCY_ROOT/litert/include/tensorflow/lite/interpreter.h" && -f "$DEPENDENCY_ROOT/litert/include/tensorflow/lite/model.h" && -f "$DEPENDENCY_ROOT/litert/lib/libtensorflowlite.so" ]] || { echo "Error: LiteRT validation failed"; exit 1; } ;;
+        DALI)
+            [[ -f "$DEPENDENCY_ROOT/dali/include/dali/c_api.h" && -f "$DEPENDENCY_ROOT/dali/libdali.so" && -f "$DEPENDENCY_ROOT/dali/libdali_operators.so" ]] || { echo "Error: DALI validation failed"; exit 1; } ;;
     esac
 }
 
@@ -174,12 +188,13 @@ export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
 export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_$OPENVINO_VERSION"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
 export LITERT_DIR="$DEPENDENCY_ROOT/litert"
+export DALI_DIR="$DEPENDENCY_ROOT/dali"
 export GGML_DIR="\$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="\$DEPENDENCY_ROOT/tvm"
 export CACTUS_DIR="\$DEPENDENCY_ROOT/cactus"
 export LLAMACPP_DIR="\$DEPENDENCY_ROOT/llamacpp"
 export MIGRAPHX_ROOT="/opt/rocm"
-export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$LITERT_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$CACTUS_DIR/lib:\$LLAMACPP_DIR/lib:\$MIGRAPHX_ROOT/lib:\$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="\$ONNX_RUNTIME_DIR/lib:\$TENSORRT_DIR/lib:\$LIBTORCH_DIR/lib:\$OPENVINO_DIR/runtime/lib/intel64:\$TENSORFLOW_DIR/lib:\$LITERT_DIR/lib:\$GGML_DIR/lib:\$TVM_DIR/build:\$CACTUS_DIR/lib:\$LLAMACPP_DIR/lib:\$MIGRAPHX_ROOT/lib:\$DALI_DIR:\$LD_LIBRARY_PATH"
 export PATH="\$OPENVINO_DIR/bin:\$TVM_DIR/bin:\$PATH"
 export PYTHONPATH="\$TVM_DIR/python:\$PYTHONPATH"
 EOF
@@ -201,6 +216,7 @@ case $BACKEND in
     MIGRAPHX) setup_migraphx ;;
     EXECUTORCH) DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_executorch.sh --install-dir "$DEPENDENCY_ROOT/executorch" ;;
     LITERT) setup_litert ;;
+    DALI) "$(dirname "$0")/setup_dali.sh" ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup

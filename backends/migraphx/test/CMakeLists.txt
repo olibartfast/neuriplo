@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/MIGraphXInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 # MIGraphX ships its CMake config under /opt/rocm; ensure it is found
@@ -15,16 +14,14 @@ target_include_directories(MIGraphXInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/migraphx/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
 target_link_libraries(MIGraphXInferTest PRIVATE
     neuriplo
     migraphx::c
-    ${OpenCV_LIBS}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

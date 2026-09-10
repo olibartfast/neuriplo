@@ -26,10 +26,12 @@ else()
     # Use a portable baseline per architecture to avoid illegal-instruction
     # crashes when Docker layer cache crosses machines with different CPU
     # capabilities (e.g. AVX-512 vs AVX2 on x86_64).
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3")
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a")
+    if(NOT MSVC)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3")
+        elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a")
+        endif()
     endif()
     set(CUDA_ARCH_FLAG "")
 endif()
@@ -40,12 +42,20 @@ if(USE_LIBTORCH)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 else()
     # Keep aggressive optimization on release profiles only.
-    string(APPEND CMAKE_CXX_FLAGS_RELEASE " -O3 -ffast-math")
+    if(MSVC)
+        string(APPEND CMAKE_CXX_FLAGS_RELEASE " /O2 /fp:fast")
+    else()
+        string(APPEND CMAKE_CXX_FLAGS_RELEASE " -O3 -ffast-math")
+    endif()
     string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " -O2")
 endif()
 
 # Set debug flags
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od")
+else()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0")
+endif()
 
 # Combine CUDA flags with common flags
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} ${CUDA_ARCH_FLAG}")
@@ -55,7 +65,7 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} ${CUDA_ARCH_FLAG}")
 # than -Wno- so the warnings are still visible but won't break -Werror builds.
 # add_compile_options is used (instead of CMAKE_CXX_FLAGS) so these flags
 # appear after any earlier -Werror on the command line.
-if(DEFAULT_BACKEND STREQUAL "TENSORRT")
+if((USE_TENSORRT OR DEFAULT_BACKEND STREQUAL "TENSORRT") AND NOT MSVC)
     add_compile_options(
         -Wno-error=deprecated-declarations
         -Wno-error=unused-parameter

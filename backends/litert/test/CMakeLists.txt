@@ -10,7 +10,6 @@ target_include_directories(LiteRTInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/litert/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
 )
 
@@ -21,10 +20,9 @@ target_include_directories(LiteRTInferTest SYSTEM PRIVATE
 target_link_libraries(LiteRTInferTest PRIVATE
     neuriplo
     ${LITERT_LINK_LIBRARIES}
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 

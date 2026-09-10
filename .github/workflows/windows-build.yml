@@ -1,0 +1,335 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - feature/windows-support
+      - develop
+      - 'feature/**'
+      - 'refactor/**'
+    # The same paths as pull_request below. Without this, every push to develop
+    # or any feature/** branch ran the whole Windows matrix whatever it touched:
+    # the PR #32 merge started a Windows run while changing no Windows file.
+    # Keep the two lists identical, so a change that is worth a Windows check on
+    # a PR is worth one on the merge that follows it.
+    #
+    # versions.env is in the list because it decides what these jobs build
+    # against: the ONNX job reads ONNX_RUNTIME_VERSION from it to form the
+    # download URL, and cmake/versions.cmake consumes the rest. Without it a
+    # dependency bump -- the change most likely to break a Windows build --
+    # would be the one change that never gets a Windows check.
+    paths:
+      - CMakeLists.txt
+      - cmake/**
+      - include/**
+      - src/**
+      - backends/**
+      - test/public-headers/**
+      - versions.env
+      - .github/workflows/windows-build.yml
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - CMakeLists.txt
+      - cmake/**
+      - include/**
+      - src/**
+      - backends/**
+      - test/public-headers/**
+      - versions.env
+      - .github/workflows/windows-build.yml
+  workflow_dispatch:
+
+# vcpkg was cloned at whatever master happened to be, so the port versions --
+# and with them the ~20 minutes spent building OpenCV from source -- changed
+# from run to run, and no binary cache could be keyed on them. Pin a release
+# tag: the builds become reproducible and the cache below becomes reusable.
+env:
+  VCPKG_VERSION: '2026.07.29'
+
+# github.ref differs between the two events that can start this workflow for
+# one branch -- refs/heads/<branch> on push, refs/pull/<n>/merge on
+# pull_request -- so keying on it put the two in separate groups and ran the
+# whole matrix twice for every branch with an open PR. head_ref is the branch
+# name on pull_request and empty on push, so this collapses both onto the
+# branch name and lets cancel-in-progress do its job.
+#
+# The head repository is part of the key too: two PRs from different forks can
+# share a branch name, and keying on the name alone would let one cancel the
+# other's whole matrix. github.event.pull_request is null on push, so that
+# falls back to this repository.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── Public headers without OpenCV ──────────────────────────────────
+  # OpenCV belongs to the opencv-dnn backend alone. This job configures
+  # test/public-headers, a standalone project that compiles the public headers
+  # with glog and nothing else, on a runner where OpenCV is never installed.
+  #
+  # It has to run on MSVC to be worth much. The same project on libstdc++
+  # catches a re-added <opencv2/...> include, but not a std header the tree
+  # relies on OpenCV to supply transitively -- there <iostream> quietly covers
+  # for it. MSVC does not, so this is where that class of breakage shows up.
+  headers-without-opencv:
+    name: Windows / headers without OpenCV
+    runs-on: windows-latest
+    # GitHub's default job timeout is 360 minutes. Nothing here has ever taken
+    # more than two; anything that does is stuck, and should say so quickly
+    # rather than occupying a runner for six hours.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch $env:VCPKG_VERSION `
+            https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          # vcpkg caches each built package here as a content-addressed archive.
+          # Restoring it turns "build OpenCV from source" into "unzip it".
+          path: ~\AppData\Local\vcpkg\archives
+          # The pinned vcpkg tag fixes the port versions, so the only other
+          # thing the archives depend on is the package list -- which is named
+          # in the key. Hashing the whole workflow file instead, as this did,
+          # rotated the key on edits that changed no package at all (a trigger
+          # path, a comment), leaving a fresh key to save under on every such
+          # edit and another entry competing for the repository's cache budget.
+          key: vcpkg-${{ env.VCPKG_VERSION }}-headers-glog
+          restore-keys: |
+            vcpkg-${{ env.VCPKG_VERSION }}-headers-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          # glog only. Installing OpenCV here would defeat the point of the job;
+          # the project's configure step asserts it is unreachable.
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            glog:x64-windows
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S test/public-headers -B build-headers `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build-headers
+
+  # ── OpenCV DNN ─────────────────────────────────────────────────────
+  build-windows-opencvdnn:
+    name: Windows / OPENCV_DNN
+    runs-on: windows-latest
+    # Generous only because a cold vcpkg cache builds OpenCV from source, which
+    # was observed taking 40 minutes; cached runs finish in a few. Kept above
+    # that worst case so a cache miss is not mistaken for a hang.
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch $env:VCPKG_VERSION `
+            https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          # vcpkg caches each built package here as a content-addressed archive.
+          # Restoring it turns "build OpenCV from source" into "unzip it".
+          path: ~\AppData\Local\vcpkg\archives
+          # The pinned vcpkg tag fixes the port versions, so the only other
+          # thing the archives depend on is the package list -- which is named
+          # in the key. Hashing the whole workflow file instead, as this did,
+          # rotated the key on edits that changed no package at all (a trigger
+          # path, a comment), leaving a fresh key to save under on every such
+          # edit and another entry competing for the repository's cache budget.
+          key: vcpkg-${{ env.VCPKG_VERSION }}-opencvdnn-opencv4-core-dnn+glog
+          restore-keys: |
+            vcpkg-${{ env.VCPKG_VERSION }}-opencvdnn-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            opencv4[core,dnn]:x64-windows `
+            glog:x64-windows
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DDEFAULT_BACKEND=OPENCV_DNN `
+            -DBUILD_INFERENCE_ENGINE_TESTS=OFF
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --parallel
+
+  # ── ONNX Runtime ───────────────────────────────────────────────────
+  build-windows-onnxruntime:
+    name: Windows / ONNX_RUNTIME
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC developer shell
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Clone vcpkg
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch $env:VCPKG_VERSION `
+            https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          # vcpkg caches each built package here as a content-addressed archive.
+          # Restoring it turns "build OpenCV from source" into "unzip it".
+          path: ~\AppData\Local\vcpkg\archives
+          # The pinned vcpkg tag fixes the port versions, so the only other
+          # thing the archives depend on is the package list -- which is named
+          # in the key. Hashing the whole workflow file instead, as this did,
+          # rotated the key on edits that changed no package at all (a trigger
+          # path, a comment), leaving a fresh key to save under on every such
+          # edit and another entry competing for the repository's cache budget.
+          key: vcpkg-${{ env.VCPKG_VERSION }}-onnxruntime-glog+gtest
+          restore-keys: |
+            vcpkg-${{ env.VCPKG_VERSION }}-onnxruntime-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          # No OpenCV: the ONNX Runtime backend does not use it, and leaving
+          # it out is what proves so.
+          & "$env:GITHUB_WORKSPACE\vcpkg\vcpkg.exe" install `
+            glog:x64-windows `
+            gtest:x64-windows
+
+      - name: Read ONNX Runtime version
+        shell: pwsh
+        run: |
+          # cmake/versions.cmake:114 derives ONNX_RUNTIME_DIR from this same
+          # value, so it has to come from versions.env rather than being
+          # repeated here. Hard-coding it means the next version bump downloads
+          # one version and configures against the path of another, failing at
+          # configure time on an otherwise-routine dependency update.
+          $match = Select-String -Path versions.env -Pattern '^ONNX_RUNTIME_VERSION=(.+)$'
+          if (-not $match) {
+            throw "ONNX_RUNTIME_VERSION not found in versions.env"
+          }
+          $ver = $match.Matches[0].Groups[1].Value.Trim()
+          Write-Host "ONNX Runtime version from versions.env: $ver"
+          "ONNX_RUNTIME_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Download ONNX Runtime
+        shell: pwsh
+        run: |
+          $ver = $env:ONNX_RUNTIME_VERSION
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-gpu-$ver.zip"
+          $dest = "$env:USERPROFILE\dependencies"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Write-Host "Downloading ONNX Runtime $ver..."
+          Invoke-WebRequest -Uri $url -OutFile "$dest\onnxruntime.zip"
+          Write-Host "Extracting..."
+          Expand-Archive -Path "$dest\onnxruntime.zip" -DestinationPath "$dest" -Force
+          Remove-Item "$dest\onnxruntime.zip"
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DDEFAULT_BACKEND=ONNX_RUNTIME `
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --parallel
+
+      - name: Run tests
+        shell: pwsh
+        # A hung test must not be able to hold a runner for six hours again.
+        timeout-minutes: 10
+        run: |
+          # A process that dies before it can report -- a DLL it imports is
+          # missing, or it faults during static initialisation -- raises a modal
+          # Windows dialog instead of exiting. Nobody can dismiss it on a runner,
+          # and ctest goes on waiting for the output pipe the surviving process
+          # holds open, so its own per-test timeout never fires either. Turning
+          # the dialogs off converts that hang into an exit code. gtest already
+          # does this for itself, but only once RUN_ALL_TESTS is reached, which
+          # is exactly too late for the failures that hang.
+          try {
+            Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Windows' `
+              -Name ErrorMode -Value 2 -ErrorAction Stop
+            New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' `
+              -Name DontShowUI -PropertyType DWord -Value 1 -Force -ErrorAction Stop | Out-Null
+          } catch {
+            Write-Host "Could not suppress Windows error dialogs: $_"
+          }
+
+          # ONNX Runtime and the vcpkg DLLs (glog, gtest) must be on PATH for
+          # the tests to load. Under the Visual Studio generator vcpkg's MSBuild
+          # integration copied the latter next to the executables; Ninja gets no
+          # such step, so name the directory instead of relying on it.
+          # neuriplo.dll is not listed here: CMAKE_RUNTIME_OUTPUT_DIRECTORY puts
+          # it in build/bin beside the test executables, where the loader looks
+          # first.
+          $env:Path = "$env:USERPROFILE\dependencies\onnxruntime-win-x64-gpu-${env:ONNX_RUNTIME_VERSION}\lib;$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows\bin;$env:Path"
+          # --no-tests=error: a suite that registers nothing must fail, not pass
+          # silently. --timeout: a backstop below the step timeout, so a single
+          # stuck test is reported as that rather than as a dead job.
+          ctest --test-dir build --output-on-failure --no-tests=error --timeout 180

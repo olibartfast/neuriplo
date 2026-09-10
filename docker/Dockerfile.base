@@ -16,9 +16,9 @@ RUN apt-get update && apt-get upgrade -y && \
     pkg-config \
     wget \
     git \
-    libopencv-dev \
     libgoogle-glog-dev \
     libgtest-dev \
+    libgmock-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Build GTest static libs (Ubuntu ships only headers, not compiled static libs)

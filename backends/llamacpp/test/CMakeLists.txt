@@ -2,7 +2,6 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/LlamaCppInferTest.cpp
 )
 
-find_package(OpenCV REQUIRED)
 find_package(Glog REQUIRED)
 
 add_executable(LlamaCppInferTest ${TEST_SOURCES})
@@ -11,7 +10,6 @@ target_include_directories(LlamaCppInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/llamacpp/src
     ${CMAKE_SOURCE_DIR}/backends/src
     ${CMAKE_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
     ${GLOG_INCLUDE_DIRS}
     ${LLAMACPP_DIR}/include
 )
@@ -23,12 +21,11 @@ find_library(LLAMACPP_GGML_LIB NAMES ggml ggml-base
 
 target_link_libraries(LlamaCppInferTest PRIVATE
     neuriplo
-    ${OpenCV_LIBS}
     ${GLOG_LIBRARIES}
     llama
     ${LLAMACPP_GGML_LIB}
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     glog::glog
 )
 
