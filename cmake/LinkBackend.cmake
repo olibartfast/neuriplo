@@ -121,7 +121,7 @@ elseif(backend STREQUAL "TVM")
     
     # Suppress macro redefinition warnings between glog and DMLC
     if(NOT MSVC)
-        target_compile_options(${target} PRIVATE 
+        target_compile_options(${target} PRIVATE
             $<$<COMPILE_LANGUAGE:CXX>:-Wno-macro-redefined>
             $<$<COMPILE_LANGUAGE:CXX>:-w>)
     endif()

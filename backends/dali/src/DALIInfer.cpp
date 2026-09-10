@@ -5,6 +5,7 @@
 #include <dali/c_api.h>
 #include <dali/operators.h>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -64,6 +65,10 @@ DaliTypeMapping map_dali_type(dali_data_type_t type) {
                                       "UINT8, INT32, INT64, or FLOAT");
 }
 
+bool is_supported_dali_type(dali_data_type_t type) {
+    return type == DALI_UINT8 || type == DALI_INT32 || type == DALI_INT64 || type == DALI_FLOAT;
+}
+
 size_t dali_type_size(dali_data_type_t type) {
     switch (type) {
     case DALI_UINT8:
@@ -109,8 +114,11 @@ struct DALIInfer::Impl {
     daliPipelineHandle handle{};
     bool output_shared{false};
     std::vector<int64_t> declared_output_shape;
-    std::vector<int64_t> last_output_shape;
-    dali_data_type_t output_dtype{DALI_FLOAT};
+    std::vector<std::vector<int64_t>> last_output_shapes;
+    std::vector<dali_data_type_t> declared_output_dtypes;
+    std::vector<size_t> declared_output_ndims;
+    std::vector<dali_data_type_t> last_output_dtypes;
+    unsigned output_count{0};
 
     // Names of every external source, in declaration order. A preprocessing
     // pipeline has one (the encoded image); a postprocessing pipeline has one
@@ -192,28 +200,57 @@ struct DALIInfer::Impl {
         }
         daliDeserializeDefault(&handle, serialized.c_str(), static_cast<int>(serialized.size()));
 
-        const int num_inputs = daliGetNumExternalInput(&handle);
-        if (num_inputs < 1) {
-            daliDeletePipeline(&handle);
-            throw ModelLoadException("DALI pipeline declares no external source: " + path);
-        }
-        for (int i = 0; i < num_inputs; ++i) {
-            const char* name = daliGetExternalInputName(&handle, i);
-            if (name == nullptr) {
-                daliDeletePipeline(&handle);
-                throw ModelLoadException("DALI pipeline has an unnamed external source: " + path);
+        try {
+            const int max_batch_size = daliGetMaxBatchSize(&handle);
+            if (max_batch_size != 1) {
+                throw ModelLoadException("serialized DALI pipeline has max batch size " +
+                                         std::to_string(max_batch_size) + "; only max batch size 1 is supported");
             }
-            external_inputs.emplace_back(name);
-            external_input_types.push_back(daliGetExternalInputType(&handle, name));
-        }
 
-        if (daliGetNumOutput(&handle) < 1) {
-            daliDeletePipeline(&handle);
-            throw ModelLoadException("DALI pipeline has no outputs: " + path);
-        }
-        output_dtype = daliGetDeclaredOutputDtype(&handle, 0);
+            const int num_inputs = daliGetNumExternalInput(&handle);
+            if (num_inputs < 1) {
+                throw ModelLoadException("DALI pipeline declares no external source: " + path);
+            }
+            for (int i = 0; i < num_inputs; ++i) {
+                const char* name = daliGetExternalInputName(&handle, i);
+                if (name == nullptr) {
+                    throw ModelLoadException("DALI pipeline has an unnamed external source: " + path);
+                }
+                external_inputs.emplace_back(name);
+                external_input_types.push_back(daliGetExternalInputType(&handle, name));
+            }
 
-        (void)input_sizes;
+            output_count = daliGetNumOutput(&handle);
+            if (output_count < 1) {
+                throw ModelLoadException("DALI pipeline has no outputs: " + path);
+            }
+            if (!output_names.empty() && output_names.size() != output_count) {
+                throw ModelLoadException("outnames= supplies " + std::to_string(output_names.size()) +
+                                         " names for a pipeline with " + std::to_string(output_count) + " outputs");
+            }
+            declared_output_dtypes.reserve(output_count);
+            declared_output_ndims.reserve(output_count);
+            for (unsigned index = 0; index < output_count; ++index) {
+                const auto dtype = daliGetDeclaredOutputDtype(&handle, static_cast<int>(index));
+                if (dtype != DALI_NO_TYPE && !is_supported_dali_type(dtype)) {
+                    throw ModelLoadException("DALI output " + std::to_string(index) + " declares unsupported type " +
+                                             std::to_string(static_cast<int>(dtype)));
+                }
+                declared_output_dtypes.push_back(dtype);
+                declared_output_ndims.push_back(daliGetDeclaredOutputNdim(&handle, static_cast<int>(index)));
+            }
+
+            (void)input_sizes;
+        } catch (...) {
+            try {
+                if (handle != nullptr) {
+                    daliDeletePipeline(&handle);
+                }
+            } catch (...) {
+                // Preserve the original DALI or metadata exception.
+            }
+            throw;
+        }
     }
 
     ~Impl() {
@@ -300,24 +337,33 @@ struct DALIInfer::Impl {
         output_shared = true;
 
         const unsigned num_outputs = daliGetNumOutput(&handle);
+        if (num_outputs != output_count) {
+            throw InferenceExecutionException("DALI output count changed from " + std::to_string(output_count) +
+                                              " to " + std::to_string(num_outputs));
+        }
         std::vector<Output> outputs;
         outputs.reserve(num_outputs);
         for (unsigned index = 0; index < num_outputs; ++index) {
             outputs.push_back(read_output(static_cast<int>(index)));
         }
-        last_output_shape = outputs.front().shape;
+        std::vector<std::vector<int64_t>> runtime_shapes;
+        std::vector<dali_data_type_t> runtime_dtypes;
+        runtime_shapes.reserve(outputs.size());
+        runtime_dtypes.reserve(outputs.size());
+        for (unsigned index = 0; index < num_outputs; ++index) {
+            runtime_shapes.push_back(outputs[index].shape);
+            runtime_dtypes.push_back(daliTypeAt(&handle, static_cast<int>(index)));
+        }
+        last_output_shapes = std::move(runtime_shapes);
+        last_output_dtypes = std::move(runtime_dtypes);
         return outputs;
     }
 
     Output read_output(int index) {
-        // daliShapeAt returns the sample shape for a uniform batch. The
-        // declared rank is a negative sentinel when the pipeline does not
-        // declare one, which is unsigned here, so it is range-checked before it
-        // sizes anything.
-        const auto declared = static_cast<int64_t>(daliGetDeclaredOutputNdim(&handle, index));
-        size_t ndim = (declared > 0 && declared <= static_cast<int64_t>(kMaxTensorRank))
-                          ? static_cast<size_t>(declared)
-                          : daliMaxDimTensors(&handle, index);
+        // daliShapeAt returns the batch-inclusive shape. Derive the sample rank
+        // from the successful runtime output, because the declared rank may be
+        // absent or may not describe a dynamic output.
+        const size_t ndim = daliMaxDimTensors(&handle, index);
         if (ndim == 0 || ndim > kMaxTensorRank) {
             throw InferenceExecutionException("DALI pipeline reported an implausible output rank: " +
                                               std::to_string(ndim));
@@ -334,14 +380,10 @@ struct DALIInfer::Impl {
         output.dtype = mapping.dtype;
         const size_t bytes = daliTensorSize(&handle, index);
 
-        // The declared rank is the *sample* rank while daliShapeAt returns the
-        // batch-inclusive shape, so reading `ndim` entries drops the last axis.
-        // Take the batch dimension too, then check the product against the byte
-        // count rather than trusting either number on its own.
+        // daliShapeAt returns the batch-inclusive shape. Use the runtime rank,
+        // rather than a declaration that may be absent or stale, and retain the
+        // batch dimension exactly once.
         output.shape.assign(dims.get(), dims.get() + ndim + 1);
-        if (static_cast<size_t>(element_count(output.shape)) * mapping.size != bytes) {
-            output.shape.assign(dims.get(), dims.get() + ndim);
-        }
 
         // daliOutputCopy takes no destination length, so a daliTensorSize that
         // under-reports what the pipeline actually writes corrupts the heap
@@ -397,9 +439,24 @@ DALIInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
                 elements.emplace_back(value);
             }
         } else {
-            elements.reserve(tensor.bytes.size());
-            for (const auto byte : tensor.bytes) {
-                elements.emplace_back(byte);
+            const size_t element_size = tensor_dtype_size(tensor.dtype);
+            if (element_size == 0 || tensor.bytes.size() % element_size != 0) {
+                throw InferenceExecutionException("DALI output byte count is not aligned to its datatype");
+            }
+            const size_t count = tensor.bytes.size() / element_size;
+            elements.reserve(count);
+            for (size_t i = 0; i < count; ++i) {
+                if (tensor.dtype == TensorDtype::INT32) {
+                    int32_t value = 0;
+                    std::memcpy(&value, tensor.bytes.data() + i * sizeof(value), sizeof(value));
+                    elements.emplace_back(value);
+                } else if (tensor.dtype == TensorDtype::INT64) {
+                    int64_t value = 0;
+                    std::memcpy(&value, tensor.bytes.data() + i * sizeof(value), sizeof(value));
+                    elements.emplace_back(value);
+                } else {
+                    elements.emplace_back(tensor.bytes[i]);
+                }
             }
         }
         data.push_back(std::move(elements));
@@ -428,10 +485,8 @@ InferenceMetadata DALIInfer::get_inference_metadata() {
     for (size_t i = 0; i < impl_->external_inputs.size(); ++i) {
         const auto& name = impl_->external_inputs[i];
         const auto type = impl_->external_input_types[i];
-        // An encoded image is variable length; other inputs take the shape the
-        // caller declared, since DALI reports only rank for external sources.
         std::vector<int64_t> shape{1, -1};
-        if (name != kEncodedInputName && i + 1 < input_sizes_.size() + 1 && i < input_sizes_.size()) {
+        if (name != kEncodedInputName && i < input_sizes_.size()) {
             shape = input_sizes_[i];
         }
         metadata.addInput(name, shape, 1,
@@ -441,28 +496,53 @@ InferenceMetadata DALIInfer::get_inference_metadata() {
                                                : TensorDataType::Float32);
     }
 
-    auto shape = impl_->declared_output_shape;
-    if (shape.empty()) {
-        shape = impl_->last_output_shape;
-    }
-    if (shape.size() == 3) {
-        shape.insert(shape.begin(), 1);
-    }
+    const bool has_runtime = !impl_->last_output_shapes.empty();
+    const auto to_metadata_type = [](dali_data_type_t type) {
+        switch (type) {
+        case DALI_UINT8:
+            return TensorDataType::UInt8;
+        case DALI_INT32:
+            return TensorDataType::Int32;
+        case DALI_INT64:
+            return TensorDataType::Int64;
+        case DALI_FLOAT:
+            return TensorDataType::Float32;
+        default:
+            throw InferenceException("DALI output metadata has no concrete datatype; run inference successfully "
+                                     "before requesting metadata");
+        }
+    };
 
-    const size_t output_count = impl_->output_names.empty() ? 2 : impl_->output_names.size();
-    for (size_t i = 0; i < output_count; ++i) {
+    for (unsigned i = 0; i < impl_->output_count; ++i) {
+        dali_data_type_t dtype = impl_->declared_output_dtypes[i];
+        if (has_runtime && i < impl_->last_output_dtypes.size()) {
+            dtype = impl_->last_output_dtypes[i];
+        } else if (dtype == DALI_NO_TYPE) {
+            throw InferenceException("DALI output " + std::to_string(i) +
+                                     " has undeclared datatype; run inference successfully before requesting metadata");
+        }
+
+        std::vector<int64_t> shape;
+        if (has_runtime && i < impl_->last_output_shapes.size()) {
+            shape = impl_->last_output_shapes[i];
+        } else if (i == 0 && !impl_->declared_output_shape.empty()) {
+            shape = impl_->declared_output_shape;
+            // Runtime shapes carry a batch factor; make the declared hint
+            // batch-inclusive the same way, whatever its rank.
+            shape.insert(shape.begin(), 1);
+        } else {
+            const size_t declared_ndim = impl_->declared_output_ndims[i];
+            if (declared_ndim != std::numeric_limits<size_t>::max() && declared_ndim <= kMaxTensorRank) {
+                shape.assign(declared_ndim + 1, -1);
+                shape.front() = 1;
+            }
+        }
+
         const std::string name =
             i < impl_->output_names.size()
                 ? impl_->output_names[i]
                 : (i == 0 ? kPreprocessedOutputName : (i == 1 ? kImageShapeOutputName : "output" + std::to_string(i)));
-        // Only output 0's shape can be declared up front; the rest are learned
-        // on the first run, which is enough for name-addressed graph wiring.
-        metadata.addOutput(name, i == 0 ? shape : std::vector<int64_t>{}, 1,
-                           i == 0 ? (impl_->output_dtype == DALI_UINT8   ? TensorDataType::UInt8
-                                     : impl_->output_dtype == DALI_INT32 ? TensorDataType::Int32
-                                     : impl_->output_dtype == DALI_INT64 ? TensorDataType::Int64
-                                                                         : TensorDataType::Float32)
-                                  : TensorDataType::Float32);
+        metadata.addOutput(name, shape, 1, to_metadata_type(dtype));
     }
     return metadata;
 }

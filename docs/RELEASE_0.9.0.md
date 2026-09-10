@@ -46,7 +46,8 @@ DALI libraries came from `/home/oli/dependencies/dali`; the configured pin is
 | OpenCV release build and CTest | 3/3 CTest entries pass | Common tests, template tests, and backend tests. Mock-only case intentionally skips when a real model is supplied. |
 | OpenCV real-model gate | 2/2 GoogleTests pass, no skips | BasicInference and IntegrationTest with explicit fixture dimensions. |
 | TensorRT release build and CTest | 3/3 CTest entries pass | All six TensorRT GPU tests ran, including batch-inclusive metadata, rejected static-batch request reporting, and repeated inference. |
-| DALI GPU tests | 6/6 GoogleTests pass, no skips | Existing preprocessing pipeline, real PNG, and failure cases; not postprocessing or a complete ensemble. |
+| DALI GPU tests | 6/6 local GoogleTests pass, no skips | Cover the host-pinned DALI 1.50.0 build only; not postprocessing or a complete ensemble. |
+| DALI in-image validation | 23/23 GoogleTests pass, no skips | Run inside the NVIDIA Triton image with that image's DALI 1.51.2 against the repaired backend. Covers unit8/int32/int64/float raw outputs, undeclared metadata, changing shapes, batch-size rejection, and float16 rejection. This run follows the three 0.9.0 DALI repairs and is the authoritative DALI gate. |
 | Downstream neuriplo-infer | Build and 90/90 CTest entries pass | Local OPENCV_DNN configuration with KServe disabled; not HTTP serving or model-accuracy validation. |
 | Markdown links | Existing targets resolve / HTTP 200 | Two new `v0.9.0` comparison URLs return 404 until the tag is published. Recheck them afterward. |
 
@@ -152,6 +153,23 @@ env LD_LIBRARY_PATH=/home/oli/dependencies/dali:/home/oli/dependencies/dali/.lib
   ./DALIInferTest --gtest_output=xml:release-results-fixed.xml
 ```
 
+### DALI In-Image Gate
+
+The local backend tests compile against the repository-pinned DALI 1.50.0.
+The authoritative gate compiles the same backend in the NVIDIA container the
+fixtures ship from and exercises it against that image's DALI 1.51.2:
+
+```bash
+bash backends/dali/test/run_container_tests.sh
+```
+
+The script generates typed fixtures plus a fresh preprocessing pipeline inside
+`nvcr.io/nvidia/tritonserver:25.12-py3` (DALI 1.51.2), compiles the backend in
+that image with host GoogleTest sources, and runs 23 tests. The verification
+stage asserts every test ran with zero skips, failures, or errors. The
+generated pipeline embeds explicit `output_dtype` declarations, matching the
+new metadata-first guidance in `CHANGELOG.md`; its SHA-256 is below.
+
 ### Consumer Gate
 
 The clean neuriplo-infer checkout was at
@@ -184,7 +202,8 @@ or dependency installation were needed.
 | Original ONNX | `cdaae3c3a3930ebf8bdf625865e1dc05ecdf96ef098b65a76730a9daa4610827` |
 | OpenCV-folded ONNX | `ad3a7baae3711c5605a39dfc271fe3e85e10ec8e456928f595515b383ec8befa` |
 | TensorRT engine | `15d73377735ecb0417f70f8f8fae3717d806c021f4f13f294d97ebc2c152205e` |
-| DALI pipeline | `5567596e4cbc064d4d4e3756047cc4e4e8146041f0333a6c276daedf05cca029` |
+| DALI pipeline (host-pinned, 1.50.0) | `5567596e4cbc064d4d4e3756047cc4e4e8146041f0333a6c276daedf05cca029` |
+| DALI pipeline (generated in image, 1.51.2) | `38d84960ae1333129c1bef1ace0e07bd690333151ecaf4ad2010863183f2f88b` |
 | PNG | `07d2d65b0849a22b09dd3deda95759fa02aea9098e7785061c5e26c94fc3891a` |
 
 ## Attempt Record
@@ -194,6 +213,7 @@ or dependency installation were needed.
 | Metadata packet | Implementer subagent | Edits delivered. The brief ambiguously appended a period after the command; worker ran `--check .`, failed, then reran without authorization and passed. Not a valid first-pass score. Direct review corrected inaccurate draft claims. |
 | Initial DALI GPU check | Orchestrator | 5 pass, 1 fail: obsolete INT32/3 expectation. Existing generator establishes INT64/2; only the test assertions changed. |
 | DALI repair check | Orchestrator | 6 pass, zero skips. |
+| DALI fix implementation | Orchestrator | Batch-size gate, int decode, per-output metadata, and constructor cleanup landed; 23/23 in-image acceptance tests pass with zero skips. |
 | Initial CPU gate | Orchestrator | Exit 0, but OpenCV real-model test skipped. Exporter constant identities, then missing constructor dimensions, prevented real-model validation. |
 | OpenCV repair and final CPU gate | Orchestrator | Two real-model tests pass with no skips; quality/docs/build/CTest gate passes. One exploratory invocation from the repo root found no fixture; the recorded real-model gate uses the test working directory. |
 | TensorRT gate | Orchestrator | Fresh engine built; all six GPU tests pass with required-tests mode. |

@@ -490,6 +490,41 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | NVIDIA DALI | .dali | serialized offline by `export/dali/generate_yolo_pipeline.py` |
 <!-- /GEN:test-models-table -->
 
+### DALI pipeline metadata and validation
+
+The caller batch size and the serialized pipeline's `max_batch_size` must both
+be one. `input_sizes` describes external inputs; the optional `|out=3x640x640`
+suffix is only a pre-inference hint for output zero. `|outnames=A,B,...` must
+provide exactly one name per pipeline output.
+
+Declare `output_dtype` and `output_ndim` when serializing pipelines. The YOLO
+preprocessing generator declares FP32 CHW and INT64 `(height, width)` outputs.
+For older artifacts without output datatype declarations, construction and
+inference remain supported, but metadata retrieval raises `InferenceException`
+until one successful inference. Regenerate metadata-first deployments with
+explicit declarations, or warm up with valid inputs before requesting metadata.
+No hidden inference is performed by metadata retrieval.
+
+After successful inference, every output reports its actual datatype and
+batch-inclusive shape, superseding shape hints. Failed requests retain the last
+successful metadata. Both result APIs preserve UINT8, INT32, INT64 and FP32;
+other output datatypes are rejected. Outputs are copied into host byte buffers.
+
+Generate artifacts and compile/run their C++ consumer in the same NVIDIA image:
+
+```bash
+bash backends/dali/test/run_container_tests.sh
+```
+
+This offline gate requires the image to exist locally, an NVIDIA GPU with Docker
+GPU support, `/usr/src/googletest`, and glog/gflags development headers. It mounts
+host sources and headers read-only, compiles the actual backend inside the image,
+and rejects skipped tests. Results default to `build-release-dali-container/`.
+`TRITON_IMAGE`, `DALI_TEST_OUTPUT_DIR`, `GTEST_SOURCE_DIR`, `GLOG_INCLUDE_DIR`,
+and `GFLAGS_INCLUDE_DIR` override those defaults. The default Triton 25.12 image
+contains DALI 1.51.2; this is separate from the 1.50.0 dependency pin. Do not mix
+serialized artifacts, custom plugins, and C libraries from different versions.
+
 ## Contributing
 
 When adding new inference backends, use

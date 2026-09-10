@@ -37,7 +37,13 @@ from nvidia.dali import fn, pipeline_def, types
 INPUT_NAME = "IMAGE"
 
 
-@pipeline_def(batch_size=1, num_threads=2, device_id=0)
+@pipeline_def(
+    batch_size=1,
+    num_threads=2,
+    device_id=0,
+    output_dtype=[types.FLOAT, types.INT64],
+    output_ndim=[3, 1],
+)
 def yolo_encoded_pipeline(size: int):
     """encoded JPEG bytes -> GPU decode -> letterbox -> /255 -> CHW float."""
     encoded = fn.external_source(name=INPUT_NAME, device="cpu", dtype=types.UINT8, ndim=1)
