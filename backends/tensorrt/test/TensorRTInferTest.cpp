@@ -222,10 +222,28 @@ TEST_F(TensorRTInferTest, FailedReinitializationPreservesLiveEngine) {
     TRTInfer infer(model_path, true);
     ASSERT_EQ(infer.state(), BackendState::Ready);
 
+    const auto metadata_before = infer.get_inference_metadata();
+    ASSERT_FALSE(metadata_before.getInputs().empty());
+    ASSERT_FALSE(metadata_before.getOutputs().empty());
+
     const fs::path missing_engine = fs::path(kTestBinaryDir) / "missing-reinitialization.engine";
     ASSERT_FALSE(fs::exists(missing_engine));
     EXPECT_THROW(infer.initializeBuffers(missing_engine.string(), {}), std::runtime_error);
     EXPECT_EQ(infer.state(), BackendState::Ready);
+
+    // The rollback must restore the live engine's metadata, not leave the
+    // staged-and-wiped InferenceMetadata behind.
+    const auto metadata_after = infer.get_inference_metadata();
+    ASSERT_EQ(metadata_after.getInputs().size(), metadata_before.getInputs().size());
+    ASSERT_EQ(metadata_after.getOutputs().size(), metadata_before.getOutputs().size());
+    for (size_t i = 0; i < metadata_before.getInputs().size(); ++i) {
+        EXPECT_EQ(metadata_after.getInputs()[i].name, metadata_before.getInputs()[i].name);
+        EXPECT_EQ(metadata_after.getInputs()[i].shape, metadata_before.getInputs()[i].shape);
+    }
+    for (size_t i = 0; i < metadata_before.getOutputs().size(); ++i) {
+        EXPECT_EQ(metadata_after.getOutputs()[i].name, metadata_before.getOutputs()[i].name);
+        EXPECT_EQ(metadata_after.getOutputs()[i].shape, metadata_before.getOutputs()[i].shape);
+    }
 
     const auto [outputs, shapes] = infer.get_infer_results(neuriplo::testing::zero_blob_tensors());
     ASSERT_FALSE(outputs.empty());
