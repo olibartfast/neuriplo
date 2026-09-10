@@ -205,6 +205,28 @@ TEST_F(TensorRTInferTest, CudaMemoryManagement) {
     // Destructor should properly clean up CUDA resources
 }
 
+TEST_F(TensorRTInferTest, ReinitializationReplacesOwnedBuffers) {
+    TRTInfer infer(model_path, true);
+    ASSERT_NO_THROW(infer.initializeBuffers(model_path, {}));
+    const auto [outputs, shapes] = infer.get_infer_results(neuriplo::testing::zero_blob_tensors());
+    ASSERT_FALSE(outputs.empty());
+    ASSERT_FALSE(shapes.empty());
+}
+
+TEST_F(TensorRTInferTest, FailedReinitializationPreservesLiveEngine) {
+    TRTInfer infer(model_path, true);
+    ASSERT_EQ(infer.state(), BackendState::Ready);
+
+    const fs::path missing_engine = fs::path(kTestBinaryDir) / "missing-reinitialization.engine";
+    ASSERT_FALSE(fs::exists(missing_engine));
+    EXPECT_THROW(infer.initializeBuffers(missing_engine.string(), {}), std::runtime_error);
+    EXPECT_EQ(infer.state(), BackendState::Ready);
+
+    const auto [outputs, shapes] = infer.get_infer_results(neuriplo::testing::zero_blob_tensors());
+    ASSERT_FALSE(outputs.empty());
+    ASSERT_FALSE(shapes.empty());
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

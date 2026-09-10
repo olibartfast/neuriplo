@@ -3,6 +3,7 @@
 #include <cuda_fp16.h> // For __half if using half-precision
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace {
 
@@ -30,6 +31,26 @@ std::vector<int64_t> withBatchDimension(const std::vector<int64_t>& trailing, co
     return shape;
 }
 
+void releaseResources(std::vector<void*>& buffers, nvinfer1::IExecutionContext*& context,
+                      std::shared_ptr<nvinfer1::ICudaEngine>& engine, nvinfer1::IRuntime*& runtime) noexcept {
+    for (size_t i = 0; i < buffers.size(); ++i) {
+        if (buffers[i] == nullptr) {
+            continue;
+        }
+        const cudaError_t err = cudaFree(buffers[i]);
+        if (err != cudaSuccess) {
+            LOG(ERROR) << "cudaFree failed for buffer[" << i << "]: " << cudaGetErrorString(err);
+        }
+        buffers[i] = nullptr;
+    }
+    buffers.clear();
+    delete context;
+    context = nullptr;
+    engine.reset();
+    delete runtime;
+    runtime = nullptr;
+}
+
 } // namespace
 
 // CUDA error checking macro
@@ -52,61 +73,59 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     state_ = BackendState::Ready;
 }
 
-TRTInfer::~TRTInfer() {
-    for (size_t i = 0; i < buffers_.size(); ++i) {
-        void* buffer = buffers_[i];
-        if (buffer) {
-            cudaError_t err = cudaFree(buffer);
-            if (err != cudaSuccess) {
-                LOG(ERROR) << "cudaFree failed for buffer[" << i << "]: " << cudaGetErrorString(err);
-            }
-            buffers_[i] = nullptr;
-        }
-    }
-    if (context_) {
-        delete context_;
-        context_ = nullptr;
-    }
-    engine_.reset();
-    if (runtime_) {
-        delete runtime_;
-        runtime_ = nullptr;
-    }
-}
+TRTInfer::~TRTInfer() { releaseResources(buffers_, context_, engine_, runtime_); }
 
 void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vector<std::vector<int64_t>>& input_sizes) {
-    // Create TensorRT runtime.
-    // TensorRT keeps the ILogger reference for the lifetime of the runtime and of
-    // every engine and execution context built from it, and calls back into it
-    // from arbitrary threads. A stack or member logger would therefore dangle as
-    // soon as this function returned (or the TRTInfer was copied/moved), and the
-    // next TensorRT diagnostic would call through a freed vtable. The logger is
-    // stateless, so a single function-local static outlives every TensorRT object
-    // and is safe to share.
+    // Reinitialization is transactional. Keep the live engine usable until the
+    // replacement runtime, engine, context, and every device buffer exist.
+    auto previous_engine = std::move(engine_);
+    auto* previous_context = std::exchange(context_, nullptr);
+    auto previous_buffers = std::move(buffers_);
+    auto previous_buffer_by_name = std::move(buffer_by_name_);
+    auto* previous_runtime = std::exchange(runtime_, nullptr);
+    const size_t previous_num_inputs = num_inputs_;
+    const size_t previous_num_outputs = num_outputs_;
+    auto previous_input_tensor_names = std::move(input_tensor_names_);
+    auto previous_output_tensor_names = std::move(output_tensor_names_);
+    const BackendState previous_state = state_;
+
     static Logger logger;
-    runtime_ = nvinfer1::createInferRuntime(logger);
+    try {
+        runtime_ = nvinfer1::createInferRuntime(logger);
 
-    // Load engine file
-    std::ifstream engine_file(engine_path, std::ios::binary);
-    if (!engine_file) {
-        throw std::runtime_error("Failed to open engine file: " + engine_path);
-    }
-    engine_file.seekg(0, std::ios::end);
-    size_t file_size = engine_file.tellg();
-    engine_file.seekg(0, std::ios::beg);
-    std::vector<char> engine_data(file_size);
-    engine_file.read(engine_data.data(), file_size);
-    engine_file.close();
+        std::ifstream engine_file(engine_path, std::ios::binary);
+        if (!engine_file) {
+            throw std::runtime_error("Failed to open engine file: " + engine_path);
+        }
+        engine_file.seekg(0, std::ios::end);
+        const size_t file_size = engine_file.tellg();
+        engine_file.seekg(0, std::ios::beg);
+        std::vector<char> engine_data(file_size);
+        engine_file.read(engine_data.data(), file_size);
 
-    // Deserialize engine
-    engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
-    if (!engine_) {
-        state_ = BackendState::Failed;
-        throw std::runtime_error("Failed to deserialize TensorRT engine (plan built with an "
-                                 "incompatible TensorRT version?): " +
-                                 engine_path);
+        engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
+        if (!engine_) {
+            throw std::runtime_error("Failed to deserialize TensorRT engine (plan built with an "
+                                     "incompatible TensorRT version?): " +
+                                     engine_path);
+        }
+        createContextAndAllocateBuffers(input_sizes);
+    } catch (...) {
+        releaseResources(buffers_, context_, engine_, runtime_);
+        engine_ = std::move(previous_engine);
+        context_ = previous_context;
+        buffers_ = std::move(previous_buffers);
+        buffer_by_name_ = std::move(previous_buffer_by_name);
+        runtime_ = previous_runtime;
+        num_inputs_ = previous_num_inputs;
+        num_outputs_ = previous_num_outputs;
+        input_tensor_names_ = std::move(previous_input_tensor_names);
+        output_tensor_names_ = std::move(previous_output_tensor_names);
+        state_ = previous_state;
+        throw;
     }
-    createContextAndAllocateBuffers(input_sizes);
+
+    releaseResources(previous_buffers, previous_context, previous_engine, previous_runtime);
 }
 
 // calculate size of tensor
@@ -142,6 +161,17 @@ TensorDataType TRTInfer::toTensorDataType(nvinfer1::DataType type) {
 }
 
 void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int64_t>>& input_sizes) {
+    for (void* buffer : buffers_) {
+        if (buffer != nullptr) {
+            CHECK_CUDA(cudaFree(buffer));
+        }
+    }
+    buffers_.clear();
+    buffer_by_name_.clear();
+    if (context_ != nullptr) {
+        delete context_;
+        context_ = nullptr;
+    }
     context_ = engine_->createExecutionContext();
     int num_tensors = engine_->getNbIOTensors();
     buffers_.resize(num_tensors);
@@ -251,6 +281,10 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
             throw ModelLoadException("Unsupported data type for tensor " + tensor_name);
         }
         CHECK_CUDA(cudaMalloc(&buffers_[i], binding_size));
+        // Buffers land in engine enumeration order; record the address under
+        // the tensor name so consumers never assume all inputs precede
+        // outputs.
+        buffer_by_name_[tensor_name] = buffers_[i];
     }
 }
 
@@ -329,7 +363,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
         }
 
         // 5. Pass to CUDA (No casting needed!)
-        CHECK_CUDA(cudaMemcpy(buffers_[i], input_tensors[i].data(), actual_bytes, cudaMemcpyHostToDevice));
+        CHECK_CUDA(
+            cudaMemcpy(buffer_by_name_.at(tensor_name), input_tensors[i].data(), actual_bytes, cudaMemcpyHostToDevice));
     }
 
     // Perform inference. RAII so the binding failures below, which throw, do
@@ -348,7 +383,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
     // Note: Dynamic shape checking loop removed as per optimization
 
     for (size_t i = 0; i < num_inputs_; ++i) {
-        if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(), buffers_[i])) {
+        if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(),
+                                             buffer_by_name_.at(input_tensor_names_[i]))) {
             LOG(ERROR) << "Failed to set input tensor address for tensor: " << input_tensor_names_[i];
             state_ = BackendState::Failed;
             throw InferenceExecutionException("Failed to set input tensor address for tensor: " +
@@ -357,7 +393,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
     }
 
     for (size_t i = 0; i < num_outputs_; ++i) {
-        if (!context_->setOutputTensorAddress(output_tensor_names_[i].c_str(), buffers_[i + num_inputs_])) {
+        if (!context_->setOutputTensorAddress(output_tensor_names_[i].c_str(),
+                                              buffer_by_name_.at(output_tensor_names_[i]))) {
             LOG(ERROR) << "Failed to set output tensor address for tensor: " << output_tensor_names_[i];
             state_ = BackendState::Failed;
             throw InferenceExecutionException("Failed to set output tensor address for tensor: " +
@@ -395,8 +432,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         switch (engine_->getTensorDataType(tensor_name.c_str())) {
         case nvinfer1::DataType::kFLOAT: {
             std::vector<float> output_data_float(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_float.data(), buffers_[i + num_inputs_], num_elements * sizeof(float),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_float.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(float), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_float) {
                 tensor_data.push_back(static_cast<float>(value));
@@ -405,8 +442,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         case nvinfer1::DataType::kINT32: {
             std::vector<int32_t> output_data_int(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_int.data(), buffers_[i + num_inputs_], num_elements * sizeof(int32_t),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_int.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(int32_t), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_int) {
                 tensor_data.push_back(static_cast<int32_t>(value));
@@ -415,8 +452,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         case nvinfer1::DataType::kINT64: {
             std::vector<int64_t> output_data_int64(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_int64.data(), buffers_[i + num_inputs_], num_elements * sizeof(int64_t),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_int64.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(int64_t), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_int64) {
                 tensor_data.push_back(static_cast<int64_t>(value));
@@ -425,8 +462,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         case nvinfer1::DataType::kHALF: {
             std::vector<__half> output_data_half(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_half.data(), buffers_[i + num_inputs_], num_elements * sizeof(__half),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_half.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(__half), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_half) {
                 tensor_data.push_back(static_cast<float>(__half2float(value)));
@@ -461,7 +498,7 @@ std::vector<RawOutputTensor> TRTInfer::get_infer_results_raw(const std::vector<s
         const std::string& tensor_name = output_tensor_names_[i];
         const nvinfer1::Dims dims = outputDims(i);
         const size_t num_elements = getSizeByDim(dims);
-        void* device_buffer = buffers_[i + num_inputs_];
+        void* device_buffer = buffer_by_name_.at(tensor_name);
 
         RawOutputTensor tensor;
         tensor.shape.reserve(static_cast<size_t>(dims.nbDims));

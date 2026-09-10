@@ -5,15 +5,21 @@
 #include <NvInfer.h>          // for TensorRT API
 #include <cuda_runtime_api.h> // for CUDA runtime API
 #include <fstream>
+#include <unordered_map>
 #include <vector>
 
 // Adapter: exposes the TensorRT runtime through the common InferenceInterface contract.
 class TRTInfer : public InferenceInterface {
   protected:
     std::shared_ptr<nvinfer1::ICudaEngine> engine_;
-    nvinfer1::IExecutionContext* context_;
+    nvinfer1::IExecutionContext* context_ = nullptr;
     std::vector<void*> buffers_;
-    nvinfer1::IRuntime* runtime_;
+    // Engine tensor addresses keyed by tensor name. buffers_ is allocated in
+    // the engine's I/O enumeration order, which is not guaranteed to group
+    // inputs before outputs, so every read and address assignment must go
+    // through this map instead of positional arithmetic on buffers_.
+    std::unordered_map<std::string, void*> buffer_by_name_;
+    nvinfer1::IRuntime* runtime_ = nullptr;
     size_t num_inputs_ = 0;
     size_t num_outputs_ = 0;
     std::vector<std::string> input_tensor_names_;

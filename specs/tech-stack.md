@@ -60,7 +60,7 @@ live in `versions.env`; the human-readable backend inventory lives in
 
 | Concern | Source |
 | --- | --- |
-| Agent scope, owned paths, and automated-change limits | `REPO_META.yaml` and `AGENTS.md` |
+| Automated-change scope and owned paths | `REPO_META.yaml` and `AGENTS.md` |
 | Mission and product boundaries | `specs/mission.md` |
 | Delivery order | `specs/roadmap.md` |
 | Backend IDs and CMake properties | `cmake/BackendRegistry.cmake` |
@@ -81,21 +81,9 @@ with `python3 scripts/gen_backend_docs.py` in the same change.
 - No framework or language migration merely to simplify one feature.
 - No backend-specific setup, model-format, Docker, build, or troubleshooting
   expansion in `Readme.md`; keep those details in the appropriate `docs/` guide.
-- No feature implementation before consequential scope and validation decisions
-  are recorded in a feature packet.
-
-## Branch and Documentation Workflow
-
-- `develop` is the integration branch. All feature branches and worktrees start
-  from `develop`; `master` is release-only.
-- A selected roadmap phase gets `specs/YYYY-MM-DD-feature-name/` containing
-  `requirements.md`, `plan.md`, and `validation.md` before implementation.
-- Requirements describe what, the plan describes how, and validation describes
-  proof. Change the spec in the same branch whenever implementation changes the
-  contract.
-- Documentation-only commits include `[skip ci]`.
-- Before pushing documentation with links, verify every relative target exists
-  and every absolute URL is reachable.
+- Non-trivial public-behavior or architecture work records scope and validation
+  in a dated feature packet before implementation; small fixes scale the artifact
+  to their risk.
 
 ## Validation Entrypoints
 
@@ -124,3 +112,6 @@ full local job described in `docs/LOCAL_CI.md`.
 - Define representative performance baselines without pretending unlike
   backend, model, device, and architecture combinations are directly
   interchangeable.
+
+_Revision: 2026-09-11 - removed contributor workflow from the technical
+constitution and aligned feature-packet scope with proportional use._
