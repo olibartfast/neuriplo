@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-11
+
 ### Fixed
 - `TensorRT`: device buffers are keyed by tensor name instead of assumed
   all-inputs-first positional indexing. TensorRT does not guarantee that the
@@ -13,8 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   read, address assignment, and importantly the new `get_infer_results_raw()`
   copy did. Interleaved-enumeration engines copied from another tensor's
   device buffer; these engines now read from their own allocations. Engines
-  with conventional input-then-output enumeration are unaffected, and all six
-  TensorRT GPU tests pass unchanged.
+  with conventional input-then-output enumeration are unaffected, and all eight
+  TensorRT GPU tests pass.
+- `TensorRT`: reinitialization now stages replacement resources and preserves
+  the working engine when loading or allocating the replacement fails.
 - `DALI`: advertise external inputs as Int8/Bool where applicable rather than
   silently falling back to Float32, and reject input types with no metadata
   representation instead of advertising them as Float32.
@@ -30,9 +34,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the dependency root into `setup_dali.sh`; generated env blocks add `$DALI_DIR`
   to the shared-library search path, where `setup_dali.sh` actually places
   `libdali.so`, rather than a nonexistent `lib/` subdirectory.
-- `Readme.md`: DALI output 1 documents `(H, W)` matching the generator and
-  pipeline implementation, and the pipeline-generation command uses the
-  NVIDIA image rather than an impossible-to-import extracted wheel layout.
+- DALI output 1 documentation now matches the generator's `(H, W)` shape,
+  while backend setup and pipeline generation live in the dependency guide.
+  Deployment artifacts are generated with the DALI version pinned in
+  `versions.env`.
 
 ## [0.9.0] - 2026-09-10
 
@@ -324,7 +329,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/olibartfast/neuriplo/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/olibartfast/neuriplo/compare/v0.6.0...v0.7.0
