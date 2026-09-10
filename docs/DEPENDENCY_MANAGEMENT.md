@@ -497,14 +497,23 @@ be one. `input_sizes` describes external inputs; the optional `|out=3x640x640`
 suffix is only a pre-inference hint for output zero. `|outnames=A,B,...` must
 provide exactly one name per pipeline output.
 
-The generator imports `nvidia.dali`, which the extracted wheel layout does
-not install as a Python package. Run it inside the NVIDIA image:
+The generator imports `nvidia.dali`, while `scripts/setup_dali.sh`
+extracts only the C++ files. Generate deployment artifacts in a temporary
+Python environment that installs the same version from `versions.env`:
 
 ```bash
-docker run --rm -v "$PWD:/out" --entrypoint python3 \
-    nvcr.io/nvidia/tritonserver:25.12-py3 \
-    /out/export/dali/generate_yolo_pipeline.py --size 640 --output /out/yolo_pre_640.dali
+source versions.env
+python3 -m venv /tmp/neuriplo-dali-generator
+/tmp/neuriplo-dali-generator/bin/pip install \
+    --extra-index-url https://pypi.nvidia.com \
+    "nvidia-dali-cuda120==${DALI_VERSION}"
+/tmp/neuriplo-dali-generator/bin/python \
+    export/dali/generate_yolo_pipeline.py \
+    --size 640 --output yolo_pre_640.dali
 ```
+
+Generate and consume a serialized pipeline with the same DALI version. The
+native serialization API is not a stable cross-version format.
 
 Declare `output_dtype` and `output_ndim` when serializing pipelines. The YOLO
 preprocessing generator declares FP32 CHW and INT64 `(height, width)` outputs.
