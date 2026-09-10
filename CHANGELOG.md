@@ -202,8 +202,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   implementation adapts `get_infer_results()` so all other backends keep
   working unchanged.
 - Optional ccache support to speed up non-release builds.
-- Library roadmap (`specs/roadmap.md`) and the ORT execution-provider plan
-  (`docs/plans/ort-execution-providers.md`).
+- Library roadmap (`specs/roadmap.md`) and the ORT execution-provider guide
+  (`docs/ORT_EXECUTION_PROVIDERS.md`).
 
 ### Changed
 - `setup_inference_engine` no longer lets vendor exceptions (e.g.
@@ -236,7 +236,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `IAllocator`) and a dedicated patterns test suite (`PatternsTest.cpp`).
 - Local code-quality tooling: clang-format, clang-tidy, cppcheck, and sanitizer
   scripts under `scripts/quality/`, pre-commit/pre-push git hooks, and
-  `docs/CODE_QUALITY.md` plus `docs/REFACTOR_DESIGN_PATTERNS.md`.
+  `docs/CODE_QUALITY.md` plus `docs/ARCHITECTURE.md`.
 
 ### Changed
 - `setup_inference_engine` now constructs backends through the Abstract Factory
@@ -244,7 +244,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   return type (cross-repo contract with neuriplo-infer unchanged).
 - Documentation now references the renamed sibling repositories
   (`vision-inference` → `neuriplo-infer`, `vision-core` → `neuriplo-tasks`) in
-  `Readme.md` and `docs/REFACTOR_DESIGN_PATTERNS.md`.
+  `Readme.md` and `docs/ARCHITECTURE.md`.
 
 ### Fixed
 - Backend load failures now set a `Failed` state and throw `ModelLoadException`
