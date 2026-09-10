@@ -252,7 +252,7 @@ $CACTUS_DIR/lib:\
 $LLAMACPP_DIR/lib:\
 $EXECUTORCH_DIR/lib:\
 $LITERT_DIR/lib:\
-$DALI_DIR/lib:\
+$DALI_DIR:\
 $LD_LIBRARY_PATH"
 ```
 <!-- /GEN:env-variables -->

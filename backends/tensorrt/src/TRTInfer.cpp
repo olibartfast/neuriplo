@@ -251,6 +251,10 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
             throw ModelLoadException("Unsupported data type for tensor " + tensor_name);
         }
         CHECK_CUDA(cudaMalloc(&buffers_[i], binding_size));
+        // Buffers land in engine enumeration order; record the address under
+        // the tensor name so consumers never assume all inputs precede
+        // outputs.
+        buffer_by_name_.emplace(tensor_name, buffers_[i]);
     }
 }
 
@@ -329,7 +333,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
         }
 
         // 5. Pass to CUDA (No casting needed!)
-        CHECK_CUDA(cudaMemcpy(buffers_[i], input_tensors[i].data(), actual_bytes, cudaMemcpyHostToDevice));
+        CHECK_CUDA(
+            cudaMemcpy(buffer_by_name_.at(tensor_name), input_tensors[i].data(), actual_bytes, cudaMemcpyHostToDevice));
     }
 
     // Perform inference. RAII so the binding failures below, which throw, do
@@ -348,7 +353,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
     // Note: Dynamic shape checking loop removed as per optimization
 
     for (size_t i = 0; i < num_inputs_; ++i) {
-        if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(), buffers_[i])) {
+        if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(),
+                                             buffer_by_name_.at(input_tensor_names_[i]))) {
             LOG(ERROR) << "Failed to set input tensor address for tensor: " << input_tensor_names_[i];
             state_ = BackendState::Failed;
             throw InferenceExecutionException("Failed to set input tensor address for tensor: " +
@@ -357,7 +363,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
     }
 
     for (size_t i = 0; i < num_outputs_; ++i) {
-        if (!context_->setOutputTensorAddress(output_tensor_names_[i].c_str(), buffers_[i + num_inputs_])) {
+        if (!context_->setOutputTensorAddress(output_tensor_names_[i].c_str(),
+                                              buffer_by_name_.at(output_tensor_names_[i]))) {
             LOG(ERROR) << "Failed to set output tensor address for tensor: " << output_tensor_names_[i];
             state_ = BackendState::Failed;
             throw InferenceExecutionException("Failed to set output tensor address for tensor: " +
@@ -395,8 +402,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         switch (engine_->getTensorDataType(tensor_name.c_str())) {
         case nvinfer1::DataType::kFLOAT: {
             std::vector<float> output_data_float(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_float.data(), buffers_[i + num_inputs_], num_elements * sizeof(float),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_float.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(float), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_float) {
                 tensor_data.push_back(static_cast<float>(value));
@@ -405,8 +412,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         case nvinfer1::DataType::kINT32: {
             std::vector<int32_t> output_data_int(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_int.data(), buffers_[i + num_inputs_], num_elements * sizeof(int32_t),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_int.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(int32_t), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_int) {
                 tensor_data.push_back(static_cast<int32_t>(value));
@@ -415,8 +422,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         case nvinfer1::DataType::kINT64: {
             std::vector<int64_t> output_data_int64(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_int64.data(), buffers_[i + num_inputs_], num_elements * sizeof(int64_t),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_int64.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(int64_t), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_int64) {
                 tensor_data.push_back(static_cast<int64_t>(value));
@@ -425,8 +432,8 @@ TRTInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tenso
         }
         case nvinfer1::DataType::kHALF: {
             std::vector<__half> output_data_half(num_elements);
-            CHECK_CUDA(cudaMemcpy(output_data_half.data(), buffers_[i + num_inputs_], num_elements * sizeof(__half),
-                                  cudaMemcpyDeviceToHost));
+            CHECK_CUDA(cudaMemcpy(output_data_half.data(), buffer_by_name_.at(tensor_name),
+                                  num_elements * sizeof(__half), cudaMemcpyDeviceToHost));
 
             for (const auto& value : output_data_half) {
                 tensor_data.push_back(static_cast<float>(__half2float(value)));
@@ -461,7 +468,7 @@ std::vector<RawOutputTensor> TRTInfer::get_infer_results_raw(const std::vector<s
         const std::string& tensor_name = output_tensor_names_[i];
         const nvinfer1::Dims dims = outputDims(i);
         const size_t num_elements = getSizeByDim(dims);
-        void* device_buffer = buffers_[i + num_inputs_];
+        void* device_buffer = buffer_by_name_.at(tensor_name);
 
         RawOutputTensor tensor;
         tensor.shape.reserve(static_cast<size_t>(dims.nbDims));
