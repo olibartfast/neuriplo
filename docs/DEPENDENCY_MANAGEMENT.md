@@ -275,8 +275,15 @@ export PYTHONPATH="$TVM_DIR/python:$PYTHONPATH"
 ### Linux (CentOS/RHEL/Fedora)
 - Basic support; uses yum/dnf. May require additional configuration.
 
-### Windows
-- Not supported.
+### Windows (x64, MSVC)
+- GitHub Actions builds `OPENCV_DNN` and `ONNX_RUNTIME` on Windows with
+  Ninja and MSVC; the `ONNX_RUNTIME` job also runs the test suite under `ctest`.
+  The public headers additionally compile as a standalone project with glog
+  and no OpenCV installed, so consumers who do not build `OPENCV_DNN` do not
+  need OpenCV at all.
+- Other backends are not validated by Windows CI.
+- The setup scripts are bash-only; on Windows install dependencies manually
+  (the CI jobs use vcpkg and the ONNX Runtime release archive).
 
 ## Manual Installation
 
@@ -306,8 +313,11 @@ installed decides device placement: with a CPU-only build
 therefore picks the variant deliberately — it keeps the family of an existing
 installation (a CUDA LibTorch is never replaced by a CPU one as a side effect of
 an upgrade), and otherwise selects the newest CUDA build PyTorch publishes for
-this release that the local driver supports, falling back to CPU only when no
-CUDA is present. Which CUDA builds exist differs per release — 2.3.0 ships
+this release that the local driver supports when CUDA is wanted. Without an
+existing variant, no driver capability reported by `nvidia-smi` means CPU is
+selected, even if `nvcc` is installed. An existing CUDA build with no detected
+driver instead requires an explicit variant decision; failed CUDA download
+probes do not silently switch to CPU. Which CUDA builds exist differs per release — 2.3.0 ships
 `cu118` and `cu121` but no `cu120` — so the choice is made against what the
 server actually publishes rather than derived from the local CUDA version.
 

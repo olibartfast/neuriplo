@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-10
+
 ### Added
 - Spec-driven project constitution under `specs/`: mission, technical
   boundaries, a status-bearing roadmap, and the three-document feature-packet
@@ -25,6 +27,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and `daliInitOperators()` is called at first use -- without either, every
   pipeline fails at run time with `No schema found for operator
   "decoders__Image"`.
+- `DALI` backend: postprocessing pipelines. The backend now discovers whatever
+  external sources a pipeline declares and feeds them in order, so a
+  postprocessing stage that consumes model outputs works the same way as
+  preprocessing. GPU preprocessing, inference, and postprocessing can be chained,
+  but the current byte-buffer interface still copies outputs to host memory
+  between stages; this is not a zero-copy device-to-device interface.
+  `model_path` carries optional suffixes: `|plugin=<lib.so>` for custom DALI
+  operator plugins, `|out=CxHxW` for the declared output shape, and
+  `|outnames=A,B,...` for named positional outputs. Pipelines are serialized
+  inside the NVIDIA container (`export/dali/generate_pipelines.sh`) rather
+  than a host virtualenv, since a serialized pipeline and its operator plugin
+  are tied to one DALI version. The source-dimensions tensor is now INT64
+  (height, width).
+- Windows/MSVC CI coverage: an OPENCV_DNN build job, an ONNX_RUNTIME build job
+  with `ctest`, and a standalone public-headers project built with glog only,
+  where OpenCV is never installed, proving the public headers compile without
+  OpenCV and without relying on it for transitive `std` headers.
 
 ### Changed
 - `TensorRT` backend: implements `get_infer_results_raw()` instead of
@@ -41,14 +60,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `TensorRT` backend: the per-inference CUDA stream is RAII-owned and
   explicitly synchronised after `enqueueV3` rather than leaking on the binding
   error paths and relying on the legacy default stream to synchronise for it.
+- `TensorRT` backend: reported tensor shapes keep the batch dimension, for
+  inputs and outputs alike. The backend previously dropped it, so a model
+  served through TensorRT advertised `[3,H,W]` where the ONNX Runtime backend
+  advertised `[1,3,H,W]`, and any client valid against one backend was
+  rejected with HTTP 400 "invalid shape for input" against the other. The
+  engine's own leading dimension is authoritative; when it is dynamic, the
+  configured batch size is reported. Consumers must stop prepending an extra
+  batch dimension to reported TensorRT shapes and update rank assumptions;
+  constructor `input_sizes` still exclude the batch dimension.
+- Public headers no longer include OpenCV, even transitively. OpenCV belongs
+  to the `OPENCV_DNN` backend alone: it is linked only from that backend's
+  CMake branch, the test suite builds its inputs without OpenCV, and the
+  includes the headers used to lean on OpenCV for are provided explicitly.
+  Consumers must now include and link OpenCV directly when they use it.
+- `OPENCV_DNN` backend: builds against OpenCV 4.6+ and 5.x. OpenCV 5 removes
+  legacy importers including Darknet, Caffe, and Torch; use OpenCV 4.x or
+  convert affected models to ONNX. Its default DNN engine is CPU-only, so
+  CUDA-enabled OpenCV 5 builds reject GPU requests rather than silently
+  ignoring them; pass `use_gpu=false` or use OpenCV 4.x for CUDA inference.
+- Dependency validation checks installed-version metadata where available
+  rather than trusting directory names, and warns about drift from the
+  `versions.env` pin. Source-built backends use a `neuriplo-version.txt`
+  stamp written only after a successful build and install, so bumping a pin
+  no longer silently reuses a stale installation. GGML, llama.cpp, Cactus,
+  and ExecuTorch setup stage new installs before replacing the old ones;
+  this is not a transactional-install guarantee for every setup script.
+- LibTorch setup picks the CUDA or CPU build deliberately: it keeps the family
+  of an existing installation, otherwise selects the newest CUDA build
+  published for the pinned PyTorch release that the local driver supports,
+  when CUDA is wanted. With no existing variant and no driver capability
+  reported by `nvidia-smi`, it selects CPU even if a CUDA toolkit is installed.
+  An existing CUDA installation with no detected driver instead requires an
+  explicit decision; failed CUDA download probes do not silently select CPU.
+  Override with `LIBTORCH_VARIANT` (a CPU-only build runs on CPU regardless
+  of `use_gpu`).
 
 ### Fixed
+- `DALI` integration test: expect the current preprocessing generator's INT64
+  `(height, width)` output rather than the obsolete three-element INT32 shape.
+- `OPENCV_DNN` integration test: pass the fixture's input dimensions when
+  constructing the backend, so a valid model does not fall back to mock
+  inference because the dimensions were omitted.
 - `DALI` backend: reject an external input whose declared shape needs more
   bytes than the supplied buffer holds. `daliSetExternalInput` takes no
   destination length, so this previously became an out-of-bounds read inside
   the library with no diagnostic. The output copy is likewise redzone-checked,
   because `daliOutputCopy` has the same no-length signature and a
   `daliTensorSize` that under-reported would corrupt the heap silently.
+- `ONNX_RUNTIME`: an installed runtime older than the build headers now raises
+  a named `ModelLoadException` instead of faulting on the first ONNX Runtime
+  call past every catch clause (the C++ API table pointer is a null deref
+  before then). The Windows runtime DLLs are also staged where the loader
+  looks first, so version mismatches are rejected rather than depending on
+  PATH order.
+- `TensorRT`: the logger outlives the runtime, engine and execution context;
+  `createInferRuntime()` stores only a reference, and a function-local logger
+  died with the function that created it, so the next TensorRT diagnostic
+  called through a freed vtable. `TRTInfer` is also non-copyable: its
+  destructor frees every device buffer, and the implicit copy would have
+  freed them twice.
+- Windows: a test executable that fails before it can report (missing DLL,
+  fault in static initialisation) no longer hangs the CI job for hours --
+  error dialogs are suppressed and the test step runs under a bounded
+  timeout.
 
 ## [0.8.0] - 2026-06-14
 
@@ -215,7 +290,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/olibartfast/neuriplo/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/olibartfast/neuriplo/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/olibartfast/neuriplo/compare/v0.5.0...v0.6.0

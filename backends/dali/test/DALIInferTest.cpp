@@ -87,8 +87,8 @@ TEST(DALIInferTest, DecodesAnEncodedImageIntoThePreprocessedTensor) {
     ASSERT_EQ(outputs.size(), 2u);
     EXPECT_EQ(outputs[0].dtype, TensorDtype::FP32);
     EXPECT_EQ(outputs[0].element_count(), 3u * 640u * 640u);
-    EXPECT_EQ(outputs[1].dtype, TensorDtype::INT32);
-    EXPECT_EQ(outputs[1].element_count(), 3u);
+    EXPECT_EQ(outputs[1].dtype, TensorDtype::INT64);
+    EXPECT_EQ(outputs[1].element_count(), 2u);
 }
 
 TEST(DALIInferTest, RejectsAnEmptyEncodedImage) {
