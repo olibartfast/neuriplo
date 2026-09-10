@@ -118,9 +118,12 @@ cmake -S . -B build-release-0.9.0-trt -G Ninja \
   -DNEURIPLO_REQUIRE_GMOCK=ON -DENABLE_CCACHE=OFF
 cmake --build build-release-0.9.0-trt --parallel 2 \
   --target TensorRTInferTest PatternsTest TestTemplateCompileTest
+# The build does not stage the model; supply the unmodified ONNX fixture
+# yourself at the path the test harness reads.
+cp /path/to/resnet18.onnx build-release-0.9.0-trt/backends/tensorrt/test/
 env LD_LIBRARY_PATH=/home/oli/dependencies/TensorRT-10.14.1.48/lib \
   /home/oli/dependencies/TensorRT-10.14.1.48/bin/trtexec \
-  --onnx=build-release-0.9.0-opencv/backends/opencv-dnn/test/resnet18.onnx \
+  --onnx=build-release-0.9.0-trt/backends/tensorrt/test/resnet18.onnx \
   --saveEngine=build-release-0.9.0-trt/backends/tensorrt/test/resnet18.engine \
   --fp16 --memPoolSize=workspace:1024M --skipInference
 env LD_LIBRARY_PATH=/home/oli/dependencies/TensorRT-10.14.1.48/lib \

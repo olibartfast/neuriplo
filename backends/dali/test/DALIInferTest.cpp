@@ -110,7 +110,7 @@ TEST(DALIInferTest, ReportsEncodedImageInputAndPreprocessedOutputs) {
     ASSERT_EQ(metadata.getInputs().size(), 1u);
     EXPECT_EQ(metadata.getInputs()[0].name, DALIInfer::kEncodedInputName);
     ASSERT_GE(metadata.getOutputs().size(), 1u);
-    EXPECT_EQ(metadata.getOutputs()[0].name, DALIInfer::kPreprocessedOutputName);
+    EXPECT_EQ(metadata.getOutputs()[0].name, "output0");
 }
 
 TEST(DALIInferTest, DecodesAnEncodedImageIntoThePreprocessedTensor) {

@@ -247,14 +247,22 @@ cmake -S . -B build -DDEFAULT_BACKEND=DALI -DDALI_DIR=/path/to/dali
 ```
 
 Input is the encoded image bytes (`IMAGE`, UINT8, `[1, N]`). Output 0 is the
-preprocessed tensor; output 1 is `IMAGE_SHAPE`, the source image's height,
-width, and channel count, which downstream postprocessing needs to map results
-back onto the original frame.
+preprocessed tensor. Output 1 (when the pipeline produces it) carries the
+source image's height and width, which downstream postprocessing needs to map
+results back onto the original frame. Outputs are addressed positionally in
+metadata (`output0`, `output1`, ...) because the serialized pipeline format
+carries no output names; pass `|outnames=preprocessed,IMAGE_SHAPE` on the
+model path when a deployment installs semantic names.
 
-`model_path` is a serialized `.dali` pipeline, authored offline:
+`model_path` is a serialized `.dali` pipeline, authored offline. The generator
+imports `nvidia.dali`, which the extracted wheel layout does not install as a
+Python package, so run it inside the NVIDIA image (exactly how the container
+tests do):
 
 ```bash
-python3 export/dali/generate_yolo_pipeline.py --size 640 --output yolo_pre_640.dali
+docker run --rm -v "$PWD:/out" --entrypoint python3 \
+    nvcr.io/nvidia/tritonserver:25.12-py3 \
+    /out/export/dali/generate_yolo_pipeline.py --size 640 --output /out/yolo_pre_640.dali
 ```
 
 Nothing runs Python at inference time -- the pipeline is deserialized and
