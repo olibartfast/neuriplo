@@ -105,7 +105,7 @@ int64_t element_count(const std::vector<int64_t>& shape) {
     for (const auto dim : shape) {
         const int64_t extent = dim > 0 ? dim : 1;
         if (count > std::numeric_limits<int64_t>::max() / extent) {
-            throw InferenceException("declared shape overflows the element count");
+            throw InferenceExecutionException("declared shape overflows the element count");
         }
         count *= extent;
     }
