@@ -51,7 +51,8 @@ class OCVDNNInferTest : public ::testing::Test {
             if (!model_path.empty() && fs::exists(model_path)) {
                 has_real_model = true;
                 try {
-                    real_infer = std::make_unique<OCVDNNInfer>(model_path);
+                    real_infer = std::make_unique<OCVDNNInfer>(model_path, false, 1,
+                                                               std::vector<std::vector<int64_t>>{{3, 224, 224}});
                     std::cout << "Using real model: " << model_path << std::endl;
                 } catch (const std::exception& e) {
                     std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
