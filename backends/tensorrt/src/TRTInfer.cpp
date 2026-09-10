@@ -3,6 +3,7 @@
 #include <cuda_fp16.h> // For __half if using half-precision
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace {
 
@@ -30,6 +31,26 @@ std::vector<int64_t> withBatchDimension(const std::vector<int64_t>& trailing, co
     return shape;
 }
 
+void releaseResources(std::vector<void*>& buffers, nvinfer1::IExecutionContext*& context,
+                      std::shared_ptr<nvinfer1::ICudaEngine>& engine, nvinfer1::IRuntime*& runtime) noexcept {
+    for (size_t i = 0; i < buffers.size(); ++i) {
+        if (buffers[i] == nullptr) {
+            continue;
+        }
+        const cudaError_t err = cudaFree(buffers[i]);
+        if (err != cudaSuccess) {
+            LOG(ERROR) << "cudaFree failed for buffer[" << i << "]: " << cudaGetErrorString(err);
+        }
+        buffers[i] = nullptr;
+    }
+    buffers.clear();
+    delete context;
+    context = nullptr;
+    engine.reset();
+    delete runtime;
+    runtime = nullptr;
+}
+
 } // namespace
 
 // CUDA error checking macro
@@ -52,78 +73,59 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     state_ = BackendState::Ready;
 }
 
-TRTInfer::~TRTInfer() {
-    for (size_t i = 0; i < buffers_.size(); ++i) {
-        void* buffer = buffers_[i];
-        if (buffer) {
-            cudaError_t err = cudaFree(buffer);
-            if (err != cudaSuccess) {
-                LOG(ERROR) << "cudaFree failed for buffer[" << i << "]: " << cudaGetErrorString(err);
-            }
-            buffers_[i] = nullptr;
-        }
-    }
-    if (context_) {
-        delete context_;
-        context_ = nullptr;
-    }
-    engine_.reset();
-    if (runtime_) {
-        delete runtime_;
-        runtime_ = nullptr;
-    }
-}
+TRTInfer::~TRTInfer() { releaseResources(buffers_, context_, engine_, runtime_); }
 
 void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vector<std::vector<int64_t>>& input_sizes) {
-    for (void* buffer : buffers_) {
-        if (buffer != nullptr) {
-            CHECK_CUDA(cudaFree(buffer));
-        }
-    }
-    buffers_.clear();
-    buffer_by_name_.clear();
-    if (context_ != nullptr) {
-        delete context_;
-        context_ = nullptr;
-    }
-    engine_.reset();
-    if (runtime_ != nullptr) {
-        delete runtime_;
-        runtime_ = nullptr;
-    }
+    // Reinitialization is transactional. Keep the live engine usable until the
+    // replacement runtime, engine, context, and every device buffer exist.
+    auto previous_engine = std::move(engine_);
+    auto* previous_context = std::exchange(context_, nullptr);
+    auto previous_buffers = std::move(buffers_);
+    auto previous_buffer_by_name = std::move(buffer_by_name_);
+    auto* previous_runtime = std::exchange(runtime_, nullptr);
+    const size_t previous_num_inputs = num_inputs_;
+    const size_t previous_num_outputs = num_outputs_;
+    auto previous_input_tensor_names = std::move(input_tensor_names_);
+    auto previous_output_tensor_names = std::move(output_tensor_names_);
+    const BackendState previous_state = state_;
 
-    // Create TensorRT runtime.
-    // TensorRT keeps the ILogger reference for the lifetime of the runtime and of
-    // every engine and execution context built from it, and calls back into it
-    // from arbitrary threads. A stack or member logger would therefore dangle as
-    // soon as this function returned (or the TRTInfer was copied/moved), and the
-    // next TensorRT diagnostic would call through a freed vtable. The logger is
-    // stateless, so a single function-local static outlives every TensorRT object
-    // and is safe to share.
     static Logger logger;
-    runtime_ = nvinfer1::createInferRuntime(logger);
+    try {
+        runtime_ = nvinfer1::createInferRuntime(logger);
 
-    // Load engine file
-    std::ifstream engine_file(engine_path, std::ios::binary);
-    if (!engine_file) {
-        throw std::runtime_error("Failed to open engine file: " + engine_path);
-    }
-    engine_file.seekg(0, std::ios::end);
-    size_t file_size = engine_file.tellg();
-    engine_file.seekg(0, std::ios::beg);
-    std::vector<char> engine_data(file_size);
-    engine_file.read(engine_data.data(), file_size);
-    engine_file.close();
+        std::ifstream engine_file(engine_path, std::ios::binary);
+        if (!engine_file) {
+            throw std::runtime_error("Failed to open engine file: " + engine_path);
+        }
+        engine_file.seekg(0, std::ios::end);
+        const size_t file_size = engine_file.tellg();
+        engine_file.seekg(0, std::ios::beg);
+        std::vector<char> engine_data(file_size);
+        engine_file.read(engine_data.data(), file_size);
 
-    // Deserialize engine
-    engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
-    if (!engine_) {
-        state_ = BackendState::Failed;
-        throw std::runtime_error("Failed to deserialize TensorRT engine (plan built with an "
-                                 "incompatible TensorRT version?): " +
-                                 engine_path);
+        engine_.reset(runtime_->deserializeCudaEngine(engine_data.data(), file_size));
+        if (!engine_) {
+            throw std::runtime_error("Failed to deserialize TensorRT engine (plan built with an "
+                                     "incompatible TensorRT version?): " +
+                                     engine_path);
+        }
+        createContextAndAllocateBuffers(input_sizes);
+    } catch (...) {
+        releaseResources(buffers_, context_, engine_, runtime_);
+        engine_ = std::move(previous_engine);
+        context_ = previous_context;
+        buffers_ = std::move(previous_buffers);
+        buffer_by_name_ = std::move(previous_buffer_by_name);
+        runtime_ = previous_runtime;
+        num_inputs_ = previous_num_inputs;
+        num_outputs_ = previous_num_outputs;
+        input_tensor_names_ = std::move(previous_input_tensor_names);
+        output_tensor_names_ = std::move(previous_output_tensor_names);
+        state_ = previous_state;
+        throw;
     }
-    createContextAndAllocateBuffers(input_sizes);
+
+    releaseResources(previous_buffers, previous_context, previous_engine, previous_runtime);
 }
 
 // calculate size of tensor
