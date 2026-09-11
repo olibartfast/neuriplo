@@ -31,9 +31,9 @@ configures and builds without it installed.
 * llama.cpp - GGUF-native LLM and multimodal backend
 * ExecuTorch - PyTorch edge inference runtime
 * LiteRT - Google AI Edge runtime, formerly TensorFlow Lite
-* NVIDIA DALI - GPU data pipeline (decode, resize, normalize). Not an inference
-  engine: it occupies the same backend slot so a serving pipeline can run
-  preprocessing on the GPU ahead of a model. See "DALI backend" below.
+* NVIDIA DALI - GPU preprocessing pipeline. See its
+  [architecture](docs/ARCHITECTURE.md#dali-as-a-pipeline-adapter) and
+  [setup and runtime contract](docs/DEPENDENCY_MANAGEMENT.md#dali-pipeline-metadata-and-validation).
 
 ### Optional
 * CUDA (if you want to use GPU)
@@ -88,7 +88,7 @@ ExecuTorch delegate selection is covered in
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/neuriplo.git
+   git clone https://github.com/olibartfast/neuriplo.git
    cd neuriplo
    ```
 
@@ -118,7 +118,7 @@ ExecuTorch delegate selection is covered in
 
 ## Usage
 
-To use the Neuriplo library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/object-detection-inference/blob/master/app/CMakeLists.txt)):
+To use the Neuriplo library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/neuriplo-infer/blob/master/app/CMakeLists.txt)):
 
 ```cmake
 target_link_libraries(your_project PRIVATE neuriplo)
@@ -149,7 +149,7 @@ the single `InferenceInterface` contract that `setup_inference_engine` returns:
 
 The public contract is unchanged: `setup_inference_engine(model_path, use_gpu,
 batch_size, input_sizes)` still returns `std::unique_ptr<InferenceInterface>`.
-See [docs/REFACTOR_DESIGN_PATTERNS.md](docs/REFACTOR_DESIGN_PATTERNS.md) for the
+See [Backend Architecture](docs/ARCHITECTURE.md) for the
 full design.
 
 ## Backend Configuration System
@@ -231,41 +231,6 @@ For detailed documentation, see the [docs/](docs/) directory:
 
 - **Project constitution** - [Mission](specs/mission.md), [Technical Stack](specs/tech-stack.md), and [Roadmap](specs/roadmap.md)
 - **[Code Quality](docs/CODE_QUALITY.md)** - Formatting, static analysis, sanitizers, pre-commit hooks
-- **[Architecture / Design Patterns](docs/REFACTOR_DESIGN_PATTERNS.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
+- **[Architecture / Design Patterns](docs/ARCHITECTURE.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
-
-## DALI backend
-
-DALI is a GPU data pipeline, not an inference engine. It implements
-`InferenceInterface` so a serving pipeline can chain "decode + resize +
-normalize on the GPU" ahead of a model such as a TensorRT engine without the
-chaining layer needing a second concept.
-
-```bash
-cmake -S . -B build -DDEFAULT_BACKEND=DALI -DDALI_DIR=/path/to/dali
-```
-
-Input is the encoded image bytes (`IMAGE`, UINT8, `[1, N]`). Output 0 is the
-preprocessed tensor; output 1 is `IMAGE_SHAPE`, the source image's height,
-width, and channel count, which downstream postprocessing needs to map results
-back onto the original frame.
-
-`model_path` is a serialized `.dali` pipeline, authored offline:
-
-```bash
-python3 export/dali/generate_yolo_pipeline.py --size 640 --output yolo_pre_640.dali
-```
-
-Nothing runs Python at inference time -- the pipeline is deserialized and
-executed entirely in C++ through the DALI C API.
-
-Two libraries are linked, `libdali.so` and `libdali_operators.so`, and
-`daliInitOperators()` is called once before the first pipeline. `libdali.so`
-does not pull in the operator library (DALI's Python bindings dlopen it), and
-without both the first run fails with `No schema found for operator
-"decoders__Image"`.
-
-NVIDIA publishes no standalone C++ DALI distribution: the headers and shared
-libraries ship inside the `nvidia-dali` pip wheel. `scripts/setup_dali.sh`
-extracts them; point the build at the result with `-DDALI_DIR=<dir>`.

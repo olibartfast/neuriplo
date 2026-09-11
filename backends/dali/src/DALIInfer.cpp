@@ -103,7 +103,11 @@ using DaliShape = std::unique_ptr<int64_t, DaliShapeDeleter>;
 int64_t element_count(const std::vector<int64_t>& shape) {
     int64_t count = 1;
     for (const auto dim : shape) {
-        count *= dim > 0 ? dim : 1;
+        const int64_t extent = dim > 0 ? dim : 1;
+        if (count > std::numeric_limits<int64_t>::max() / extent) {
+            throw InferenceExecutionException("declared shape overflows the element count");
+        }
+        count *= extent;
     }
     return count;
 }
@@ -292,6 +296,10 @@ struct DALIInfer::Impl {
             }
             const auto type = external_input_types[i];
             const size_t element_size = dali_type_size(type);
+            if (inputs[i].size() % element_size != 0) {
+                throw InferenceExecutionException("DALI external input '" + external_inputs[i] +
+                                                  "' byte count is not aligned to its datatype");
+            }
 
             // DALI asserts on rank, so the sample shape must match the rank the
             // external source declares. A caller-declared shape is trimmed of
@@ -308,6 +316,12 @@ struct DALIInfer::Impl {
             }
             if (static_cast<int>(sample_shape.size()) != declared_ndim) {
                 if (declared_ndim == 1) {
+                    if (inputs[i].size() % element_size != 0) {
+                        // Truncating to a whole element count would silently
+                        // discard the trailing bytes; reject instead.
+                        throw InferenceExecutionException("DALI external input '" + external_inputs[i] +
+                                                          "' byte count is not aligned to its datatype");
+                    }
                     sample_shape = {static_cast<int64_t>(inputs[i].size() / element_size)};
                 } else {
                     throw InferenceExecutionException("DALI external input '" + external_inputs[i] + "' expects rank " +
@@ -320,7 +334,13 @@ struct DALIInfer::Impl {
             // pointer with no length argument, so a shape that outruns the
             // buffer is an out-of-bounds read inside the library with no
             // diagnostic. Fail here instead, where the names are still known.
-            const size_t required = static_cast<size_t>(element_count(sample_shape)) * element_size;
+            const auto count = static_cast<uint64_t>(element_count(sample_shape));
+            if (count > std::numeric_limits<size_t>::max() ||
+                static_cast<size_t>(count) > std::numeric_limits<size_t>::max() / element_size) {
+                throw InferenceExecutionException("DALI external input '" + external_inputs[i] +
+                                                  "' declared shape overflows its byte count");
+            }
+            const size_t required = static_cast<size_t>(count) * element_size;
             if (required > inputs[i].size()) {
                 throw InferenceExecutionException("DALI external input '" + external_inputs[i] + "' needs " +
                                                   std::to_string(required) + " bytes for the declared shape but only " +
@@ -489,11 +509,28 @@ InferenceMetadata DALIInfer::get_inference_metadata() {
         if (name != kEncodedInputName && i < input_sizes_.size()) {
             shape = input_sizes_[i];
         }
-        metadata.addInput(name, shape, 1,
-                          type == DALI_UINT8   ? TensorDataType::UInt8
-                          : type == DALI_INT32 ? TensorDataType::Int32
-                          : type == DALI_INT64 ? TensorDataType::Int64
-                                               : TensorDataType::Float32);
+        const auto to_input_type = [](dali_data_type_t type) -> TensorDataType {
+            switch (type) {
+            case DALI_UINT8:
+                return TensorDataType::UInt8;
+            case DALI_INT8:
+                return TensorDataType::Int8;
+            case DALI_INT32:
+                return TensorDataType::Int32;
+            case DALI_INT64:
+                return TensorDataType::Int64;
+            case DALI_BOOL:
+                return TensorDataType::Bool;
+            case DALI_FLOAT:
+                return TensorDataType::Float32;
+            // Anything else the pipeline accepts is silently miscast under
+            // any fallback; refuse to advertise it.
+            default:
+                throw InferenceException("DALI external input type " + std::to_string(static_cast<int>(type)) +
+                                         " has no neuriplo metadata representation");
+            }
+        };
+        metadata.addInput(name, shape, 1, to_input_type(type));
     }
 
     const bool has_runtime = !impl_->last_output_shapes.empty();
@@ -538,10 +575,7 @@ InferenceMetadata DALIInfer::get_inference_metadata() {
             }
         }
 
-        const std::string name =
-            i < impl_->output_names.size()
-                ? impl_->output_names[i]
-                : (i == 0 ? kPreprocessedOutputName : (i == 1 ? kImageShapeOutputName : "output" + std::to_string(i)));
+        const std::string name = i < impl_->output_names.size() ? impl_->output_names[i] : "output" + std::to_string(i);
         metadata.addOutput(name, shape, 1, to_metadata_type(dtype));
     }
     return metadata;
