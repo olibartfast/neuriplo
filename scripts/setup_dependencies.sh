@@ -216,7 +216,7 @@ case $BACKEND in
     MIGRAPHX) setup_migraphx ;;
     EXECUTORCH) DEPENDENCY_ROOT="$DEPENDENCY_ROOT" FORCE="$FORCE" ./scripts/setup_executorch.sh --install-dir "$DEPENDENCY_ROOT/executorch" ;;
     LITERT) setup_litert ;;
-    DALI) "$(dirname "$0")/setup_dali.sh" ;;
+    DALI) DEPENDENCY_ROOT="$DEPENDENCY_ROOT" "$(dirname "$0")/setup_dali.sh" ;;
 esac
 validate_installation "$BACKEND"
 create_env_setup

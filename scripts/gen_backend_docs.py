@@ -123,6 +123,10 @@ def gen_env_variables(backends, versions):
             ld_parts.append(f"${var}/build")
         elif var == "OPENVINO_DIR":
             ld_parts.append(f"${var}/runtime/lib/intel64")
+        elif var == "DALI_DIR":
+            # setup_dali.sh lays out the shared objects at the root of the
+            # DALI directory, not in a lib/ subdirectory.
+            ld_parts.append(f"${var}")
         else:
             ld_parts.append(f"${var}/lib")
     for i, part in enumerate(ld_parts):

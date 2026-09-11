@@ -65,6 +65,8 @@ def main():
     for name, dtype in dtypes.items():
         write(root, f"single_{name}", lambda dtype=dtype: source(dtype=dtype, ndim=1), output_dtype=[dtype], output_ndim=[1])
 
+    write(root, "single_int32_2d", lambda: source(dtype=types.INT32, ndim=2), output_dtype=[types.INT32], output_ndim=[2])
+
     # DALI permits output type and rank declarations to be omitted independently.
     write(root, "undeclared_type", lambda: source(dtype=types.UINT8, ndim=1), output_ndim=[1])
     write(root, "undeclared_rank", lambda: source(dtype=types.UINT8, ndim=1), output_dtype=[types.UINT8])
