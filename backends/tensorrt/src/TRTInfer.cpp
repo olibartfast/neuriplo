@@ -69,7 +69,6 @@ TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_siz
     : InferenceInterface{model_path, true, batch_size, input_sizes} {
     LOG(INFO) << "Initializing TensorRT for model " << model_path;
     initializeBuffers(model_path, input_sizes);
-    populateInferenceMetadata(input_sizes);
     state_ = BackendState::Ready;
 }
 
@@ -88,6 +87,7 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
     auto previous_input_tensor_names = std::move(input_tensor_names_);
     auto previous_output_tensor_names = std::move(output_tensor_names_);
     const BackendState previous_state = state_;
+    auto previous_metadata = std::move(inference_metadata_);
 
     static Logger logger;
     try {
@@ -110,6 +110,11 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
                                      engine_path);
         }
         createContextAndAllocateBuffers(input_sizes);
+        // The active engine has changed, so metadata from the previous engine
+        // is stale. Rebuild it for the replacement before committing; the catch
+        // below restores it alongside the resources if anything fails.
+        inference_metadata_ = InferenceMetadata{};
+        populateInferenceMetadata(input_sizes);
     } catch (...) {
         releaseResources(buffers_, context_, engine_, runtime_);
         engine_ = std::move(previous_engine);
@@ -122,6 +127,7 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
         input_tensor_names_ = std::move(previous_input_tensor_names);
         output_tensor_names_ = std::move(previous_output_tensor_names);
         state_ = previous_state;
+        inference_metadata_ = std::move(previous_metadata);
         throw;
     }
 
