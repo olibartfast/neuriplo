@@ -52,9 +52,13 @@ class DALIInfer : public InferenceInterface {
     // generator in export/dali/. Pipelines may declare any inputs they like:
     // the backend discovers them and feeds them in declaration order.
     static constexpr const char* kEncodedInputName = "IMAGE";
-    // Outputs are metadata-addressed positionally ("output0", ...). The
-    // serialized pipeline format carries no output names; deployments that
-    // need semantic names must pass `|outnames=A,B,...` on the model path.
+    // Retained for source compatibility with 0.9.0 consumers. Runtime metadata
+    // no longer uses these names: outputs are addressed positionally
+    // ("output0", ...) because the serialized pipeline format carries no output
+    // names. Deployments that need semantic names must pass
+    // `|outnames=A,B,...` on the model path.
+    static constexpr const char* kPreprocessedOutputName = "preprocessed";
+    static constexpr const char* kImageShapeOutputName = "IMAGE_SHAPE";
 
   private:
     struct Impl;
