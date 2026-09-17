@@ -70,6 +70,12 @@ ctest --test-dir build-parity -R parity --output-on-failure
 - [ ] [V-12] → [R-1]: `git subtree split --prefix=engine/ -b engine-extract`
       succeeds and the resulting tree builds on its own. Proves the extraction
       option [D-1] claims is real rather than aspirational.
+- [ ] [V-13] → [R-12], [A-3]: the planner is called twice with two different
+      input shapes for the same loaded graph, and both plans are correct — the
+      second produced with no reload, no reparse, and no change to any kernel.
+      Asserted on the plans, not on a comment. Proves the dynamic-shape work in
+      Phase N2 is additive; a failure here means [A-3] was wrong and N2 is a
+      rewrite, which is worth knowing now rather than then.
 
 ## Manual Checks
 
@@ -89,6 +95,12 @@ ctest --test-dir build-parity -R parity --output-on-failure
 - [ ] [M-5] → constraints: constitution amendment reviewed — `mission.md` and
       `tech-stack.md` no longer contradict the existence of a first-party
       runtime, and still read in under five minutes each.
+- [ ] [M-6] → [D-2]: the OpenCV 5 `dnn` engine appears in this branch as a
+      design reference and nowhere else. Checked: no OpenCV include, link, or
+      `find_package` under `engine/`; `versions.env` `OPENCV_VERSION` and the
+      `OPENCV_DNN` backend untouched by this change
+      (`git diff origin/develop -- versions.env cmake/ backends/opencv-dnn/`
+      → expected: empty).
 
 ## Evidence Log
 
@@ -106,11 +118,13 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
 | V-11 | `OPENCV_DNN` path + link inspection | | | |
 | V-12 | `git subtree split` + standalone build | | | |
+| V-13 | `ctest -R engine_plan_reshape` | | | |
 | M-1 | README read-through | | | |
 | M-2 | fixture node list vs kernel set | | | |
 | M-3 | executor inspection | | | |
 | M-4 | inventory drift walkthrough | | | |
 | M-5 | constitution review | | | |
+| M-6 | OpenCV containment check | | | |
 
 ## Deviations
 
