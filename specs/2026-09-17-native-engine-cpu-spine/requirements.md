@@ -91,7 +91,9 @@ exist first.
   `backends/native/src/`. Root `src/` holds the abstraction's own glue
   (`InferenceBackendSetup.cpp`); nesting a dependency-free library inside it
   inverts the arrow in [R-1]. `backends/native/` holds only the adapter.
-  A later extraction is then `git subtree split engine/` with history intact.
+  A later extraction is then `git subtree split --prefix=engine/` with history
+  intact — the prefix is an option, not a positional argument, and the bare form
+  exits `fatal: you must provide the --prefix option` (verified on git 2.43.0).
 - [D-2] The engine is an interpreter (`load` → `forward`, shapes resolved at
   load), not a plan-building compiler with autotuning and a serialized engine
   file. Rationale: the target is a replacement for OpenCV's `dnn` module, whose
