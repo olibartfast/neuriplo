@@ -25,11 +25,16 @@ ctest --test-dir build-native --output-on-failure
 ```
 
 ```text
-# Parity against ONNX Runtime on the same file
+# Parity against ONNX Runtime on the same file.
+# The fixture is provisioned explicitly first ([T-27a]); the parity test must
+# fail rather than skip or fall back to a mock if it is absent.
 cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
   -DBUILD_INFERENCE_ENGINE_TESTS=ON
+cmake --build build-parity --target native_parity_fixture
 cmake --build build-parity
 ctest --test-dir build-parity -R parity --output-on-failure
+# expected: the resolved fixture path is printed and identical for both
+# backends; a missing fixture fails the run, it does not skip it
 ```
 
 - [ ] [V-1] → [R-1], [R-4]: no translation unit under `engine/` includes
@@ -43,9 +48,17 @@ ctest --test-dir build-parity -R parity --output-on-failure
       attribute combination, unresolvable dynamic dimension — each throwing
       `ModelLoadException` with the node name and op type in the message.
       Asserted on the message content, not just the exception type.
-- [ ] [V-4] → [R-5]: every kernel has a unit test including at least one
-      hand-computed expected value and one non-default configuration
-      (stride/pad/dilation for `Conv`, transpose flags for `Gemm`).
+- [ ] [V-4] → [R-5]: every kernel has a unit test with at least one
+      hand-computed expected value — computed by hand, not captured from
+      another runtime.
+- [ ] [V-4a] → [R-5]: additionally, every kernel that *has* configurable
+      attributes is tested in a non-default configuration: stride, padding, and
+      dilation for `Conv`; `transA`/`transB` (and alpha/beta if supported) for
+      `Gemm`; kernel shape, stride, and padding for `MaxPool`; a non-trivial
+      target shape for `Reshape`; a non-default `axis` for `Flatten`.
+      `Add`, `Relu`, `MatMul`, and `GlobalAveragePool` have no such
+      configuration and are covered by [V-4] alone — the earlier blanket
+      wording made this item impossible to mark honestly.
 - [ ] [V-5] → [R-6]: arena test asserts (a) allocation count per inference ≤ 1
       and (b) planned arena size is strictly less than the sum of all
       intermediate tensor sizes for this graph — proving reuse rather than
@@ -56,20 +69,48 @@ ctest --test-dir build-parity -R parity --output-on-failure
 - [ ] [V-7] → [R-8]: shared backend contract tests pass with
       `DEFAULT_BACKEND=NATIVE`, including the `get_infer_results_raw` path and
       metadata assertions.
-- [ ] [V-8] → [R-9]: requesting GPU on `NATIVE` (legacy `use_gpu = true` and
-      the `EngineOptions` path) raises with a message naming the limitation.
-      Asserted: no inference runs and no silent CPU execution.
+- [ ] [V-8] → [R-9]: a GPU request on `NATIVE` is rejected at both boundaries,
+      each asserted where that boundary's contract actually lives.
+      (a) The factory, called directly, throws `InferenceException` and the
+      message names the phase limitation — asserted on message content.
+      (b) Both `setup_inference_engine` overloads (legacy `use_gpu = true` and
+      `EngineOptions`) return `nullptr` and log, because they translate
+      exceptions by design; asserting a throw through the public API would be
+      asserting against the existing contract, not for it.
+      In both cases: no inference runs, and no silent CPU execution.
 - [ ] [V-9] → [R-11]: `python3 scripts/gen_backend_docs.py --check` clean; the
       15 IDs in `cmake/BackendRegistry.cmake` and `docs/backends.yaml` agree.
+- [ ] [V-9a] → [R-11]: the other two inventories [R-11] names are checked too,
+      not just the two above — otherwise every V-9 assertion goes green while
+      `NATIVE` is missing from the surfaces that actually run it. Enumerate and
+      compare: the `dockerfile` field of every `docs/backends.yaml` entry
+      against `docker/`, and the backend identifiers in
+      `.github/workflows/ci.yml`, `windows-build.yml`, and `cache-prune.yml`.
+      Intentional absences are stated explicitly rather than left unchecked —
+      `NATIVE` has no setup script and no `versions.env` entry by design
+      ([T-5]), and whether it gets its own Dockerfile is a decision recorded
+      here, not an omission.
 - [ ] [V-10] → constraints: `./scripts/quality/run.sh` and
       `./scripts/quality/format.sh --check` clean; engine tests additionally run
       under ASan and UBSan with no findings.
 - [ ] [V-11] → constraints: the `OPENCV_DNN` configure/build/test path above is
-      unchanged, and no OpenCV target appears in the `NATIVE` link line
-      (`grep -i opencv build-native/CMakeCache.txt` inspected, not assumed).
-- [ ] [V-12] → [R-1]: `git subtree split --prefix=engine/ -b engine-extract`
-      succeeds and the resulting tree builds on its own. Proves the extraction
-      option [D-1] claims is real rather than aspirational.
+      unchanged, and no OpenCV appears in the `NATIVE` link closure — direct or
+      transitive. Inspect the generated link command and the target graph, not
+      `CMakeCache.txt`: the cache holds configure-time variables, so a cached
+      OpenCV path there proves nothing either way and would produce both false
+      passes and false failures. Use
+      `grep -ril opencv build-native/CMakeFiles/*/link.txt` (expected: no
+      matches) plus a verbose link (`cmake --build build-native -v`) and, for
+      the transitive half, a CMake assertion over `neuriplo_engine`'s
+      `LINK_LIBRARIES` / `INTERFACE_LINK_LIBRARIES`.
+- [ ] [V-12] → [R-1]: the engine extracts cleanly and the extracted tree builds
+      on its own. Proves the extraction option [D-1] claims is real rather than
+      aspirational. Run it as a throwaway, leaving no branch behind:
+      `git subtree split --prefix=engine/` (no `-b`) to get the split commit,
+      then `git archive <commit> | tar -x -C "$(mktemp -d)"` and configure and
+      build there. Creating an `engine-extract` branch instead would leave a
+      branch not based on `develop`, contrary to AGENTS.md, and would make the
+      check fail on its second run.
 - [ ] [V-13] → [R-12], [A-3]: the planner is called twice with two different
       input shapes for the same loaded graph, and both plans are correct — the
       second produced with no reload, no reparse, and no change to any kernel.
@@ -110,11 +151,13 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-2 | `ctest -R engine_loader` | | | |
 | V-3 | `ctest -R engine_loader_negative` | | | |
 | V-4 | `ctest -R engine_kernels` | | | |
+| V-4a | `ctest -R engine_kernels` (attribute cases) | | | |
 | V-5 | `ctest -R engine_plan` | | | |
 | V-6 | `ctest -R parity` | | | observed max abs diff: |
 | V-7 | `ctest --test-dir build-native` | | | |
 | V-8 | `ctest -R native_device_request` | | | |
 | V-9 | `gen_backend_docs.py --check` | | | |
+| V-9a | Docker + CI inventory enumeration | | | |
 | V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
 | V-11 | `OPENCV_DNN` path + link inspection | | | |
 | V-12 | `git subtree split` + standalone build | | | |

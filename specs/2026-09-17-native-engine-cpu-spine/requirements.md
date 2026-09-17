@@ -42,9 +42,17 @@ exist first.
   `backends/native/` implementing `InferenceInterface`, including the
   `RawOutputTensor` path via `get_infer_results_raw`, and reporting
   `InferenceMetadata` derived from the engine's own graph inspection.
-- [R-9] `use_gpu = true` (legacy overload) or an equivalent `EngineOptions`
-  device request fails clearly on the `NATIVE` backend in this phase. It does
-  not silently run on CPU.
+- [R-9] A GPU request on `NATIVE` fails clearly in this phase and never
+  silently runs on CPU. The failure has two boundaries, because the existing
+  contract differs between them and the requirement must match it:
+  backend construction (the factory, called directly) throws an
+  `InferenceException` whose message names the phase limitation; the public
+  `setup_inference_engine` overloads return `nullptr` and log, since both catch
+  `InferenceException` and `std::exception` and translate them
+  (`src/InferenceBackendSetup.cpp:147-160`, with the legacy
+  `use_gpu`/`batch_size`/`input_sizes` overload delegating to the
+  `EngineOptions` one). Either way no inference runs. This requirement adapts
+  to that contract rather than changing it.
 - [R-10] A parity test: the same ONNX file through `NATIVE` and through
   `ONNX_RUNTIME`, outputs compared elementwise within a stated tolerance,
   runnable in CI with no GPU.
@@ -134,8 +142,17 @@ exist first.
   (14 IDs today), `cmake/LinkBackend.cmake`, `scripts/gen_backend_docs.py`,
   `docs/backends.yaml`.
 - Fixture: `backends/onnx-runtime/test/export_torchvision_classifier.py`
-  already produces a torchvision classifier ONNX export. Reuse it rather than
-  adding a second fixture path.
+  already produces a torchvision ResNet-18 ONNX export. Reuse it rather than
+  adding a second fixture path — but reuse it with eyes open. As it stands the
+  ORT test only `configure_file`s the script into the build tree and never runs
+  it; the test reads `model_path.txt`, silently falls back to a mock when it is
+  missing, and `GTEST_SKIP`s its integration test. A parity test modelled on
+  that would pass while comparing nothing. So [R-10] additionally requires:
+  deterministic fixture provisioning as an explicit step before parity runs,
+  both backends given the identical path and identical input, and a **hard
+  failure rather than a skip or a mock** when the fixture is absent. The script
+  also hard-codes its output to `/workspace/`, which the provisioning step must
+  not silently inherit.
 - Parity oracle: the `ONNX_RUNTIME` backend must be buildable in the same
   configuration as `NATIVE` for [R-10].
 - Design reference, read and not linked: OpenCV 5's new `dnn` engine. It is a
@@ -155,8 +172,12 @@ exist first.
 ## Assumptions & Open Questions
 
 - [A-1] ResNet-18 as exported by the existing script needs only the [R-5] op
-  set. Basis: standard torchvision opset-17 export. Confirm by dumping the
-  actual node list before committing to the kernel list — if the export emits
+  set. Corrected basis: the script exports with **`opset_version=12`**, not 17
+  (`backends/onnx-runtime/test/export_torchvision_classifier.py:23`). Group 2
+  must implement attribute and shape semantics against opset 12's schemas, or
+  the exporter must be changed and pinned first — targeting the wrong opset is
+  possible even when [T-3] confirms the node names match. Confirm by dumping the
+  actual node list before committing to the kernel list; if the export emits
   `BatchNormalization` unfused, the set grows by one.
 - [A-2] A tolerance of 1e-4 max absolute difference against ORT FP32 is
   achievable for this graph without matching accumulation order. Basis:
@@ -178,6 +199,12 @@ exist first.
   a few hundred lines and owns its own bug surface. Recommendation: Option B,
   scoped to the fields [R-2] needs, with the reader isolated behind one
   interface so Option A stays reachable.
+  Dissent on record: automated review of this packet argued for Option A
+  first — a mature wire-format implementation lowers parser-correctness and
+  malformed-input risk and tracks schema evolution — with Option B as the
+  fallback only if the dependency cannot be kept exclusive to `NATIVE`.
+  Both readings agree on the isolating interface, so Group 1 is unaffected
+  either way. Still the maintainer's decision; still blocking Group 2.
 - [Q-2] Sequencing against roadmap Phase 1 (Backend Metadata Consistency,
   currently `Next`). Phase 1 makes inventory drift fail early; `NATIVE` is a
   new inventory entry with no `versions.env` version and no setup script, which
