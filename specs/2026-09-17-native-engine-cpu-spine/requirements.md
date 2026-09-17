@@ -51,14 +51,24 @@ exist first.
 - [R-11] Backend inventory updated coherently in the same change:
   `cmake/BackendRegistry.cmake`, `docs/backends.yaml`, regenerated `GEN:`
   sections, Docker metadata, and CI backend identifiers.
+- [R-12] Shape inference and memory planning take concrete input shapes as an
+  argument and return a plan. This phase calls them once at load for one fixed
+  input shape, but neither may be written as a one-time side effect of loading:
+  re-running them for a different input shape must be possible without touching
+  the parser, the IR, or any kernel. Dynamic shapes stay out of scope here
+  ([A-3]), and this is the seam that keeps them additive in Phase N2 instead of
+  a rewrite.
 
 ## Out of Scope
 
 - CUDA kernels and the GPU device layer — Phase N1.
 - Fusion passes, layout transformation, tactic selection, plan serialization.
   The engine is an interpreter in this design, not an AOT compiler (see [D-2]).
-- Quantization, FP16, INT8, dynamic shapes, batching beyond the fixture's
-  declared batch dimension.
+- Quantization, FP16, INT8, and batching beyond the fixture's declared batch
+  dimension.
+- Dynamic input and output shapes at runtime — deferred to Phase N2, and
+  deliberately deferred rather than designed out: [R-12] requires the planning
+  seam that makes them additive.
 - Attention / transformer ops — needed for the ViT-based models eventually
   targeted, deferred to Phase N2.
 - Object detection fixtures and postprocessing.
@@ -78,7 +88,12 @@ exist first.
   load), not a plan-building compiler with autotuning and a serialized engine
   file. Rationale: the target is a replacement for OpenCV's `dnn` module, whose
   API and usage model this matches; the compiler model is TensorRT's ground and
-  `TENSORRT` already occupies that slot in this repository.
+  `TENSORRT` already occupies that slot in this repository. The design reference
+  for this shape of engine is OpenCV 5's rewritten `dnn` engine rather than the
+  4.x classic one — a typed operation graph with real shape inference, constant
+  folding, and fusion, executed by an interpreter. It is the closest modern
+  statement of the design being built here, which is why it is worth reading
+  before writing the IR. Read as a reference only: see Dependencies.
 - [D-3] Device chosen once per loaded graph ([R-7]). Per-op host round-trips are
   the specific failure mode that makes `OPENCV_DNN`'s CUDA target hard to reason
   about, and the constitution already forbids silent device movement.
@@ -123,6 +138,19 @@ exist first.
   adding a second fixture path.
 - Parity oracle: the `ONNX_RUNTIME` backend must be buildable in the same
   configuration as `NATIVE` for [R-10].
+- Design reference, read and not linked: OpenCV 5's new `dnn` engine. It is a
+  rewritten typed-graph interpreter with shape inference, constant folding,
+  fusion, subgraph and dynamic-shape support, covering over 64% of the ONNX
+  specification, selected at load through `readNet`'s `engine` argument
+  (`ENGINE_AUTO`) or `OPENCV_FORCE_DNN_ENGINE`, and CPU-only with GPU support
+  deferred to later OpenCV releases. Useful as a reference for graph
+  representation, shape handling, and where fusion belongs.
+  This is explicitly **not** a dependency, a component, or a migration
+  proposal. Neuriplo does not adopt OpenCV 5's engine, does not link it from
+  `engine/`, and does not change its pinned `OPENCV_VERSION` on account of this
+  phase — `OPENCV_DNN` stays exactly as it is. The native engine is
+  first-party code informed by that design, which is the whole point of
+  building it.
 
 ## Assumptions & Open Questions
 
@@ -133,6 +161,14 @@ exist first.
 - [A-2] A tolerance of 1e-4 max absolute difference against ORT FP32 is
   achievable for this graph without matching accumulation order. Basis:
   inference; confirm empirically in [V-6] and record the real figure.
+- [A-3] The static-shape restriction in [R-3] is a phase boundary, not a
+  property of the design. Basis: shapes are resolved from concrete input shapes
+  either way; dynamic support differs in when and how often planning runs, plus
+  a plan cache, not in what the parser, IR, or kernels look like. The reference
+  engine in [D-2] supports dynamic shapes on the same kind of IR, which is
+  evidence the boundary is a schedule choice rather than a ceiling. Confirm by
+  [V-13]; if it turns out false, [R-12] is the requirement that failed and
+  Phase N2's cost estimate is wrong.
 - [Q-1] **ONNX parsing dependency — needs a decision before Group 2.**
   Option A: depend on protobuf and the vendored `onnx.proto`. Standard,
   robust, but a new required dependency for this backend and a compatibility

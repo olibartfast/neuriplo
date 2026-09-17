@@ -54,9 +54,15 @@ throughout.
   offset and size per intermediate, arena size computed once at load.
 - [T-13] Device-layer seam: an allocator/transfer/kernel-table abstraction with
   exactly one implementation (CPU) in this phase, per [R-4].
+- [T-27] Shape seam per [R-12]: shape inference and the planner take concrete
+  input shapes and return a plan, rather than mutating the graph at load. This
+  phase calls them once, for one shape. Reference read before writing this:
+  how the [D-2] reference engine separates graph from per-shape plan.
   - Checks: unit test asserts inferred shapes for the fixture against ORT's own
     inferred shapes; a plan test asserts arena reuse actually overlaps
-    non-overlapping lifetimes rather than summing all buffers.
+    non-overlapping lifetimes rather than summing all buffers; a second plan for
+    a different input shape is produced without touching parser, IR, or kernels
+    ([V-13]).
 
 ## Group 4 — CPU reference kernels
 

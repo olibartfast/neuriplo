@@ -66,6 +66,15 @@ backend. It is a peer library, not an adapter:
   oracle for accelerated kernels. They are intentionally unoptimized and must
   not be read as a performance claim; optimizing them is separately approved
   work.
+- Shape inference and memory planning are functions of concrete input shapes,
+  not load-time side effects. Static shapes are a phase boundary, not a design
+  property: dynamic shapes must land as per-shape re-planning behind a plan
+  cache, without reshaping the parser, IR, or kernels.
+- The design reference is OpenCV 5's rewritten `dnn` engine — typed operation
+  graph, shape inference, constant folding, fusion. It informs the design and
+  is never a dependency: the engine links nothing from OpenCV, and the pinned
+  `OPENCV_VERSION` and the `OPENCV_DNN` backend are unaffected by native-engine
+  work.
 
 ## Device and Fallback Assumptions
 
@@ -109,6 +118,9 @@ with `python3 scripts/gen_backend_docs.py` in the same change.
 - No per-operator device fallback inside the native engine.
 - No optimization of the native engine's CPU reference kernels without an
   approved packet; they exist to be correct and readable.
+- No OpenCV in `engine/`, and no change to the pinned OpenCV version or to how
+  `OPENCV_DNN` is built as a side effect of native-engine work. Reading another
+  engine's design is not adopting it.
 - No backend-specific setup, model-format, Docker, build, or troubleshooting
   expansion in `Readme.md`; keep those details in the appropriate `docs/` guide.
 - Non-trivial public-behavior or architecture work records scope and validation
@@ -155,4 +167,6 @@ full local job described in `docs/LOCAL_CI.md`.
 
 _Revision: 2026-09-17 - recorded the first-party native engine's architectural
 boundaries, non-choices, and the decisions required before its parsing and
-kernel work begins._
+kernel work begins; named OpenCV 5's rewritten `dnn` engine as a design
+reference only and required per-shape planning so static shapes stay a phase
+boundary._

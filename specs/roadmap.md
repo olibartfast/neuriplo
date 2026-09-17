@@ -188,6 +188,12 @@ vendor SDK underneath. Sequencing against Phase 1 is an open decision recorded
 in the Phase N0 packet; Phase 1 first is the cheaper order, because `NATIVE` is
 a new inventory entry with no external SDK version or setup script.
 
+The design reference for the track is OpenCV 5's rewritten `dnn` engine — a
+typed operation graph with shape inference, dynamic shapes, constant folding,
+and fusion. It is read as a reference for how to structure the graph and the
+per-shape plan, and nothing more: the track introduces no dependency on it, and
+does not change how `OPENCV_DNN` is built or pinned.
+
 ### Phase N0 - CPU Reference Spine
 
 - Status: Next (parallel track; confirm ordering against Phase 1)
@@ -210,13 +216,16 @@ a new inventory entry with no external SDK version or setup script.
 - Proves: the device seam from N0 holds without touching the device-agnostic
   core, and the kernel-table abstraction is sufficient.
 
-### Phase N2 - Vision Op Coverage and Fusion
+### Phase N2 - Vision Op Coverage, Dynamic Shapes, and Fusion
 
 - Status: Planned
 - Outcome: the op set covers the detection and ViT-based models actually in use;
-  conv-bias-activation fusion lands as a graph pass with measured effect.
+  dynamic input and output shapes are supported by re-planning per shape behind
+  a plan cache; conv-bias-activation fusion lands as a graph pass with measured
+  effect.
 - Proves: coverage grows by adding kernels and passes rather than by special
-  cases in the executor. Scope is vision ops, explicitly not all of ONNX.
+  cases in the executor, and that the per-shape planning seam required in N0
+  was sufficient. Scope is vision ops, explicitly not all of ONNX.
 
 ### Phase N3 - Default Backend Migration
 
@@ -238,4 +247,5 @@ need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
 
 _Revision: 2026-09-17 - added the Native Engine Track (N0-N3) as a parallel
-track without renumbering Phases 1-6._
+track without renumbering Phases 1-6; named the track's design reference and
+moved dynamic shapes into Phase N2 explicitly._
