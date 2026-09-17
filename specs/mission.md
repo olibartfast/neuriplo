@@ -60,8 +60,13 @@ The project is succeeding when:
 
 ## Boundaries and Non-Goals
 
-- Neuriplo orchestrates inference runtimes; it does not replace vendor SDKs or
-  hide their real model-format and hardware constraints.
+- Neuriplo orchestrates inference runtimes, including one first-party runtime of
+  its own. It does not reimplement vendor SDKs for their own sake, and it never
+  hides their real model-format and hardware constraints.
+- The first-party native engine is a supported backend alongside third-party
+  runtimes, not a substitute for them. The vendor backends remain the
+  correctness and performance reference the native engine is measured against,
+  and stay first-class supported paths for that reason.
 - Task-specific pre/postprocessing, serving APIs, capture, and product UI belong
   in consumer or sibling projects. DALI is intentionally supported as a GPU
   preprocessing pipeline because it occupies the same composable backend slot.
@@ -91,4 +96,5 @@ failure behavior without implying coverage that has not been validated.
 Until these are resolved, feature specifications must state their own measurable
 performance and compatibility requirements rather than inventing global targets.
 
-_Revision: 2026-09-11 - kept the mission product-facing and removed executor-specific wording._
+_Revision: 2026-09-17 - admitted a first-party native runtime as a supported
+backend; narrowed the vendor-SDK non-goal to reimplementation for its own sake._

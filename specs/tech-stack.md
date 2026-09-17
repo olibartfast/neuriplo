@@ -42,6 +42,31 @@ live in `versions.env`; the human-readable backend inventory lives in
 - `RawOutputTensor` is the typed contiguous-buffer path. Avoid materializing
   per-element variants in performance-critical backend overrides.
 
+## First-Party Native Engine
+
+Neuriplo hosts one runtime it implements itself, exposed as the `NATIVE`
+backend. It is a peer library, not an adapter:
+
+- The engine lives in top-level `engine/` (target `neuriplo_engine`) and
+  includes nothing from `include/neuriplo/`, `backends/src/`, or `src/`. The
+  dependency arrow points one way; a build-time guard enforces it, so extraction
+  into its own repository stays a `git subtree split`.
+- `backends/native/` holds only the thin adapter to `InferenceInterface`, the
+  same shape as every other backend directory.
+- The engine is an interpreter: parse, infer shapes, plan memory, execute
+  node by node. It is deliberately not a plan-building compiler with autotuning
+  and serialized engines — `TENSORRT` occupies that slot.
+- Device is selected once per loaded graph, never per operator. A graph that
+  cannot run entirely on the requested device is rejected at load. Per-op host
+  round-trips are forbidden by design, not merely discouraged.
+- Core (parser, IR, shape inference, memory planner, executor) is
+  device-agnostic; allocator, transfer, and the op-keyed kernel table are
+  per-device. Adding a device means adding a kernel table, not a refactor.
+- CPU reference kernels are the executable specification and the correctness
+  oracle for accelerated kernels. They are intentionally unoptimized and must
+  not be read as a performance claim; optimizing them is separately approved
+  work.
+
 ## Device and Fallback Assumptions
 
 - CPU remains the safe default except for runtimes that intrinsically require
@@ -79,6 +104,11 @@ with `python3 scripts/gen_backend_docs.py` in the same change.
 - No autonomous inference-logic or performance-critical kernel changes.
 - No silent change to backend selection, device placement, or fallback behavior.
 - No framework or language migration merely to simplify one feature.
+- No dependency from `engine/` on the abstraction layer, in either the build
+  graph or the include graph.
+- No per-operator device fallback inside the native engine.
+- No optimization of the native engine's CPU reference kernels without an
+  approved packet; they exist to be correct and readable.
 - No backend-specific setup, model-format, Docker, build, or troubleshooting
   expansion in `Readme.md`; keep those details in the appropriate `docs/` guide.
 - Non-trivial public-behavior or architecture work records scope and validation
@@ -112,6 +142,17 @@ full local job described in `docs/LOCAL_CI.md`.
 - Define representative performance baselines without pretending unlike
   backend, model, device, and architecture combinations are directly
   interchangeable.
+- Decide how the native engine reads ONNX: protobuf plus a vendored
+  `onnx.proto`, or a minimal first-party wire-format reader with no new
+  dependency. Required before native-engine parsing work begins.
+- Decide whether the native engine's accelerated kernels may use vendor
+  libraries (cuBLAS, cuDNN) or are first-party throughout, with vendor
+  libraries available behind an opt-in flag as a performance baseline.
+  Required before any accelerated kernel is written.
+- Decide whether `NATIVE` eventually becomes `DEFAULT_BACKEND` and what that
+  implies for `OPENCV_DNN` and for OpenCV's absence from the default build.
+  This is a public-behavior migration and needs a deprecation window.
 
-_Revision: 2026-09-11 - removed contributor workflow from the technical
-constitution and aligned feature-packet scope with proportional use._
+_Revision: 2026-09-17 - recorded the first-party native engine's architectural
+boundaries, non-choices, and the decisions required before its parsing and
+kernel work begins._
