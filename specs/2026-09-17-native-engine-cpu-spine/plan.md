@@ -15,22 +15,38 @@ throughout.
   - Checks: `./scripts/quality/format.sh --check`; both files still readable in
     under five minutes.
 - [T-3] Confirm [A-1] by dumping the node list and op types of the exported
-  ResNet-18. Deliverable: the actual op set, pasted into `requirements.md`
-  under Context, and [R-5] adjusted if it differs.
+  ResNet-18, and record the opset the fixture is actually pinned to (it is 12,
+  not 17). Deliverable: the actual op set, pasted into `requirements.md`
+  under Context, [R-5] adjusted if it differs, and an explicit decision to
+  either implement opset 12 semantics or re-pin the exporter — before Group 2
+  writes any attribute handling.
 
 ## Group 1 — Skeleton and build seam
 
 - [T-4] Create `engine/` with `CMakeLists.txt` producing the `neuriplo_engine`
   static library, its own `engine/include/` public headers, and no link or
   include path into the abstraction.
-- [T-5] Add `cmake/Native.cmake` and the `NATIVE` entry in
-  `cmake/BackendRegistry.cmake` (module `Native`, test dir
-  `backends/native/test`, no `*_VERSION_VAR` — see [Q-2]/[T-22]).
+- [T-5] Teach the registry and `validate_backend_versions()` an explicit
+  no-external-SDK case **before** `NATIVE` is registered, then add
+  `cmake/Native.cmake` and the `NATIVE` entry in `cmake/BackendRegistry.cmake`
+  (module `Native`, test dir `backends/native/test`).
+  The order is load-bearing, not cosmetic: `neuriplo_get_backend_property`
+  raises `FATAL_ERROR` on an undefined property
+  (`cmake/BackendRegistry.cmake:177-182`), and `validate_backend_versions()`
+  asks every registered ID for `VERSION_VAR` unconditionally on a top-level
+  configure (`CMakeLists.txt:38`, `cmake/versions.cmake:155-167`). All 14
+  current backends define one. `NATIVE` is the first that cannot, so
+  registering it while the property is merely absent fails *every* top-level
+  configure — including the `OPENCV_DNN` build Groups 1-6 promise to keep
+  green. Give the validator a declared-null version it understands rather than
+  leaving the property undefined, and do not defer this to Group 7. This is
+  [Q-2]'s cheaper-order argument made concrete.
 - [T-6] Add a build-time guard that the arrow in [R-1] holds: fail configure or
   a test if any translation unit under `engine/` includes abstraction headers.
-  - Checks: `cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN` still configures
-    with `NATIVE` absent; `-DDEFAULT_BACKEND=NATIVE` configures and builds an
-    empty engine.
+  - Checks: `cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN` still
+    configures, builds, and tests green *with `NATIVE` registered* — the
+    regression [T-5] exists to prevent; `-DDEFAULT_BACKEND=NATIVE` configures
+    and builds an empty engine.
 - [T-7] Add `docs/backends.yaml` entry with `setup_script: null`,
   `version_var: null`, and regenerate `GEN:` sections.
 
@@ -92,16 +108,25 @@ throughout.
   variants; keep `get_infer_results` as the adapted path.
 - [T-20] Metadata from engine graph inspection; lifecycle states mapped to the
   engine's load/ready states.
-- [T-21] Device request handling per [R-9]: a GPU request raises with a clear
-  message naming the phase limitation.
+- [T-21] Device request handling per [R-9]: the factory throws with a clear
+  message naming the phase limitation, which the public setup overloads then
+  translate into their existing `nullptr`-and-log contract. Do not change
+  `src/InferenceBackendSetup.cpp` to make the exception escape.
   - Checks: the shared backend contract tests pass with
     `-DDEFAULT_BACKEND=NATIVE`.
 
 ## Group 7 — Parity, inventory, docs
 
+- [T-27a] Fixture provisioning for [R-10], before any parity task: a single
+  deterministic step that actually generates the ResNet-18 export, writes it to
+  a path under the build tree rather than the script's hard-coded `/workspace/`,
+  pins the exporter's opset and torchvision version, and reports the resolved
+  path. Copying the script into the build directory is not provisioning.
 - [T-22] Parity harness for [R-10]: build with `NATIVE` and `ONNX_RUNTIME`
-  both enabled, run the same file through both, compare elementwise, record the
-  observed max absolute difference.
+  both enabled, feed both the identical file from [T-27a] and the identical
+  input, compare elementwise, and record the observed max absolute difference.
+  The test fails — never skips, never substitutes a mock — if the fixture is
+  missing, unlike the ORT test it is modelled on.
 - [T-23] Complete [R-11]: registry, `docs/backends.yaml`, regenerated docs,
   Docker metadata, CI identifiers. Handle the no-external-SDK case surfaced by
   [Q-2].

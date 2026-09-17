@@ -44,8 +44,12 @@ live in `versions.env`; the human-readable backend inventory lives in
 
 ## First-Party Native Engine
 
-Neuriplo hosts one runtime it implements itself, exposed as the `NATIVE`
-backend. It is a peer library, not an adapter:
+Neuriplo admits one runtime it implements itself, to be exposed as the `NATIVE`
+backend. None of it exists yet — Phase N0 in `specs/roadmap.md` is the work
+that lands it, and the backend inventory above remains the registered set until
+it does. The rules below are binding on that work from the moment it starts;
+they constrain the engine rather than describe the current tree. It is to be a
+peer library, not an adapter:
 
 - The engine lives in top-level `engine/` (target `neuriplo_engine`) and
   includes nothing from `include/neuriplo/`, `backends/src/`, or `src/`. The
