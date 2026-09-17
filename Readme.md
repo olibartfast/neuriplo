@@ -9,6 +9,12 @@
 * It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, ExecuTorch, and LiteRT, plus NVIDIA DALI for GPU preprocessing.
 * The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
 * The library is currently mainly used as component of the [Neuriplo Infer Project](https://github.com/olibartfast/neuriplo-infer)
+* Alongside those third-party runtimes, a first-party inference engine (the
+  `NATIVE` backend) is specified but **not yet implemented** — see the
+  [Native Engine Track](specs/roadmap.md#native-engine-track) and its
+  [Phase N0 packet](specs/2026-09-17-native-engine-cpu-spine/). The vendor
+  backends stay first-class supported paths and remain the correctness and
+  performance reference it is measured against.
 
 ## Dependencies
 - C++17
@@ -230,6 +236,7 @@ See **[Code Quality](docs/CODE_QUALITY.md)** for details.
 For detailed documentation, see the [docs/](docs/) directory:
 
 - **Project constitution** - [Mission](specs/mission.md), [Technical Stack](specs/tech-stack.md), and [Roadmap](specs/roadmap.md)
+- **[Native engine, Phase N0](specs/2026-09-17-native-engine-cpu-spine/)** - Requirements, plan, and validation for the planned first-party `NATIVE` runtime
 - **[Code Quality](docs/CODE_QUALITY.md)** - Formatting, static analysis, sanitizers, pre-commit hooks
 - **[Architecture / Design Patterns](docs/ARCHITECTURE.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends

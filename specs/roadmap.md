@@ -179,6 +179,63 @@ Exit criteria:
 - A release can move from `develop` to `master` with a recorded validation
   trail and understandable compatibility notes.
 
+## Native Engine Track
+
+A parallel track, not a renumbering of Phases 1-6. It delivers the `NATIVE`
+backend: a first-party inference runtime implemented in this repository, aimed
+at the slot `OPENCV_DNN` occupies today — a small, self-contained engine with no
+vendor SDK underneath. Sequencing against Phase 1 is an open decision recorded
+in the Phase N0 packet; Phase 1 first is the cheaper order, because `NATIVE` is
+a new inventory entry with no external SDK version or setup script.
+
+The design reference for the track is OpenCV 5's rewritten `dnn` engine — a
+typed operation graph with shape inference, dynamic shapes, constant folding,
+and fusion. It is read as a reference for how to structure the graph and the
+per-shape plan, and nothing more: the track introduces no dependency on it, and
+does not change how `OPENCV_DNN` is built or pinned.
+
+### Phase N0 - CPU Reference Spine
+
+- Status: Next (parallel track; confirm ordering against Phase 1)
+- Outcome: one classification model runs end to end through `NATIVE` on CPU,
+  with outputs matching `ONNX_RUNTIME` on the same file within a recorded
+  tolerance.
+- Proves: the whole spine — ONNX parsing, graph IR, static shape inference,
+  arena planning, sequential execution, and the backend adapter — before any
+  accelerated kernel exists, and produces the reference kernels those kernels
+  will be validated against.
+- Spec: `specs/2026-09-17-native-engine-cpu-spine/`
+  Branch: `feature/native-engine-cpu-spine`
+
+### Phase N1 - CUDA Device Layer
+
+- Status: Planned; depends on N0 and on the vendor-kernel decision in
+  `specs/tech-stack.md`
+- Outcome: the same model and the same graph plan execute on CUDA, matching the
+  CPU reference path within tolerance, with device chosen once at load.
+- Proves: the device seam from N0 holds without touching the device-agnostic
+  core, and the kernel-table abstraction is sufficient.
+
+### Phase N2 - Vision Op Coverage, Dynamic Shapes, and Fusion
+
+- Status: Planned
+- Outcome: the op set covers the detection and ViT-based models actually in use;
+  dynamic input and output shapes are supported by re-planning per shape behind
+  a plan cache; conv-bias-activation fusion lands as a graph pass with measured
+  effect.
+- Proves: coverage grows by adding kernels and passes rather than by special
+  cases in the executor, and that the per-shape planning seam required in N0
+  was sufficient. Scope is vision ops, explicitly not all of ONNX.
+
+### Phase N3 - Default Backend Migration
+
+- Status: Blocked; needs the deprecation-window policy named in
+  `specs/mission.md` open questions
+- Outcome: a decision, with migration notes, on whether `NATIVE` becomes
+  `DEFAULT_BACKEND` and what happens to `OPENCV_DNN`.
+- Proves: nothing technical; it is a compatibility decision and must be
+  specified as one.
+
 ## Specification Rule
 
 Create a dated `specs/YYYY-MM-DD-feature-name/` packet for active work that is
@@ -189,5 +246,6 @@ Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
 
-_Revision: 2026-09-11 - aligned packet proportionality and active-work scope
-with the spec-driven-development workflow._
+_Revision: 2026-09-17 - added the Native Engine Track (N0-N3) as a parallel
+track without renumbering Phases 1-6; named the track's design reference and
+moved dynamic shapes into Phase N2 explicitly._
