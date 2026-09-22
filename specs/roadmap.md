@@ -12,6 +12,9 @@ thin, independently reviewable phases over broad rewrites.
 - **Complete** — the intended repository capability has landed; ongoing
   maintenance may remain.
 - **Next** — the next phase to specify and implement.
+- **Specified** — a dated feature packet exists and validation is defined;
+  implementation has not started. A phase in this state is no longer `Planned`
+  (its packet exists) but has not displaced whatever is `Next`.
 - **Planned** — ordered but not yet specified as a feature packet.
 - **Blocked** — cannot proceed without an identified decision or dependency.
 
@@ -64,7 +67,11 @@ Exit criteria:
 
 ## Phase 2 — Plugin ABI and Loader Hardening
 
-**Status: Planned**
+**Status: Specified** — packet at
+`specs/2026-09-22-plugin-abi-loader-hardening/`, branch
+`feature/plugin-abi-loader-hardening`. Implementation has not started, and this
+does not displace Phase 1 as `Next`; the two are independent and Phase 1 stays
+first in order.
 
 Goal: make runtime-loaded backends predictable under malformed and incompatible
 plugin conditions.
@@ -189,5 +196,5 @@ Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
 
-_Revision: 2026-09-11 - aligned packet proportionality and active-work scope
-with the spec-driven-development workflow._
+_Revision: 2026-09-22 - added the `Specified` status and moved Phase 2 into it
+with its feature packet; Phase 1 remains `Next`._
