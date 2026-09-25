@@ -110,10 +110,11 @@ std::unique_ptr<InferenceInterface> setup_inference_engine(const EngineOptions& 
     // warns when a plugin id is shadowed).
     const BackendRuntimeRegistration* registration = nullptr;
     const PluginBackendDescriptor* plugin = nullptr;
+    const auto plugins = get_plugin_backends();
     if (options.backend_id.empty()) {
         registration = get_compiled_backend_registration();
-        if (registration == nullptr && !get_plugin_backends().empty()) {
-            plugin = &get_plugin_backends().front();
+        if (registration == nullptr && !plugins.empty()) {
+            plugin = &plugins.front();
         }
     } else {
         registration = find_backend_registration(options.backend_id);
