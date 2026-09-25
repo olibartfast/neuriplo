@@ -83,6 +83,22 @@ constexpr const char* kPluginExtension = ".so";
 
 #endif
 
+// Upper bound on a layer's rank that the host accepts from a plugin. No
+// real model needs anything close to this; it exists to reject malformed or
+// hostile ndim values before they are used to construct a shape vector.
+constexpr size_t kMaxLayerRank = 16;
+
+bool metadata_dtype_is_valid(neuriplo_dtype_t dtype) {
+    switch (dtype) {
+    case NEURIPLO_DTYPE_FP32:
+    case NEURIPLO_DTYPE_INT32:
+    case NEURIPLO_DTYPE_INT64:
+    case NEURIPLO_DTYPE_UINT8:
+        return true;
+    }
+    return false;
+}
+
 TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
     switch (dtype) {
     case NEURIPLO_DTYPE_FP32:
@@ -269,11 +285,50 @@ class PluginBackendAdapter final : public InferenceInterface {
     }
 
   private:
+    // Every field of every layer is validated against attacker/bug-controlled
+    // plugin memory before it is used to build a std::vector or std::string;
+    // nothing here trusts pointer or size values coming from the plugin.
+    void validate_layer_array(const neuriplo_layer_info_t* layers, size_t count, const char* array_field) const {
+        if (layers == nullptr && count > 0) {
+            throw ModelLoadException(descriptor_.library_path + ": plugin metadata invalid: " + array_field +
+                                     " is null");
+        }
+    }
+
+    void validate_layer(const neuriplo_layer_info_t& layer, const char* layer_label) const {
+        if (layer.name == nullptr) {
+            throw ModelLoadException(descriptor_.library_path + ": plugin metadata invalid: " + layer_label +
+                                     " has null name");
+        }
+        if (layer.shape == nullptr && layer.ndim > 0) {
+            throw ModelLoadException(descriptor_.library_path + ": plugin metadata invalid: " + layer_label +
+                                     " has null shape");
+        }
+        if (layer.ndim > kMaxLayerRank) {
+            throw ModelLoadException(descriptor_.library_path + ": plugin metadata invalid: " + layer_label +
+                                     " has out-of-bound ndim");
+        }
+        if (!metadata_dtype_is_valid(layer.element_type)) {
+            throw ModelLoadException(descriptor_.library_path + ": plugin metadata invalid: " + layer_label +
+                                     " has unknown element_type");
+        }
+    }
+
     void populate_metadata() {
         neuriplo_metadata_t metadata{};
         if (descriptor_.api->get_metadata(handle_, &metadata) != 0) {
-            throw ModelLoadException(std::string(descriptor_.id) + " plugin: metadata query failed");
+            throw ModelLoadException(descriptor_.library_path + " plugin: metadata query failed");
         }
+
+        validate_layer_array(metadata.inputs, metadata.n_inputs, "inputs");
+        validate_layer_array(metadata.outputs, metadata.n_outputs, "outputs");
+        for (size_t i = 0; i < metadata.n_inputs; ++i) {
+            validate_layer(metadata.inputs[i], ("input layer " + std::to_string(i)).c_str());
+        }
+        for (size_t i = 0; i < metadata.n_outputs; ++i) {
+            validate_layer(metadata.outputs[i], ("output layer " + std::to_string(i)).c_str());
+        }
+
         for (size_t i = 0; i < metadata.n_inputs; ++i) {
             const neuriplo_layer_info_t& layer = metadata.inputs[i];
             inference_metadata_.addInput(layer.name, std::vector<int64_t>(layer.shape, layer.shape + layer.ndim),
