@@ -64,6 +64,163 @@ backend's `IBackendRuntimeFactory` via `backends/src/plugin/PluginShim.hpp`
 `InferenceInterface`, so `ModelRunner`, decorators, and serving integrations
 work unchanged.
 
-Tests: `backends/src/test/PluginLoaderTest.cpp` (built when
-`NEURIPLO_PLUGIN_BACKENDS` is set) proves a host without built-in ONNX Runtime
-serves an identity model through the ONNX Runtime plugin.
+## Packaging layout
+
+A deployment is the host application plus one directory of plugins. The
+loader scans that directory (non-recursively) for regular files named
+`libneuriplo_backend_*` with the platform's module extension (`.so` on POSIX,
+`.dll` on Windows); everything else is ignored.
+
+```text
+/opt/myapp/
+├── bin/myapp                          # links libneuriplo (compiled-in default backend)
+└── plugins/                           # EngineOptions::plugin_dir or NEURIPLO_PLUGIN_DIR
+    ├── libneuriplo_backend_onnx_runtime.so
+    ├── libneuriplo_backend_tensorrt.so
+    └── lib/                           # optional: framework libraries shipped with the plugins
+        ├── libonnxruntime.so.1
+        └── ...
+```
+
+One backend id per plugin. If two plugins advertise the same `backend_id`, the
+first one loaded wins and the second is skipped with a warning naming both
+paths. A compiled-in backend with the same id beats any plugin.
+
+## Dependency discovery
+
+A plugin's framework libraries (ONNX Runtime, TensorRT, ...) are resolved by
+the platform loader when the host opens the plugin. Nothing in neuriplo
+searches for them.
+
+- **POSIX: `dlopen(RTLD_NOW | RTLD_LOCAL)`.** `RTLD_NOW` resolves every
+  symbol at load, so a missing framework library rejects the plugin at
+  discovery ("skipping plugin <path>: <dlerror>") instead of failing
+  mid-inference. `RTLD_LOCAL` keeps the plugin's symbols out of the global
+  namespace, so two plugins cannot resolve each other's symbols. It does
+  **not** control *where* dependencies are found. That follows the normal
+  rules: the plugin's own `DT_RUNPATH`, then `LD_LIBRARY_PATH`, the loader
+  cache, and the default directories. To ship framework libraries beside a
+  plugin, give the plugin a `$ORIGIN`-relative runpath (for the layout above,
+  `patchelf --set-rpath '$ORIGIN/lib' libneuriplo_backend_onnx_runtime.so`).
+  A plugin built in the tree carries CMake's build-tree runpath, which is
+  wrong once the plugin is copied elsewhere. Caveat: the loader
+  de-duplicates by SONAME. If the host or another plugin already loaded a
+  library with the same SONAME, a later plugin gets that copy, whatever its
+  own runpath says. `RTLD_LOCAL` isolates symbols, not SONAMEs.
+- **Windows: `LoadLibraryExA(..., LOAD_WITH_ALTERED_SEARCH_PATH)`.** The
+  loader passes an absolute path, so the plugin's own directory is searched
+  first for its dependent DLLs. Ship framework DLLs *next to* the plugin DLL
+  (not in a `lib/` subdirectory), or on `PATH`.
+
+## Compatibility and versioning
+
+- The ABI version is `NEURIPLO_PLUGIN_ABI_VERSION` in
+  `include/neuriplo/plugin_abi.h` (currently **2**). The host loads a plugin
+  only if its `abi_version` matches exactly. Otherwise it logs
+  "ABI version <n> != host <m>" and skips it.
+- The version is bumped only for a breaking change to the ABI structs or to
+  their meaning. Host-side validation (below) is not a breaking change: a
+  conforming v2 plugin built before it keeps loading and behaving the same.
+- `struct_size` on `neuriplo_engine_options_t` and `neuriplo_host_services_t`
+  lets those structs grow at the end without a version bump. A plugin must
+  not read fields beyond the `struct_size` it was given.
+- Plugins are never unloaded. The api table and every backend handle a plugin
+  returns must stay valid for the process lifetime.
+
+## What the host validates
+
+The host treats everything a plugin returns as untrusted input. A plugin that
+breaks a rule below is rejected with a diagnostic. The host never aborts,
+asserts, or dereferences the bad value.
+
+**At load** (plugin skipped, logged as `skipping plugin <path>: <reason>`,
+never added to `available_backend_ids()`):
+
+| Condition | Reason logged |
+| --- | --- |
+| library cannot be opened | the `dlerror()` / `FormatMessage` text |
+| no `neuriplo_plugin_get_api_v1` symbol | `missing neuriplo_plugin_get_api_v1` |
+| entry point returns NULL | `entry point returned null` |
+| `abi_version` differs from the host | `ABI version <n> != host <m>` |
+| `backend_id` or any function pointer is NULL | `incomplete api table` |
+| `backend_id` already loaded | `backend id '<id>' already provided by <path>` |
+
+**At backend creation** (`setup_inference_engine` / `create_plugin_backend`
+returns `nullptr` and logs `plugin backend '<id>': ...`). The plugin
+instance is destroyed. The message names the plugin path, the layer
+(`input layer <i>` / `output layer <i>`) and the field:
+
+- `create` returns NULL. The plugin's own error text is logged.
+- `get_metadata` returns non-zero.
+- A layer array (`inputs` / `outputs`) is NULL while its count is non-zero.
+- A layer's `name` is NULL, its `shape` is NULL with `ndim > 0`, its `ndim`
+  exceeds the host's rank bound, or its `element_type` is not a
+  `neuriplo_dtype_t` value.
+
+Metadata dimensions may be negative (dynamic), as in ONNX models.
+
+**At inference** (`get_infer_results_raw` / `get_infer_results` throw
+`InferenceExecutionException`). The message names the backend id, the
+tensor (`output <i>`) and the field:
+
+- `infer` returns non-zero. The plugin's error text is included.
+- `infer` returns 0 but `tensors` is NULL with a non-zero count, or a
+  tensor's `data` is NULL, its `shape` is NULL with `ndim > 0`, its `ndim`
+  exceeds the rank bound, a dimension is negative, or its `dtype` is unknown.
+- `size_bytes` differs from `element size × product of shape`. The check is
+  strict equality: a buffer that is too short or too long is rejected, not
+  truncated.
+
+An unknown dtype rejects the whole call. The host never drops a tensor or
+substitutes a type. **Ownership:** for every `infer` that returns 0, the host
+calls `release_outputs` exactly once, including when it then rejects the
+outputs or fails while copying them. A plugin must not free its output arrays
+anywhere else.
+
+## Deployment example
+
+Build the ONNX Runtime backend as a plugin next to an OpenCV DNN host, then
+run it from a relocated directory:
+
+```bash
+cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN -DNEURIPLO_PLUGIN_BACKENDS=ONNX_RUNTIME
+cmake --build build
+
+mkdir -p /opt/myapp/plugins/lib
+cp build/plugins/libneuriplo_backend_onnx_runtime.so /opt/myapp/plugins/
+cp "$ONNXRUNTIME_DIR"/lib/libonnxruntime.so* /opt/myapp/plugins/lib/
+patchelf --set-rpath '$ORIGIN/lib' /opt/myapp/plugins/libneuriplo_backend_onnx_runtime.so
+
+# Check that every dependency resolves from the new location:
+ldd /opt/myapp/plugins/libneuriplo_backend_onnx_runtime.so | grep -E 'onnxruntime|not found'
+```
+
+```cpp
+EngineOptions options;
+options.model_path = "model.onnx";
+options.backend_id = "ONNX_RUNTIME";
+options.plugin_dir = "/opt/myapp/plugins";
+std::unique_ptr<InferenceInterface> engine = setup_inference_engine(options);
+if (!engine) {
+    // The log says why: plugin skipped at load, create/metadata rejected, ...
+    for (const std::string& id : available_backend_ids(options.plugin_dir)) {
+        std::cerr << "available: " << id << "\n";
+    }
+}
+```
+
+`NEURIPLO_PLUGIN_DIR=/opt/myapp/plugins` works in place of `plugin_dir`.
+
+## Tests
+
+- `backends/src/test/PluginAbiContractTest.cpp` is the ABI contract suite.
+  It is built in every configuration, needs no vendor SDK, and runs against
+  first-party fixture plugins (`backends/src/test/plugin_fixtures/`). It
+  covers each load-time rejection, malformed metadata and outputs,
+  release-exactly-once ownership, concurrent loading, and isolation of a good
+  plugin from broken ones. Run it with
+  `ctest --test-dir build -R PluginAbi --output-on-failure`, and under
+  `./scripts/quality/sanitizers.sh` for ASan/UBSan.
+- `backends/src/test/PluginLoaderTest.cpp` (built when
+  `NEURIPLO_PLUGIN_BACKENDS` is set) proves that a host without built-in ONNX
+  Runtime serves an identity model through the ONNX Runtime plugin.
