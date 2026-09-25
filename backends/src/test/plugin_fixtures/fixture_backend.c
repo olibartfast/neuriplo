@@ -17,14 +17,35 @@
  * The conforming behaviour: one FP32 input "input" [1,4], one FP32 output
  * "output" [1,4], output[i] = 2 * input[i].
  *
+ * The counters are atomic so that concurrent inference on several instances
+ * (specs/2026-09-25-consumer-c-abi, [V-8]) does not race inside the fixture
+ * itself under TSan. The "slow" mode holds each infer call open for a few
+ * milliseconds and counts calls that overlap on the SAME instance, which is
+ * how the consumer C API's per-engine serialisation ([D-7] there) is observed.
+ *
  * Owned by the specifier; read-only to every implementer (see
  * specs/2026-09-22-plugin-abi-loader-hardening/orchestration.md). */
+
+/* nanosleep is POSIX, not ISO C: request it explicitly so the fixture builds
+ * under a strict -std=c99/c11 as well as the compiler's GNU default. */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "neuriplo/plugin_abi.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 /* CMake always defines FIXTURE_BACKEND_ID; the fallback only lets static
  * analysers that do not see the build's definitions parse this file. */
@@ -39,6 +60,20 @@
 #define FIXTURE_EXPORT __declspec(dllexport)
 #else
 #define FIXTURE_EXPORT __attribute__((visibility("default")))
+#endif
+
+/* Portable atomic counters: Interlocked* on MSVC (whose C mode has no usable
+ * <stdatomic.h> before VS 2022 17.5), the __atomic builtins elsewhere. */
+#ifdef _MSC_VER
+typedef volatile LONG fixture_counter;
+#define FIXTURE_INC(c) ((size_t)InterlockedIncrement(&(c)))
+#define FIXTURE_DEC(c) ((size_t)InterlockedDecrement(&(c)))
+#define FIXTURE_LOAD(c) ((size_t)InterlockedCompareExchange(&(c), 0, 0))
+#else
+typedef size_t fixture_counter;
+#define FIXTURE_INC(c) __atomic_add_fetch(&(c), (size_t)1, __ATOMIC_SEQ_CST)
+#define FIXTURE_DEC(c) __atomic_sub_fetch(&(c), (size_t)1, __ATOMIC_SEQ_CST)
+#define FIXTURE_LOAD(c) __atomic_load_n(&(c), __ATOMIC_SEQ_CST)
 #endif
 
 enum fixture_mode {
@@ -61,6 +96,7 @@ enum fixture_mode {
     MODE_OUT_NEGATIVE_DIM,
     MODE_OUT_UNKNOWN_DTYPE,
     MODE_OUT_EMPTY,
+    MODE_SLOW,
     MODE_COUNT
 };
 
@@ -84,6 +120,7 @@ static const char* const kModeNames[MODE_COUNT] = {
     "out_negative_dim",
     "out_unknown_dtype",
     "out_empty",
+    "slow",
 };
 
 #define FIXTURE_ELEMENTS 4
@@ -94,12 +131,18 @@ static const int64_t kShape[2] = {1, FIXTURE_ELEMENTS};
 /* Counters the test reads back through neuriplo_fixture_counters: how many
  * output arrays infer handed to the host, and how many release_outputs gave
  * back. Every successful infer must be released exactly once. */
-static size_t g_outputs_handed = 0;
-static size_t g_outputs_released = 0;
-static size_t g_live_instances = 0;
+static fixture_counter g_outputs_handed = 0;
+static fixture_counter g_outputs_released = 0;
+static fixture_counter g_live_instances = 0;
+/* Infer calls that found another infer call already running on the same
+ * instance (only tracked in MODE_SLOW). */
+static fixture_counter g_overlapping_calls = 0;
+
+#define FIXTURE_SLOW_MILLISECONDS 2
 
 struct neuriplo_backend_t {
     enum fixture_mode mode;
+    fixture_counter in_flight; /* infer calls currently inside this instance */
     neuriplo_layer_info_t inputs[1];
     neuriplo_layer_info_t outputs[1];
 };
@@ -152,13 +195,13 @@ static neuriplo_backend_t* fixture_create(const neuriplo_engine_options_t* optio
     backend->inputs[0].element_type = NEURIPLO_DTYPE_FP32;
     backend->outputs[0] = backend->inputs[0];
     backend->outputs[0].name = "output";
-    ++g_live_instances;
+    FIXTURE_INC(g_live_instances);
     return backend;
 }
 
 static void fixture_destroy(neuriplo_backend_t* backend) {
     if (backend != NULL) {
-        --g_live_instances;
+        FIXTURE_DEC(g_live_instances);
         free(backend);
     }
 }
@@ -196,6 +239,17 @@ static int fixture_get_metadata(neuriplo_backend_t* backend, neuriplo_metadata_t
     return 0;
 }
 
+static void fixture_sleep_briefly(void) {
+#ifdef _WIN32
+    Sleep(FIXTURE_SLOW_MILLISECONDS);
+#else
+    struct timespec delay;
+    delay.tv_sec = 0;
+    delay.tv_nsec = FIXTURE_SLOW_MILLISECONDS * 1000000L;
+    nanosleep(&delay, NULL);
+#endif
+}
+
 static int fixture_infer(neuriplo_backend_t* backend, const neuriplo_input_buffer_t* inputs, size_t n_inputs,
                          neuriplo_output_tensor_t** out_tensors, size_t* out_count, char* error, size_t error_size) {
     fixture_outputs* outputs;
@@ -205,6 +259,13 @@ static int fixture_infer(neuriplo_backend_t* backend, const neuriplo_input_buffe
     if (backend->mode == MODE_INFER_FAIL) {
         write_error(error, error_size, "fixture infer failure");
         return -1;
+    }
+    if (backend->mode == MODE_SLOW) {
+        if (FIXTURE_INC(backend->in_flight) > 1) {
+            FIXTURE_INC(g_overlapping_calls);
+        }
+        fixture_sleep_briefly();
+        FIXTURE_DEC(backend->in_flight);
     }
     if (n_inputs != 1 || inputs == NULL || inputs[0].data == NULL ||
         inputs[0].size_bytes != FIXTURE_ELEMENTS * sizeof(float)) {
@@ -269,7 +330,7 @@ static int fixture_infer(neuriplo_backend_t* backend, const neuriplo_input_buffe
         break;
     }
 
-    ++g_outputs_handed;
+    FIXTURE_INC(g_outputs_handed);
     *out_tensors = &outputs->tensor;
     *out_count = 1;
     return 0;
@@ -279,7 +340,7 @@ static void fixture_release_outputs(neuriplo_backend_t* backend, neuriplo_output
     (void)backend;
     (void)count;
     if (tensors != NULL) {
-        ++g_outputs_released;
+        FIXTURE_INC(g_outputs_released);
         /* tensor is the first member, so this is the fixture_outputs block. */
         free(tensors);
     }
@@ -287,9 +348,14 @@ static void fixture_release_outputs(neuriplo_backend_t* backend, neuriplo_output
 
 /* Test-only introspection; not part of the plugin ABI. */
 FIXTURE_EXPORT void neuriplo_fixture_counters(size_t* handed, size_t* released, size_t* live_instances) {
-    *handed = g_outputs_handed;
-    *released = g_outputs_released;
-    *live_instances = g_live_instances;
+    *handed = FIXTURE_LOAD(g_outputs_handed);
+    *released = FIXTURE_LOAD(g_outputs_released);
+    *live_instances = FIXTURE_LOAD(g_live_instances);
+}
+
+/* Test-only introspection; not part of the plugin ABI. */
+FIXTURE_EXPORT void neuriplo_fixture_overlaps(size_t* overlapping_calls) {
+    *overlapping_calls = FIXTURE_LOAD(g_overlapping_calls);
 }
 
 static const neuriplo_plugin_api_v1* fixture_api(void) {

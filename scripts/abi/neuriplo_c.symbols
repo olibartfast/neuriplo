@@ -1,0 +1,26 @@
+# Exported symbols of the neuriplo consumer C ABI (include/neuriplo/neuriplo_c.h),
+# NEURIPLO_C_API_VERSION 1. One name per line, sorted (LC_ALL=C); '#' lines are
+# comments. scripts/abi/check_symbols.sh compares libneuriplo's exported
+# neuriplo_* symbols against this list: a symbol missing from the library, or
+# an exported neuriplo_* symbol not listed here, fails the check ([R-9]).
+# Adding a function appends a line here in the same change; removing one is an
+# ABI break (NEURIPLO_C_API_VERSION bump). Owned by the specifier.
+neuriplo_api_version
+neuriplo_available_backends
+neuriplo_backend_list_count
+neuriplo_backend_list_get
+neuriplo_backend_list_release
+neuriplo_engine_backend_id
+neuriplo_engine_create
+neuriplo_engine_destroy
+neuriplo_engine_input
+neuriplo_engine_input_count
+neuriplo_engine_output
+neuriplo_engine_output_count
+neuriplo_infer
+neuriplo_last_error
+neuriplo_result_output
+neuriplo_result_output_count
+neuriplo_result_release
+neuriplo_set_log_callback
+neuriplo_status_string

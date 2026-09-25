@@ -161,7 +161,91 @@ Verified on `origin/develop` @ `4e4e237`:
   or changing anything existing bumps the version.
 - [D-6] **The C API lives in `libneuriplo`** unless [Q-3] decides otherwise:
   one library to ship, and the plugin loader's process-global state is not
-  duplicated across two libraries.
+  duplicated across two libraries. (Confirmed by [D-9].)
+
+Decisions taken in Group 0 (2026-09-26). The header
+`include/neuriplo/neuriplo_c.h` is the authoritative statement of each; the
+entries below record the choice and why.
+
+- [D-7] **Same-engine calls are serialised by a per-engine mutex** (resolves
+  [Q-1]). `neuriplo_infer` on one engine takes that engine's lock; different
+  engines never share a lock. Metadata queries and `neuriplo_engine_backend_id`
+  are lock-free because the engine's metadata is immutable after create.
+  `neuriplo_engine_destroy` concurrent with any other call on the same engine
+  stays undefined — a lock cannot make use-after-free safe. Why: FFI callers
+  (Unity jobs, Python threads, C# tasks) share handles by accident, backends
+  are not documented as re-entrant, and the lock is negligible next to
+  inference. The alternative ("one thread at a time per engine") pushes a
+  correctness rule onto every binding author. Observable: the `slow` fixture
+  mode counts overlapping calls on one instance (`CApi.Thread.SameEngineSerialised`).
+- [D-8] **Eager load; no separate load call** (resolves [Q-2]).
+  `neuriplo_engine_create` returns a ready engine or a failure status, the
+  existing "constructed == ready" contract of `setup_inference_engine`. A
+  separate load would add a state (created-but-not-loaded) every function must
+  check, for no caller that needs it today.
+- [D-9] **The C API is compiled into `libneuriplo`** (resolves [Q-3], confirms
+  [D-6]): `src/neuriplo_c.cpp` in the library sources, exports declared in the
+  header. Why: one binary to ship and find; the plugin table and log sink stay
+  single process-global objects; the C++ API is untouched. The export check
+  ([R-9]) stays unambiguous because every C++ symbol is mangled, so the
+  exported `neuriplo_*` names are exactly the C API.
+- [D-10] **C#/Unity is a manual check this phase** (resolves [Q-4]): [M-3] only;
+  no .NET SDK in CI until a Unity package actually ships.
+- [D-11] **How `neuriplo_engine_create` chooses a status.** `setup_inference_engine`
+  returns `nullptr` both for an unknown backend and for a load failure, and its
+  plugin path can throw, so the C layer does not infer the status from
+  `nullptr`. It (1) validates arguments; (2) resolves the id itself — the
+  given `backend_id`, or for NULL/"" the compiled-in default registration, else
+  the first loaded plugin; (3) checks that id against
+  `available_backend_ids(plugin_dir)` and returns `BACKEND_NOT_FOUND` (message:
+  the requested id and the available list) when absent; (4) calls
+  `setup_inference_engine` with the explicit id — a `nullptr` now means
+  `MODEL_LOAD` (message: resolved id and model path); (5) guards the whole call.
+  Exception mapping is by context, amending [T-7]: `std::bad_alloc` →
+  `OUT_OF_MEMORY` anywhere; during create any `std::exception` → `MODEL_LOAD`;
+  during infer any `std::exception` → `INFERENCE`; `catch (...)` →
+  `INTERNAL`. Vendor exceptions (`cv::Exception`, `Ort::Exception`) are
+  `std::exception`-derived, and a failed inference is not a library defect, so
+  mapping them to `INTERNAL` as [T-7] first said would mislabel them.
+- [D-12] **`struct_size` follows the extensible-struct rule of Linux's
+  `copy_struct_from_user`.** Smaller than v1: `INVALID_ARGUMENT`. Equal: read.
+  Larger: accepted only if every byte past the fields this library knows is
+  zero, otherwise `INVALID_ARGUMENT`. This amends [T-7]'s "ignore trailing
+  fields": silently ignoring a field a newer caller set (a future fallback or
+  device policy, say) is exactly the silent substitution `specs/mission.md`
+  forbids. Zero-initialised newer structs still work against older libraries.
+- [D-13] **Library-produced structs are returned by `const` pointer, never
+  copied into caller memory.** `neuriplo_tensor_info_t` (owned by the engine)
+  and `neuriplo_tensor_view_t` (owned by the result) carry `struct_size` set by
+  the library; an old caller simply never reads appended fields. Array-element
+  types (`neuriplo_dims_t`, `neuriplo_input_view_t`) have no `struct_size` and
+  are frozen. Results are independent of their engine and may outlive it.
+- [D-14] **Consumer names never collide with `plugin_abi.h`.** New
+  `neuriplo_tensor_dtype_t` (`NEURIPLO_TENSOR_DTYPE_*`, six values covering
+  every `TensorDataType`, 0–3 equal to the plugin/`TensorDtype` values) and
+  `neuriplo_log_level_t` (`NEURIPLO_LOG_LEVEL_*`); both headers compile in one
+  translation unit (build-time check). Every enum carries a `*_MAX_ENUM_ =
+  0x7FFFFFFF` sentinel so it is 32 bits wide under any compiler setting, and
+  layouts are pinned with `offsetof`/`sizeof` in C.
+- [D-15] **Error-reporting details.** Every status-returning call overwrites the
+  thread's last error (empty string on success); infallible functions never
+  touch it; an `INVALID_ARGUMENT` message starts with the rejecting function's
+  name; non-NULL out-pointers are set to NULL/0 on failure. In C++ the
+  declarations are `noexcept` (`NEURIPLO_NOEXCEPT`), and the definitions must
+  repeat it, so a missing guard terminates instead of unwinding into C.
+- [D-16] **One process-wide log callback, additive, with a completion
+  guarantee.** `neuriplo_set_log_callback(callback, min_level, user_data)`
+  replaces the previous callback; NULL removes it. It does not silence glog's
+  default output (the host application may use glog itself). When the call
+  returns, no invocation of the old callback is running or will start, so a
+  C# delegate or a `user_data` block can be freed right after. Callbacks must
+  not call into neuriplo. The C++ wrapper does not wrap logging in v1: a
+  `std::function` owned across a C callback adds a lifetime problem for no
+  functional gain.
+- [D-17] **[V-8] runs under TSan with no suppressions.** The fixture's
+  bookkeeping counters were plain globals and would race across engines; they
+  are made atomic in the fixture (specifier-owned) rather than suppressed, so
+  no suppression can ever hide a race in the host.
 
 ## Constraints
 
@@ -191,24 +275,31 @@ Verified on `origin/develop` @ `4e4e237`:
 - [A-1] The Phase 2 fixture plugins (`FIXTURE_GOOD`, `FIXTURE_SCRIPTED`) give
   the C API suite deterministic, SDK-free inference and every failure mode it
   needs to map to statuses. Confirm in Group 0 once PR #42 has merged.
+  **Confirmed 2026-09-26**, with one amendment: the fixture gained atomic
+  counters, a `slow` mode, and a `neuriplo_fixture_overlaps` export so [D-7]
+  and [D-17] are observable (plan.md Notes).
 - [A-2] glog's `LogSink` can forward messages to a C callback on every glog
   version the project supports (the LogSink `send` signature changed in glog
   0.7). Confirm in Group 3; if not, [R-7] narrows to plugin-host messages and
-  the change is recorded.
+  the change is recorded. Group 0 finding: the installed glog 0.6.0
+  (Ubuntu 24.04, the Linux CI base) declares both `send(..., const
+  LogMessageTime&, ...)` and a deprecated `send(..., const std::tm*, ...)`;
+  glog 0.7 (vcpkg, Windows CI) has the `LogMessageTime` form. Overriding only
+  the `LogMessageTime` overload should cover both; Group 3 confirms on Windows.
 - [A-3] Exceptions thrown by backends are all `std::exception`-derived, so a
   `catch (const std::exception&)` plus `catch (...)` at each entry point is
   sufficient to keep them inside the library.
-- [Q-1] Concurrent calls on the *same* engine: serialise them with a
+- [Q-1] **Resolved → [D-7].** Concurrent calls on the *same* engine: serialise them with a
   per-engine mutex, or document "one thread at a time per engine"?
   Recommendation: serialise. FFI callers (Unity jobs, Python threads) will
   share handles by accident, and a mutex costs nothing next to inference.
   Decide before Group 3.
-- [Q-2] Does `neuriplo_engine_create` load eagerly (current
+- [Q-2] **Resolved → [D-8].** Does `neuriplo_engine_create` load eagerly (current
   `setup_inference_engine` behaviour) with no separate `load` call?
   Recommendation: yes — keep the "constructed == ready" contract.
-- [Q-3] C API inside `libneuriplo` ([D-6]) or a separate `libneuriplo_c`?
+- [Q-3] **Resolved → [D-9].** C API inside `libneuriplo` ([D-6]) or a separate `libneuriplo_c`?
   Recommendation: inside, per [D-6].
-- [Q-4] Unity/C# coverage: a CI job needs the .NET SDK, which is a new CI
+- [Q-4] **Resolved → [D-10].** Unity/C# coverage: a CI job needs the .NET SDK, which is a new CI
   dependency. Recommendation: manual check [M-3] this phase; revisit when a
   Unity package is actually shipped.
 - [Q-5] When does `infer_into` come back? Recommendation: with the first
@@ -218,7 +309,7 @@ Verified on `origin/develop` @ `4e4e237`:
 ## Definition of Done (requirements level)
 
 - [ ] Every [R-n] implemented or explicitly deferred with a tracked location
-- [ ] [Q-1] decided and recorded before Group 3 starts
+- [x] [Q-1] decided and recorded before Group 3 starts ([D-7], 2026-09-26)
 - [ ] A plain-C program, a C++ program via the wrapper, and a Python `ctypes`
       script each run inference against the installed package
 - [ ] The existing C++ API and `neuriplo-infer`'s build path are unchanged

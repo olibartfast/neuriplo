@@ -219,3 +219,113 @@ add_dependencies(PluginAbiContractTest ${NEURIPLO_FIXTURE_TARGETS})
 # never unloads, so cases must not observe each other's loads.
 include(GoogleTest)
 gtest_discover_tests(PluginAbiContractTest DISCOVERY_TIMEOUT 60)
+
+# ---------------------------------------------------------------------------
+# Consumer C ABI acceptance suite (specs/2026-09-25-consumer-c-abi). Built in
+# every configuration against the same SDK-free fixtures as the plugin suite.
+# Owned by the specifier; read-only to every implementer.
+# ---------------------------------------------------------------------------
+
+if(MSVC)
+    set(NEURIPLO_CAPI_STRICT_FLAGS /W4 /WX)
+else()
+    set(NEURIPLO_CAPI_STRICT_FLAGS -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+# [V-1], [V-11]: neuriplo_c.h compiles as strict C99 beside plugin_abi.h, with
+# struct layouts, enum widths, enumerator values, and every function type
+# pinned. Build-time: a violation fails the build, not a test.
+add_library(neuriplo_capi_header_check_c OBJECT ${CMAKE_CURRENT_LIST_DIR}/CApiHeaderCheck.c)
+set_target_properties(neuriplo_capi_header_check_c PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+)
+target_include_directories(neuriplo_capi_header_check_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(neuriplo_capi_header_check_c PRIVATE ${NEURIPLO_CAPI_STRICT_FLAGS})
+
+# [V-1], [V-10]: the same headers plus the C++ wrapper as strict C++17.
+add_library(neuriplo_capi_header_check_cxx OBJECT ${CMAKE_CURRENT_LIST_DIR}/CApiHeaderCheck.cpp)
+set_target_properties(neuriplo_capi_header_check_cxx PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+target_include_directories(neuriplo_capi_header_check_cxx PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(neuriplo_capi_header_check_cxx PRIVATE ${NEURIPLO_CAPI_STRICT_FLAGS})
+
+# [R-1], [V-10]: include audit. neuriplo_c.h may include only <stddef.h> and
+# <stdint.h>; neuriplo.hpp only "neuriplo_c.h" and standard C++ headers.
+add_custom_target(neuriplo_capi_include_audit ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DHEADER=${CMAKE_SOURCE_DIR}/include/neuriplo/neuriplo_c.h
+        -DALLOWED_ANGLE=stddef.h,stdint.h
+        -P ${CMAKE_CURRENT_LIST_DIR}/CheckHeaderIncludes.cmake
+    COMMAND ${CMAKE_COMMAND}
+        -DHEADER=${CMAKE_SOURCE_DIR}/include/neuriplo/neuriplo.hpp
+        -DALLOWED_QUOTED=neuriplo_c.h
+        -P ${CMAKE_CURRENT_LIST_DIR}/CheckHeaderIncludes.cmake
+    COMMENT "Auditing consumer header includes"
+    VERBATIM
+)
+
+set(NEURIPLO_CAPI_TEST_DEFINITIONS
+    NEURIPLO_DEFAULT_BACKEND="${DEFAULT_BACKEND}"
+    NEURIPLO_FIXTURE_PLUGIN_DIR="${NEURIPLO_FIXTURE_PLUGIN_DIR}"
+    NEURIPLO_FIXTURE_DUPLICATE_DIR="${NEURIPLO_FIXTURE_DUPLICATE_DIR}"
+    NEURIPLO_FIXTURE_PLUGIN_SUFFIX="${CMAKE_SHARED_MODULE_SUFFIX}"
+)
+
+# Plain-C contract suite: compiled as C99, linked with the C linker against
+# libneuriplo only (plus threads and the dynamic loader for fixture counters).
+add_executable(CApiContractTest ${CMAKE_CURRENT_LIST_DIR}/CApiContractTest.c)
+set_target_properties(CApiContractTest PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF
+    LINKER_LANGUAGE C
+)
+target_compile_definitions(CApiContractTest PRIVATE ${NEURIPLO_CAPI_TEST_DEFINITIONS})
+target_link_libraries(CApiContractTest PRIVATE
+    neuriplo
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+)
+add_dependencies(CApiContractTest ${NEURIPLO_FIXTURE_TARGETS})
+
+# One ctest test per case, one process each (the plugin table is process-global
+# and a log callback must precede the first scan). The case table in the source
+# is the single list: every `CAPI_CASE(Group, Name),` line becomes the test
+# `CApi.Group.Name`, so `ctest -R "^CApi\.Lifecycle\."` selects a group.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/CApiContractTest.c)
+file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/CApiContractTest.c neuriplo_capi_case_lines
+     REGEX "^[ ]*CAPI_CASE\\([A-Za-z0-9]+, [A-Za-z0-9]+\\),")
+if(NOT neuriplo_capi_case_lines)
+    message(FATAL_ERROR "No CAPI_CASE entries found in CApiContractTest.c")
+endif()
+foreach(neuriplo_capi_case_line IN LISTS neuriplo_capi_case_lines)
+    string(REGEX REPLACE "^[ ]*CAPI_CASE\\(([A-Za-z0-9]+), ([A-Za-z0-9]+)\\),.*$" "\\1.\\2"
+           neuriplo_capi_case "${neuriplo_capi_case_line}")
+    add_test(NAME CApi.${neuriplo_capi_case} COMMAND CApiContractTest ${neuriplo_capi_case})
+    # An inherited NEURIPLO_PLUGIN_DIR would add plugins the cases do not expect.
+    set_tests_properties(CApi.${neuriplo_capi_case} PROPERTIES
+        ENVIRONMENT "NEURIPLO_PLUGIN_DIR="
+        TIMEOUT 300
+    )
+endforeach()
+
+# C++ wrapper suite [V-10]: GoogleTest, includes only neuriplo/neuriplo.hpp and
+# links no glog -- the application never has to know neuriplo uses it.
+add_executable(CApiWrapperTest ${CMAKE_CURRENT_LIST_DIR}/CApiWrapperTest.cpp)
+target_compile_definitions(CApiWrapperTest PRIVATE ${NEURIPLO_CAPI_TEST_DEFINITIONS})
+target_link_libraries(CApiWrapperTest PRIVATE
+    neuriplo
+    GTest::gtest
+    GTest::gtest_main
+    ${CMAKE_DL_LIBS}
+)
+add_dependencies(CApiWrapperTest ${NEURIPLO_FIXTURE_TARGETS} neuriplo_capi_include_audit)
+gtest_discover_tests(CApiWrapperTest
+    DISCOVERY_TIMEOUT 60
+    PROPERTIES ENVIRONMENT "NEURIPLO_PLUGIN_DIR="
+)
