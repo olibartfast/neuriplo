@@ -155,6 +155,11 @@ class PluginAbiTest : public testing::Test {
     void load_scripted() { ASSERT_TRUE(load_backend_plugin(fixture_path("scripted"))); }
 };
 
+} // namespace
+
+// Test cases stay outside the anonymous namespace: cppcheck (the CI static
+// analysis job) cannot parse TEST_F inside one.
+
 // ---------------------------------------------------------------------------
 // [V-9] Load-time rejections. Implemented before this phase ([D-3]); these
 // tests prove them and pin the diagnostics.
@@ -523,5 +528,3 @@ TEST_F(PluginAbiIsolation, CompiledInBackendUnaffected) {
         EXPECT_EQ(std::find(ids.begin(), ids.end(), rejected), ids.end()) << rejected;
     }
 }
-
-} // namespace
