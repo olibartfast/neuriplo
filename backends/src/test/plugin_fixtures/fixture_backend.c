@@ -58,6 +58,7 @@ enum fixture_mode {
     MODE_OUT_SIZE_LONG,
     MODE_OUT_NEGATIVE_DIM,
     MODE_OUT_UNKNOWN_DTYPE,
+    MODE_OUT_EMPTY,
     MODE_COUNT
 };
 
@@ -80,6 +81,7 @@ static const char* const kModeNames[MODE_COUNT] = {
     "out_size_long",
     "out_negative_dim",
     "out_unknown_dtype",
+    "out_empty",
 };
 
 #define FIXTURE_ELEMENTS 4
@@ -253,6 +255,13 @@ static int fixture_infer(neuriplo_backend_t* backend, const neuriplo_input_buffe
         break;
     case MODE_OUT_UNKNOWN_DTYPE:
         outputs->tensor.dtype = (neuriplo_dtype_t)42;
+        break;
+    case MODE_OUT_EMPTY:
+        /* Conforming: a zero-element tensor (e.g. no detections) may carry a
+         * NULL data pointer, as std::vector<uint8_t>{}.data() does. */
+        outputs->shape[0] = 0;
+        outputs->tensor.data = NULL;
+        outputs->tensor.size_bytes = 0;
         break;
     default:
         break;

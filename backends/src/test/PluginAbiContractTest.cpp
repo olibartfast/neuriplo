@@ -329,6 +329,24 @@ TEST_F(PluginAbiOutput, ConformingOutputsAreCopiedAndReleasedOnce) {
     }
 }
 
+TEST_F(PluginAbiOutput, EmptyTensorWithNullDataIsConforming) {
+    load_scripted();
+    std::unique_ptr<InferenceInterface> backend = create_scripted("out_empty");
+    ASSERT_NE(backend, nullptr);
+    const std::vector<RawOutputTensor> outputs = backend->get_infer_results_raw(fixture_input());
+    ASSERT_EQ(outputs.size(), 1U);
+    EXPECT_TRUE(outputs[0].bytes.empty());
+    EXPECT_EQ(outputs[0].shape, (std::vector<int64_t>{0, 4}));
+
+    const auto [elements, shapes] = backend->get_infer_results(fixture_input());
+    ASSERT_EQ(elements.size(), 1U);
+    EXPECT_TRUE(elements[0].empty());
+
+    const FixtureCounters after = counters(fixture_path("scripted"));
+    EXPECT_EQ(after.handed, 2U);
+    EXPECT_EQ(after.released, 2U);
+}
+
 TEST_F(PluginAbiOutput, InferFailureIsReported) {
     load_scripted();
     std::unique_ptr<InferenceInterface> backend = create_scripted("infer_fail");

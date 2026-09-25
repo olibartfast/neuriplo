@@ -138,5 +138,15 @@ The group where the real ownership defect lives; it needs [T-1] decided first.
 - Group 0: [V-5]'s "copy throws" case has no fixture — after [D-8] the copy is
   bounded by validated sizes and cannot be made to throw from plugin data. It is
   a reviewer obligation on the RAII guard instead; see validation Deviations.
+- Acceptance-suite amendment (specifier, 2026-09-25, [M-4]): added the
+  `out_empty` fixture mode and `PluginAbiOutput.EmptyTensorWithNullDataIsConforming`.
+  Group 3 review found the first attempt rejected NULL `data` on a
+  zero-element tensor, which `PluginShim.hpp` legitimately produces
+  (`std::vector<uint8_t>{}.data()`); the suite had no conforming empty-output
+  case, so it could not see the regression. Group 3 attempt 1 was rejected and
+  re-delegated with a corrected packet.
+- Group 5 is not delegated: `PluginAbiIsolation.*` in the acceptance suite
+  already covers [R-7] and passed pre-hardening; a worker-authored duplicate
+  would add no evidence.
 - Group 1 needs no production change: all six load-time rejections pass with
   path and reason in the diagnostic (pre-hardening capture, validation.md).

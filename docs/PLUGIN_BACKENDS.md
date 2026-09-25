@@ -165,7 +165,7 @@ tensor (`output <i>`) and the field:
 
 - `infer` returns non-zero. The plugin's error text is included.
 - `infer` returns 0 but `tensors` is NULL with a non-zero count, or a
-  tensor's `data` is NULL, its `shape` is NULL with `ndim > 0`, its `ndim`
+  tensor's `data` is NULL while `size_bytes` is non-zero, its `shape` is NULL with `ndim > 0`, its `ndim`
   exceeds the rank bound, a dimension is negative, or its `dtype` is unknown.
 - `size_bytes` differs from `element size × product of shape`. The check is
   strict equality: a buffer that is too short or too long is rejected, not
@@ -174,8 +174,11 @@ tensor (`output <i>`) and the field:
 An unknown dtype rejects the whole call. The host never drops a tensor or
 substitutes a type. **Ownership:** for every `infer` that returns 0, the host
 calls `release_outputs` exactly once, including when it then rejects the
-outputs or fails while copying them. A plugin must not free its output arrays
-anywhere else.
+outputs or fails while copying them. `release_outputs` receives exactly the
+pointer and count `infer` produced, which may be NULL with a non-zero count
+from a broken plugin, and must tolerate that. A plugin must not free its
+output arrays anywhere else. A zero-element tensor (a dimension of 0,
+`size_bytes` 0) is conforming and may carry a NULL `data` pointer.
 
 ## Deployment example
 
