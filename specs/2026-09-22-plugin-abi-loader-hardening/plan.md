@@ -92,6 +92,14 @@ The group where the real ownership defect lives; it needs [T-1] decided first.
   - Checks: a test loading plugins on one thread while looking up on another is
     clean under TSan if available, and under ASan otherwise; existing callers in
     `src/InferenceBackendSetup.cpp` keep compiling unchanged.
+  - Chosen (Group 4): stable storage via `std::deque<PluginBackendDescriptor>`
+    (push_back never moves existing elements) so `find_plugin_backend`'s
+    pointers stay valid forever; `get_plugin_backends()` takes the mutex and
+    returns a `PluginBackendSnapshot` (a small view holding
+    `std::vector<const PluginBackendDescriptor*>`) with `empty()`/`size()`/
+    `front()`/range-for yielding `const PluginBackendDescriptor&`, so
+    `&get_plugin_backends().front()` dereferences to the stable deque element,
+    never the temporary snapshot.
 
 ## Group 5 — Isolation ([R-7])
 

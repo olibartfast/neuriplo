@@ -9,11 +9,13 @@
 #endif
 
 #include <algorithm>
+#include <deque>
 #include <filesystem>
 #include <glog/logging.h>
 #include <limits>
 #include <mutex>
 #include <set>
+#include <system_error>
 #include <tuple>
 #include <type_traits>
 
@@ -126,10 +128,17 @@ TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
 
 // Plugin handles are intentionally never unloaded: backend objects and the
 // api structs they hand out must stay valid for the process lifetime.
+//
+// `descriptors` is a std::deque, not a std::vector: a deque never
+// reallocates or moves already-inserted elements when growing (push_back
+// only allocates a new internal block), so a `const PluginBackendDescriptor*`
+// handed out by find_plugin_backend or a get_plugin_backends() snapshot stays
+// valid and keeps the same address across any number of later loads, even
+// while a concurrent reader holds no lock on it after the call returns.
 struct PluginState {
     std::mutex mutex;
     std::set<std::string> loaded_paths;
-    std::vector<PluginBackendDescriptor> descriptors;
+    std::deque<PluginBackendDescriptor> descriptors;
 };
 
 PluginState& plugin_state() {
@@ -525,10 +534,30 @@ bool load_backend_plugin(const std::string& library_path) {
     return load_plugin_locked(state, library_path);
 }
 
-const std::vector<PluginBackendDescriptor>& get_plugin_backends() noexcept { return plugin_state().descriptors; }
+// Both functions below take PluginState::mutex while reading `descriptors`,
+// so they cannot observe a load in progress. They stay noexcept: a
+// std::mutex lock can in principle throw std::system_error (e.g. if the
+// mutex were destroyed or the OS ran out of resources), which would neither
+// happen in practice here -- plugin_state() is a function-local static that
+// lives for the process, so the mutex is never destroyed while these run --
+// nor be something a caller could usefully recover from; terminating via
+// noexcept matches how the rest of this loader treats such conditions as
+// unreachable-in-practice defects rather than recoverable errors.
+PluginBackendSnapshot get_plugin_backends() noexcept {
+    PluginState& state = plugin_state();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    std::vector<const PluginBackendDescriptor*> descriptors;
+    descriptors.reserve(state.descriptors.size());
+    for (const PluginBackendDescriptor& descriptor : state.descriptors) {
+        descriptors.push_back(&descriptor);
+    }
+    return PluginBackendSnapshot(std::move(descriptors));
+}
 
 const PluginBackendDescriptor* find_plugin_backend(std::string_view id) noexcept {
-    for (const PluginBackendDescriptor& descriptor : plugin_state().descriptors) {
+    PluginState& state = plugin_state();
+    std::lock_guard<std::mutex> lock(state.mutex);
+    for (const PluginBackendDescriptor& descriptor : state.descriptors) {
         if (id == descriptor.id) {
             return &descriptor;
         }
