@@ -108,21 +108,21 @@ No vendor SDK, no GPU, no network. If this needs anything else installed,
 
 | ID | Command/Check | Pre-hardening | Result | Date | Notes |
 |----|---------------|---------------|--------|------|-------|
-| V-1 | acceptance command, no SDK | | | | tests registered: |
-| V-2 | fixture build + `ldd` | | | | |
-| V-3 | `ctest -R PluginAbi.*Metadata` | | | | |
-| V-4 | `ctest -R PluginAbi.*Output` | | | | |
-| V-5 | release-count assertions + LSan | | | | observed counts: |
-| V-6 | `ctest -R PluginAbi.*Dtype` | | | | |
-| V-7 | concurrency test under TSan/ASan | | | | |
-| V-8 | `ctest -R PluginAbi.*Isolation` | | | | |
-| V-9 | `ctest -R PluginAbi.*Load` | | | | |
+| V-1 | acceptance command, no SDK | 31 tests registered; 13 pass, 18 fail/crash (expected pre-hardening) | | | tests registered: |
+| V-2 | fixture build + `ldd` | 7 fixtures, plain C, each links only libc/ld-linux/vdso | pass | 2026-09-25 | no vendor SDK |
+| V-3 | `ctest -R PluginAbi.*Metadata` | 5 of 6 malformed cases SEGFAULT/bus error or fail; QueryFailure fails on missing plugin path | | | |
+| V-4 | `ctest -R PluginAbi.*Output` | null tensors/data/shape/ndim SEGFAULT; size short/long/negative dim silently accepted | | | |
+| V-5 | release-count assertions + LSan | release count equal on conforming path; rejection paths untestable (crash first) | | | observed counts: |
+| V-6 | `ctest -R PluginAbi.*Dtype` | unknown dtype accepted in outputs, metadata, and legacy view | | | |
+| V-7 | concurrency test under TSan/ASan | LoadWhileLookingUp: torn reads (empty ids) with no sanitizer; pointer-stability SEGFAULT | | | |
+| V-8 | `ctest -R PluginAbi.*Isolation` | pass (isolation already holds when bad plugins fail at load) | | | |
+| V-9 | `ctest -R PluginAbi.*Load` | pass — all six load-time rejections, path + reason in diagnostic | | | |
 | V-10 | `git diff` on `plugin_abi.h` | | | | |
 | V-11 | default path + quality gates | | | | |
 | V-12 | dependency diff | | | | |
 | M-1 | docs walkthrough | | | | |
 | M-2 | validation contract read | | | | |
-| M-3 | pre-hardening capture | | | | |
+| M-3 | pre-hardening capture | captured 2026-09-25 against 4049980 + Group 0 | | | |
 | M-4 | acceptance-suite ownership | | | | |
 | M-5 | Q-1 deferral recorded | | | | |
 
@@ -133,6 +133,9 @@ testing what it claims ([M-3]).
 ## Deviations
 
 - Record here any criterion not fully met, why, and how it is tracked.
+- [V-5] "when the copy throws": no fixture can force a throw inside the copy
+  once [D-8] bounds it, so this half is verified by review of the RAII guard
+  (release on every exit path, including unwinding), not by a test.
 
 ## Definition of Done (integration)
 
