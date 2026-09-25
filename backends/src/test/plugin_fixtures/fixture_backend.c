@@ -320,7 +320,16 @@ static const neuriplo_plugin_api_v1* fixture_api(void) {
  * NEURIPLO_PLUGIN_ENTRY_SYMBOL must fail. */
 FIXTURE_EXPORT const neuriplo_plugin_api_v1* neuriplo_plugin_get_api_v0(void) { return fixture_api(); }
 #else
-FIXTURE_EXPORT const neuriplo_plugin_api_v1* neuriplo_plugin_get_api_v1(void) {
+/* plugin_abi.h already declares the entry point without dllexport, and MSVC
+ * rejects a definition that adds it (C2375), so export it through the
+ * linker instead. */
+#ifdef _MSC_VER
+#pragma comment(linker, "/EXPORT:neuriplo_plugin_get_api_v1")
+#define FIXTURE_ENTRY_EXPORT
+#else
+#define FIXTURE_ENTRY_EXPORT FIXTURE_EXPORT
+#endif
+FIXTURE_ENTRY_EXPORT const neuriplo_plugin_api_v1* neuriplo_plugin_get_api_v1(void) {
 #if FIXTURE_API_DEFECT == 2
     (void)fixture_api;
     return NULL;
