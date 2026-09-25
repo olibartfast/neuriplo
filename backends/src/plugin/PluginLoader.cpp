@@ -8,11 +8,14 @@
 #include <dlfcn.h>
 #endif
 
+#include <algorithm>
 #include <filesystem>
 #include <glog/logging.h>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <tuple>
+#include <type_traits>
 
 namespace {
 
@@ -88,17 +91,25 @@ constexpr const char* kPluginExtension = ".so";
 // hostile ndim values before they are used to construct a shape vector.
 constexpr size_t kMaxLayerRank = 16;
 
-bool metadata_dtype_is_valid(neuriplo_dtype_t dtype) {
-    switch (dtype) {
-    case NEURIPLO_DTYPE_FP32:
-    case NEURIPLO_DTYPE_INT32:
-    case NEURIPLO_DTYPE_INT64:
-    case NEURIPLO_DTYPE_UINT8:
-        return true;
-    }
-    return false;
+// neuriplo_dtype_t has no fixed underlying type, so loading a value outside
+// its enumerator range as that enum type is undefined behaviour in C++17. A
+// hostile or buggy plugin can put any bit pattern in a dtype field, so every
+// check here compares the underlying integer, never the enum value itself.
+using NeuriploDtypeUnderlying = std::underlying_type_t<neuriplo_dtype_t>;
+
+bool dtype_is_valid(neuriplo_dtype_t dtype) {
+    const auto value = static_cast<NeuriploDtypeUnderlying>(dtype);
+    return value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_FP32) ||
+           value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_INT32) ||
+           value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_INT64) ||
+           value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_UINT8);
 }
 
+bool metadata_dtype_is_valid(neuriplo_dtype_t dtype) { return dtype_is_valid(dtype); }
+
+// Only ever called after metadata_dtype_is_valid (or the output-side
+// dtype_is_valid) has accepted `dtype`; the throw below is defence in depth
+// so an unreachable value can never silently become Float32.
 TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
     switch (dtype) {
     case NEURIPLO_DTYPE_FP32:
@@ -110,7 +121,7 @@ TensorDataType metadata_dtype_from_abi(neuriplo_dtype_t dtype) {
     case NEURIPLO_DTYPE_UINT8:
         return TensorDataType::UInt8;
     }
-    return TensorDataType::Float32;
+    throw ModelLoadException("plugin metadata invalid: unreachable element_type");
 }
 
 // Plugin handles are intentionally never unloaded: backend objects and the
@@ -208,6 +219,42 @@ bool load_plugin_locked(PluginState& state, const std::string& library_path) {
     return true;
 }
 
+// Owns an `infer` call's out-parameters from the moment infer returns 0 until
+// this guard goes out of scope, and releases them exactly once via
+// release_outputs -- on a normal return, on a validation rejection, or on any
+// exception thrown while copying (e.g. std::bad_alloc). Must only be
+// constructed after infer has returned 0; the caller is responsible for not
+// constructing one when infer failed, since a failed call never handed the
+// host anything to release.
+class OutputReleaseGuard {
+  public:
+    OutputReleaseGuard(const neuriplo_plugin_api_v1* api, neuriplo_backend_t* handle, neuriplo_output_tensor_t* tensors,
+                       size_t count)
+        : api_(api), handle_(handle), tensors_(tensors), count_(count) {}
+
+    OutputReleaseGuard(const OutputReleaseGuard&) = delete;
+    OutputReleaseGuard& operator=(const OutputReleaseGuard&) = delete;
+    OutputReleaseGuard(OutputReleaseGuard&&) = delete;
+    OutputReleaseGuard& operator=(OutputReleaseGuard&&) = delete;
+
+    ~OutputReleaseGuard() noexcept {
+        // Called unconditionally, even when the plugin reported count > 0 but
+        // handed back a NULL tensors pointer: the ABI puts no restriction on
+        // release_outputs's arguments for that case, a conforming plugin (see
+        // the fixture backend) already tolerates a NULL tensors pointer here,
+        // and skipping the call would need its own special case for no
+        // benefit -- release_outputs is the one place that knows whether
+        // there is anything to free.
+        api_->release_outputs(handle_, tensors_, count_);
+    }
+
+  private:
+    const neuriplo_plugin_api_v1* api_;
+    neuriplo_backend_t* handle_;
+    neuriplo_output_tensor_t* tensors_;
+    size_t count_;
+};
+
 // Bridges a plugin backend behind the existing InferenceInterface so every
 // in-process consumer (ModelRunner, decorators, serving adapters) works
 // unchanged.
@@ -250,21 +297,34 @@ class PluginBackendAdapter final : public InferenceInterface {
             descriptor_.api->infer(handle_, buffers.data(), buffers.size(), &tensors, &count, error, sizeof(error));
         end_timer();
         if (rc != 0) {
+            // infer failed: it handed nothing to the host, so there is
+            // nothing to release.
             throw InferenceExecutionException(std::string(descriptor_.id) +
                                               " plugin: " + (error[0] != '\0' ? error : "inference failed"));
         }
 
+        // infer returned 0: from here on the plugin's out-parameters must be
+        // released exactly once, however this function leaves -- including
+        // through a validation rejection or a std::bad_alloc while copying.
+        const OutputReleaseGuard release_guard(descriptor_.api, handle_, tensors, count);
+
+        if (tensors == nullptr && count > 0) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: output 0: tensors is null");
+        }
+
         std::vector<RawOutputTensor> outputs;
-        outputs.reserve(count);
+        outputs.reserve(std::min(count, inference_metadata_.getOutputs().size()));
         for (size_t i = 0; i < count; ++i) {
+            validate_output_tensor(tensors[i], i);
             RawOutputTensor output;
             output.dtype = static_cast<TensorDtype>(tensors[i].dtype);
-            const auto* data = static_cast<const uint8_t*>(tensors[i].data);
-            output.bytes.assign(data, data + tensors[i].size_bytes);
+            if (tensors[i].size_bytes != 0) {
+                const auto* data = static_cast<const uint8_t*>(tensors[i].data);
+                output.bytes.assign(data, data + tensors[i].size_bytes);
+            }
             output.shape.assign(tensors[i].shape, tensors[i].shape + tensors[i].ndim);
             outputs.push_back(std::move(output));
         }
-        descriptor_.api->release_outputs(handle_, tensors, count);
         return outputs;
     }
 
@@ -311,6 +371,59 @@ class PluginBackendAdapter final : public InferenceInterface {
         if (!metadata_dtype_is_valid(layer.element_type)) {
             throw ModelLoadException(descriptor_.library_path + ": plugin metadata invalid: " + layer_label +
                                      " has unknown element_type");
+        }
+    }
+
+    // Every field of an output tensor is validated against attacker/bug-
+    // controlled plugin memory before get_infer_results_raw reads it. `index`
+    // names the tensor in rejection messages exactly as "output <index>".
+    void validate_output_tensor(const neuriplo_output_tensor_t& tensor, size_t index) const {
+        const std::string label = "output " + std::to_string(index);
+        if (tensor.shape == nullptr && tensor.ndim > 0) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label + ": shape is null");
+        }
+        if (tensor.ndim > kMaxLayerRank) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label +
+                                              ": ndim exceeds the maximum layer rank");
+        }
+        for (size_t d = 0; d < tensor.ndim; ++d) {
+            if (tensor.shape[d] < 0) {
+                throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label +
+                                                  ": shape has a negative dimension");
+            }
+        }
+        // dtype must be validated before it is used to compute an element
+        // size: an out-of-range value must never reach tensor_dtype_size.
+        if (!dtype_is_valid(tensor.dtype)) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label +
+                                              ": dtype is not a recognized neuriplo_dtype_t");
+        }
+        const TensorDtype dtype = static_cast<TensorDtype>(tensor.dtype);
+        constexpr size_t kSizeMax = std::numeric_limits<size_t>::max();
+        size_t element_count = 1;
+        for (size_t d = 0; d < tensor.ndim; ++d) {
+            const size_t dim = static_cast<size_t>(tensor.shape[d]);
+            if (dim != 0 && element_count > kSizeMax / dim) {
+                throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label +
+                                                  ": shape product overflows computing the tensor's element count");
+            }
+            element_count *= dim;
+        }
+        const size_t element_size = tensor_dtype_size(dtype);
+        if (element_size != 0 && element_count > kSizeMax / element_size) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label +
+                                              ": shape product overflows computing the expected byte size");
+        }
+        const size_t expected_size_bytes = element_count * element_size;
+        if (tensor.size_bytes != expected_size_bytes) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label +
+                                              ": size_bytes does not match dtype size x product(shape)");
+        }
+        // A zero-element tensor is conforming and may carry NULL data (e.g.
+        // shape [0, 6] produced from an empty std::vector's .data()). Only a
+        // non-zero byte size with NULL data is a real defect.
+        if (tensor.data == nullptr && expected_size_bytes != 0) {
+            throw InferenceExecutionException(std::string(descriptor_.id) + " plugin: " + label + ": data is null");
         }
     }
 
@@ -365,6 +478,12 @@ class PluginBackendAdapter final : public InferenceInterface {
         case TensorDtype::UINT8:
             widen(uint8_t{});
             break;
+        default:
+            // get_infer_results_raw already rejects an unknown dtype before a
+            // RawOutputTensor is ever built, so this is unreachable in
+            // practice; it must fail loudly rather than yield an empty
+            // vector that looks like a zero-element tensor.
+            throw InferenceExecutionException("plugin output: unknown tensor dtype");
         }
         return elements;
     }
