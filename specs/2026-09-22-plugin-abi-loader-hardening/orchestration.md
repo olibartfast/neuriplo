@@ -209,7 +209,24 @@ compared under control rather than by impression:
 
 | Attempt | Group | Role | Model / tier | Total ctx | Active ctx | Tool calls | Turns | Wall clock | Cost | First-pass acceptance | Interventions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| | | | | | | | | | | | |
+| 1 | 0 | Specifier | strongest (this session) | — | — | — | — | — | — | n/a (writes the suite) | 0 |
+| 2 | 2 | Implementer | cheap (Sonnet) | 70.4k | — | 13 | — | 63 s | — | pass (17/17) | 0 |
+| 2r | 2 | Reviewer | strongest (Opus, read-only) | — | — | — | — | — | — | ACCEPT | 0 |
+| 3 | 3 | Implementer | cheap (Sonnet) | 92.0k | — | 24 | — | 190 s | — | pass (29/29) | 0 |
+| 3r | 3 | Reviewer | strongest (Opus, read-only) | — | — | — | — | — | — | REJECT: NULL data on empty tensor | 1 |
+| 3b | 3 | Specifier | strongest (this session) | — | — | — | — | — | — | suite amended (c510760) | 1 |
+| 4 | 3 | Implementer (fresh) | cheap (Sonnet) | 77.0k | — | 14 | — | 65 s | — | pass (30/30) | 0 |
+| 4r | 3 | Reviewer | strongest (Opus, read-only) | 56.6k | — | 3 | — | 22 s | — | ACCEPT | 0 |
+| 5 | 4 | Implementer | cheap (Sonnet) | 78.2k | — | 17 | — | 99 s | — | pass (32/32, full acceptance) | 0 |
+| 5r | 4 | Reviewer | strongest (Opus, read-only) | 41.4k | — | 6 | — | 35 s | — | ACCEPT | 0 |
+
+Run 2026-09-25 in one Claude Code cloud session. Totals are the subagent
+token counts the harness reported; "—" means the harness did not report it.
+Planner context was not metered separately, which is the gap §7 warns about:
+the planner/specifier also wrote Group 0, Group 6 and the evidence, so its
+share is not comparable to the workers'. No planner self-repair: the one
+rejected diff went back to a fresh implementer with a corrected packet; the
+specifier's own change in 3b was to the acceptance suite, which it owns.
 
 Comparisons change one variable at a time, same task and packet shape,
 reasoning effort pinned on both sides, repeated more than once. A single run of

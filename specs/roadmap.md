@@ -67,11 +67,12 @@ Exit criteria:
 
 ## Phase 2 — Plugin ABI and Loader Hardening
 
-**Status: Specified** — packet at
+**Status: Implemented, pending [M-1]** — packet at
 `specs/2026-09-22-plugin-abi-loader-hardening/`, branch
-`feature/plugin-abi-loader-hardening`. Implementation has not started, and this
-does not displace Phase 1 as `Next`; the two are independent and Phase 1 stays
-first in order.
+`feature/plugin-abi-loader-hardening`. Groups 0–4 and 6 landed, and every
+automated check in `validation.md` passes with evidence. It moves to
+Complete once the documentation walkthrough ([M-1]) has been run by
+someone new to the repository. This does not displace Phase 1 as `Next`.
 
 Goal: make runtime-loaded backends predictable under malformed and incompatible
 plugin conditions.
@@ -195,6 +196,9 @@ validation defined before implementation and evidence recorded after execution.
 Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
+
+_Revision: 2026-09-25 - Phase 2 implemented; Complete pending the [M-1]
+documentation walkthrough._
 
 _Revision: 2026-09-22 - added the `Specified` status and moved Phase 2 into it
 with its feature packet; Phase 1 remains `Next`._
