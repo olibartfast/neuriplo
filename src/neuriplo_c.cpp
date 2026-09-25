@@ -2,7 +2,9 @@
 //
 // Group 1a implements: the error model, the infallible functions, and
 // neuriplo_engine_create up to backend resolution (steps 1-3 of [D-11]),
-// plus _destroy / _backend_id. Everything else stays stubbed
+// plus _destroy / _backend_id. Group 1b adds the backend list
+// (neuriplo_available_backends and friends) and engine construction (steps
+// 4-5 of [D-11]). Metadata, infer, result, and log stay stubbed
 // (NEURIPLO_STATUS_UNIMPLEMENTED / an inert value) for later groups
 // (specs/2026-09-25-consumer-c-abi).
 //
@@ -123,22 +125,62 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_set_log_callback(neuriplo_log_callback_
 // Backend discovery
 // ---------------------------------------------------------------------------
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_available_backends(const char* /*plugin_dir*/,
-                                                            neuriplo_backend_list_t** /*out_list*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+struct neuriplo_backend_list_t {
+    std::vector<std::string> ids;
+};
+
+neuriplo_status_t NEURIPLO_CALL neuriplo_available_backends(const char* plugin_dir,
+                                                            neuriplo_backend_list_t** out_list) NEURIPLO_NOEXCEPT {
+    if (out_list == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_available_backends", "out_list is NULL");
+    }
+    *out_list = nullptr;
+    return neuriplo_capi::guarded(neuriplo_capi::GuardContext::Other, "neuriplo_available_backends",
+                                  [&]() -> neuriplo_status_t {
+                                      auto list = std::make_unique<neuriplo_backend_list_t>();
+                                      list->ids = available_backend_ids(plugin_dir != nullptr ? plugin_dir : "");
+                                      *out_list = list.release();
+                                      neuriplo_capi::clear_last_error();
+                                      return NEURIPLO_STATUS_OK;
+                                  });
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_backend_list_count(const neuriplo_backend_list_t* /*list*/,
-                                                            size_t* /*out_count*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_backend_list_count(const neuriplo_backend_list_t* list,
+                                                            size_t* out_count) NEURIPLO_NOEXCEPT {
+    if (out_count != nullptr) {
+        *out_count = 0;
+    }
+    if (list == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_backend_list_count", "list is NULL");
+    }
+    if (out_count == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_backend_list_count", "out_count is NULL");
+    }
+    *out_count = list->ids.size();
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_backend_list_get(const neuriplo_backend_list_t* /*list*/, size_t /*index*/,
-                                                          const char** /*out_id*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_backend_list_get(const neuriplo_backend_list_t* list, size_t index,
+                                                          const char** out_id) NEURIPLO_NOEXCEPT {
+    if (out_id != nullptr) {
+        *out_id = nullptr;
+    }
+    if (list == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_backend_list_get", "list is NULL");
+    }
+    if (out_id == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_backend_list_get", "out_id is NULL");
+    }
+    if (index >= list->ids.size()) {
+        return neuriplo_capi::invalid_argument("neuriplo_backend_list_get", "index is out of range");
+    }
+    *out_id = list->ids[index].c_str();
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-void NEURIPLO_CALL neuriplo_backend_list_release(neuriplo_backend_list_t* /*list*/) NEURIPLO_NOEXCEPT {}
+void NEURIPLO_CALL neuriplo_backend_list_release(neuriplo_backend_list_t* list) NEURIPLO_NOEXCEPT { delete list; }
 
 // ---------------------------------------------------------------------------
 // Engine lifecycle
@@ -238,9 +280,65 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_engine_create(const neuriplo_engine_con
                 return neuriplo_capi::fail(NEURIPLO_STATUS_BACKEND_NOT_FOUND, message.c_str());
             }
 
-            // Temporary until 1b: engine construction is not implemented yet.
-            return neuriplo_capi::fail(NEURIPLO_STATUS_UNIMPLEMENTED,
-                                       "neuriplo_engine_create: engine construction not implemented yet (Group 1b)");
+            // Step 4: build EngineOptions and construct the backend. plugin_dir
+            // is always "" here: step 2 already scanned config->plugin_dir, and
+            // scanning it again would re-log and re-dlopen every rejected
+            // plugin ([D-18], amended by the specifier 2026-09-26).
+            EngineOptions options;
+            options.model_path = config->model_path;
+            options.backend_id = resolved_id;
+            options.use_gpu = config->use_gpu != 0;
+            options.batch_size = (config->batch_size == 0) ? 1 : config->batch_size;
+            options.plugin_dir = "";
+            options.input_sizes.reserve(config->n_input_sizes);
+            for (size_t i = 0; i < config->n_input_sizes; ++i) {
+                const neuriplo_dims_t& entry = config->input_sizes[i];
+                if (entry.ndim == 0) {
+                    options.input_sizes.emplace_back();
+                } else {
+                    options.input_sizes.emplace_back(entry.dims, entry.dims + entry.ndim);
+                }
+            }
+
+            std::unique_ptr<InferenceInterface> backend;
+            try {
+                backend = setup_inference_engine(options);
+            } catch (const std::bad_alloc& e) {
+                // returned directly (not rethrown) to avoid cppcheck's
+                // throwInNoexceptFunction from throwing inside a lambda
+                // invoked under guarded()'s noexcept boundary.
+                return neuriplo_capi::fail_prefixed(NEURIPLO_STATUS_OUT_OF_MEMORY, "neuriplo_engine_create", e.what());
+            } catch (const std::exception& e) {
+                std::string message = "neuriplo_engine_create: backend '";
+                message += resolved_id;
+                message += "' failed to load model '";
+                message += config->model_path;
+                message += "': ";
+                message += e.what();
+                // Safe to build this message here only because this lambda always
+                // runs under guarded(): any bad_alloc during construction above is
+                // caught separately and mapped to OUT_OF_MEMORY. Do not copy this
+                // pattern outside a guarded() context.
+                return neuriplo_capi::fail(NEURIPLO_STATUS_MODEL_LOAD, message.c_str());
+            }
+
+            // Step 5: a NULL backend without an exception is also a load
+            // failure; both the id and the path are required in the message.
+            if (!backend) {
+                std::string message = "neuriplo_engine_create: backend '";
+                message += resolved_id;
+                message += "' failed to load model '";
+                message += config->model_path;
+                message += "'";
+                return neuriplo_capi::fail(NEURIPLO_STATUS_MODEL_LOAD, message.c_str());
+            }
+
+            auto engine = std::make_unique<neuriplo_engine_t>();
+            engine->backend = std::move(backend);
+            engine->backend_id = resolved_id;
+            *out_engine = engine.release();
+            neuriplo_capi::clear_last_error();
+            return NEURIPLO_STATUS_OK;
         });
 }
 
