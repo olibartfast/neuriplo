@@ -58,6 +58,7 @@ Sequence and where each packet runs:
 | 3 | worktree A | 2 committed | 7 | TSan 7; gcc 65 |
 | 4 | worktree B | 2 committed | 9 | 67 |
 | 5 | main checkout | 3 and 4 merged | symbol check + consumer | 74 + symbols + consumer |
+| 5b | main checkout | 5 committed and [T-16] written | CI jobs | `act` dry run + local run per new job |
 
 The orchestrator commits between packets (workers never commit). Worktrees A
 and B are made from the head of `feature/consumer-c-abi` after Group 2 is
@@ -263,8 +264,11 @@ handback, and the specifier records them.
        id (always explicit, never ""); `use_gpu = config->use_gpu != 0`;
        `batch_size = config->batch_size == 0 ? 1 : config->batch_size`;
        `input_sizes` from `input_sizes[0..n)` (an entry with `ndim == 0`
-       becomes an empty vector, and `dims` is not read); `plugin_dir`
-       (NULL → "").
+       becomes an empty vector, and `dims` is not read); `plugin_dir = ""`
+       **always** — step 2 already scanned `config->plugin_dir`, and passing it
+       again would re-log and re-`dlopen` every rejected plugin ([D-18];
+       amended by the specifier 2026-09-26). The host still scans
+       `NEURIPLO_PLUGIN_DIR` either way.
      - Call `setup_inference_engine(options)` inside a local `try`.
        `std::bad_alloc` is rethrown to the guard. Any other
        `std::exception` → `MODEL_LOAD` with the message
@@ -532,6 +536,13 @@ handback, and the specifier records them.
      `option(NEURIPLO_INSTALL "Generate install rules" ${PROJECT_IS_TOP_LEVEL})`
      so a parent project's `add_subdirectory` gains no install rules, using
      `GNUInstallDirs`:
+     - **Amended by the specifier ([D-20], 2026-09-26):** do not use
+       `PROJECT_IS_TOP_LEVEL` for the default (CMake 3.21+; the project
+       declares 3.10, and on older CMake the default would silently be OFF
+       for a top-level build). Compute it first —
+       `if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)` sets a local
+       variable ON, else OFF — and pass that variable to
+       `option(NEURIPLO_INSTALL ...)`.
      - `install(TARGETS neuriplo EXPORT neuriplo-targets ...)` with
        LIBRARY/ARCHIVE to `${CMAKE_INSTALL_LIBDIR}` and RUNTIME to
        `${CMAKE_INSTALL_BINDIR}`.
@@ -607,7 +618,23 @@ handback, and the specifier records them.
   both negative runs exit non-zero (the first reports `neuriplo_infer` as
   unlisted, the second reports `neuriplo_not_exported` as missing).
 - **Stop condition:** as 1a. Wiring these checks into CI
-  (`.github/workflows/`) is outside this packet. Report it; do not do it.
+  (`.github/workflows/`) is outside this packet; Group 5b ([T-19], [D-21])
+  owns it. Do not do it.
+
+### Group 5b — CI wiring (stub; planner completes once [T-16] exists)
+
+Added by the specifier 2026-09-26 ([D-21]).
+
+- **Writable:** `.github/workflows/ci.yml` only.
+- **Required final state:** plan.md [T-19] — one job (Docker
+  `opencvdnn` builder image, fresh `-DWERROR=ON` configure) running
+  `check_symbols.sh` with its two negatives, `test/consumer/run.sh`, and
+  `smoke_ctypes.py`; one TSan job running the `validation.md` TSan command
+  (`^CApi\.(Thread|Log)\.`, no suppressions). No ASan change: the existing
+  `sanitizers` job's full `ctest` already covers every `CApi*` case.
+- **Permitted commands:** as the common rules, plus `act`.
+- **Acceptance:** `act push --job <job> --dryrun`, then a full local `act`
+  run of each new job (`docs/LOCAL_CI.md`); both results in the handback.
 
 ## Measurement
 

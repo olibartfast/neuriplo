@@ -43,16 +43,16 @@ Sanitizer trees used by individual checks (not part of the single command,
 which stays fast):
 
 ```bash
-# ASan + LSan + UBSan ([V-5], and any case on demand)
-cmake -S . -B build-capi-asan -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+# ASan + LSan + UBSan -- [V-5] evidence is exactly this filter (11 cases)
+cmake --fresh -S . -B build-capi-asan -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON \
       -DSANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug \
-  && cmake --build build-capi-asan \
+  && cmake --build build-capi-asan --target CApiContractTest \
   && ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 \
      LSAN_OPTIONS=suppressions=$PWD/scripts/quality/lsan-suppressions.txt \
-     ctest --test-dir build-capi-asan -R "^CApi" --output-on-failure
+     ctest --test-dir build-capi-asan -R "^CApi\.(Metadata|Infer|InferError)\." --output-on-failure
 
-# TSan ([V-8]; clang 18, no suppressions -- [D-17])
-CC=clang-18 CXX=clang++-18 cmake -S . -B build-capi-tsan -DDEFAULT_BACKEND=OPENCV_DNN \
+# TSan ([V-8], [V-9]; clang 18, no suppressions -- [D-17])
+CC=clang-18 CXX=clang++-18 cmake --fresh -S . -B build-capi-tsan -DDEFAULT_BACKEND=OPENCV_DNN \
       -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
       "-DCMAKE_C_FLAGS=-fsanitize=thread -g" "-DCMAKE_CXX_FLAGS=-fsanitize=thread -g" \
       -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread \
@@ -60,6 +60,14 @@ CC=clang-18 CXX=clang++-18 cmake -S . -B build-capi-tsan -DDEFAULT_BACKEND=OPENC
   && cmake --build build-capi-tsan \
   && TSAN_OPTIONS=halt_on_error=1 ctest --test-dir build-capi-tsan -R "^CApi\.(Thread|Log)\." --output-on-failure
 ```
+
+The [V-5] filter is deliberately narrow: it covers every case that creates
+metadata views and results, and nothing else. Wider ASan runs are not [V-5]
+evidence: `CApiWrapper.*` is [V-10]'s, `Thread`/`Log` are TSan's, and the
+Group 1 cases load the OpenCV DNN backend, whose leaks are not this phase's
+to judge. In CI the existing `sanitizers` job already runs the full `ctest`
+under ASan/LSan/UBSan for five backends ([D-21]); a `CApi*` failure there is
+still a finding, just not [V-5]'s evidence.
 
 ## Automated Checks
 
@@ -103,8 +111,11 @@ Case names are the ctest names; `CApi.X.*` means every case of group X.
       (`FIXTURE_SCRIPTED` `out_empty`) has count 0, size 0, shape `[0,4]`
       (`.EmptyOutput`); a result stays readable after its engine is destroyed
       (`.ResultOutlivesEngine`); 1000 iterations with every plugin output
-      released exactly once (`.Repeated1000`, fixture counters). `CApi.Infer.*`
-      clean under ASan/LSan/UBSan in `build-capi-asan`.
+      released exactly once (`.Repeated1000`, fixture counters). Clean under
+      ASan/LSan/UBSan: `ctest --test-dir build-capi-asan -R
+      "^CApi\.(Metadata|Infer|InferError)\."`, 11/11, no sanitizer report.
+      The input copy of [R-4] is the only copy; outputs are moved (reviewer
+      obligation on the Group 2 diff).
 - [ ] [V-6] → [R-5], [A-3], [D-11], [D-15]: every failure mode maps to its
       status with a non-empty `neuriplo_last_error()` and nulled outs:
       create failure and all seven metadata rejections → `MODEL_LOAD`
@@ -148,15 +159,23 @@ Case names are the ctest names; `CApi.X.*` means every case of group X.
       links no glog. The include audit allows `neuriplo.hpp` only
       `"neuriplo_c.h"` and standard headers; `CApiHeaderCheck.cpp` asserts
       the move-only / nothrow-move traits under strict C++17.
-- [ ] [V-11] → [R-9]: `check_symbols.sh` matches `scripts/abi/neuriplo_c.symbols`
-      (19 names); deleting one function from the build makes it fail, and so
-      does exporting an unlisted `neuriplo_*` symbol. Layout, enum-width,
+- [ ] [V-11] → [R-9]: `scripts/abi/check_symbols.sh <build-dir> [<symbols-file>]`
+      reports `symbols: OK (19)` against `scripts/abi/neuriplo_c.symbols`. It
+      compares the symmetric difference, so both directions of drift fail,
+      shown without editing sources by passing an edited list: a list without
+      `neuriplo_infer` fails with `neuriplo_infer` exported-but-unlisted (the
+      case "a new or renamed export"), and a list with an extra
+      `neuriplo_not_exported` fails with it listed-but-missing (the case "a
+      function deleted from the build" — a removed definition is exactly a
+      listed symbol the library no longer exports). Layout, enum-width,
       enumerator-value, and function-type assertions compile as C99
       (`CApiHeaderCheck.c`, every build).
 - [ ] [V-12] → [R-10], [R-11]: install to a temporary prefix;
       `test/consumer/` configures with only `CMAKE_PREFIX_PATH` set to that
       prefix, builds the C and C++ programs, and both print the expected
       output. `pkg-config --cflags --libs neuriplo` works against the prefix.
+      Neither program nor `test/consumer/CMakeLists.txt` references glog
+      ([D-19]).
 - [ ] [V-13] → [R-12]: `python3 test/consumer/python/smoke_ctypes.py <prefix>`
       exits 0 after checking the inference result.
 - [ ] [V-14] → constraints: default `OPENCV_DNN` build, full `ctest`,
@@ -191,7 +210,7 @@ Case names are the ctest names; `CApi.X.*` means every case of group X.
 | V-2 | `ctest -R "^CApi\.Lifecycle\."` | 7/7 fail | | 2026-09-26 | |
 | V-3 | `ctest -R "^CApi\.StructSize\."` | 3/3 fail | | 2026-09-26 | |
 | V-4 | `ctest -R "^CApi\.Metadata\."` | 3/3 fail | | 2026-09-26 | |
-| V-5 | `ctest -R "^CApi\.Infer\."` + ASan/LSan tree | 4/4 fail | | 2026-09-26 | |
+| V-5 | `ctest -R "^CApi\.Infer\."`; ASan: `-R "^CApi\.(Metadata\|Infer\|InferError)\."` in `build-capi-asan` | 4/4 fail | | 2026-09-26 | |
 | V-6 | `ctest -R "^CApi\.(Error\|InferError)\."` | 8/8 fail | | 2026-09-26 | |
 | V-7 | `ctest -R "^CApi\.LastError\."` | 1/1 fail | | 2026-09-26 | |
 | V-8 | `ctest -R "^CApi\.Thread\."` in TSan tree | 3/3 fail (gcc, clang, TSan) | | 2026-09-26 | TSan tree builds and runs; failures are stub statuses, no TSan report |

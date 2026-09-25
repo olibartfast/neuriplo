@@ -79,7 +79,8 @@ ctest --test-dir build-capi -R "^CApiWrapper\." --output-on-failure
   message thread-locally per [D-15]. `struct_size` handling per [D-12]: reject
   smaller-than-v1, accept larger only when the extra bytes are all zero.
   Create resolves the backend and chooses `BACKEND_NOT_FOUND` vs
-  `MODEL_LOAD` per [D-11].
+  `MODEL_LOAD` per [D-11], and hands the host `plugin_dir = ""` after its own
+  scan per [D-18].
   - Checks: the Group 1 filter above (15 cases), under gcc and clang with
     `-DWERROR=ON` ([O-1]).
   - Scope: `neuriplo_api_version`, `neuriplo_status_string`,
@@ -116,8 +117,9 @@ ctest --test-dir build-capi -R "^CApiWrapper\." --output-on-failure
   backend's decision (`INFERENCE`), never the C layer's.
   - Checks: the Group 2 filter above (11 cases) under gcc and clang with
     `-DWERROR=ON`; `Infer.*` clean under ASan/LSan (validation [V-5]).
-  - The per-engine lock of [D-7] may land here already (one line); Group 3
-    is where it is scored.
+  - The per-engine lock of [D-7] does not land here: Group 3 owns it, so
+    the lock and the `Thread` cases are scored in one place (planner's
+    sequencing, accepted 2026-09-26).
 
 ## Group 3 — Threading and logging ([R-6], [R-7])
 
@@ -183,6 +185,28 @@ ctest --test-dir build-capi -R "^CApiWrapper\." --output-on-failure
   - Checks: consumer script green; symbol check green, and red when a symbol
     is removed.
 
+## Group 5b — CI wiring ([D-21])
+
+Delegable; runs after [T-16] exists (so after Group 6's smoke script, before
+[T-18]'s evidence pass).
+
+- [T-19] Wire the checks CI does not run yet into
+  `.github/workflows/ci.yml` (the only writable path):
+  - one job, based on the existing `docker/Dockerfile.opencvdnn` builder
+    image like `build-warnings`/`sanitizers`, that configures fresh with
+    `-DWERROR=ON`, builds, and runs `./scripts/abi/check_symbols.sh` plus its
+    two negatives ([V-11]), `./test/consumer/run.sh` ([V-12]), and
+    `python3 test/consumer/python/smoke_ctypes.py <prefix>` ([V-13]);
+  - one TSan job running the [V-8]/[V-9] command from `validation.md`
+    (clang 18, no suppressions). If the image lacks clang-18, installing it
+    in the job is CI tooling, not a project dependency. GitHub runners'
+    kernels may need `sudo sysctl vm.mmap_rnd_bits=28` on the host before
+    `docker run` for TSan to start; do that rather than disabling the job.
+  - ASan needs nothing: the `sanitizers` job's full `ctest` already covers
+    every `CApi*` case ([D-21]).
+  - Checks: `act push --job <job> --dryrun`, then a full local `act` run of
+    each new job (`docs/LOCAL_CI.md`), both recorded in the handback.
+
 ## Group 6 — Foreign-language proof and documentation ([R-12], [R-13])
 
 - [T-16] `test/consumer/python/smoke_ctypes.py` against the installed library
@@ -191,7 +215,10 @@ ctest --test-dir build-capi -R "^CApiWrapper\." --output-on-failure
   threading, logging, versioning, examples for C, C++, Python, C#/Unity (Unity
   plugin folder layout, `DllImport`, keeping the log delegate alive, running
   inference off the main thread). Link from `Readme.md` and
-  `docs/PLUGIN_BACKENDS.md`.
+  `docs/PLUGIN_BACKENDS.md`. States [D-19]: the package needs nothing but
+  neuriplo for the C ABI and the wrapper; a consumer of the installed C++ API
+  headers adds `find_package(glog)` / `glog::glog`. Also states that the
+  `sanitizers` CI job runs the `CApi*` cases on five backends.
 - [T-18] Execute everything in `validation.md` and record evidence with
   dates; `CHANGELOG.md` under `[Unreleased]`; roadmap Phase 7 status updated
   only once the evidence is in.
@@ -240,6 +267,18 @@ ctest --test-dir build-capi -R "^CApiWrapper\." --output-on-failure
     an existing `-DWERROR=ON` tree trips a pre-existing gtest include-path bug
     in `OCVDNNInferTest.cpp` (details in `validation.md`). Implementers
     re-configure with `--fresh` after any `CMakeLists.txt` edit.
+  - Post-Group-0 amendments (specifier, 2026-09-26, planner questions):
+    [D-18] create passes `plugin_dir = ""` to the host after its own scan
+    (changes packet 1b); [D-19] no `find_dependency(glog)`, C++ API
+    consumers supply glog, documented in [T-17]; [D-20] install layout
+    accepted, `NEURIPLO_INSTALL` default computed without
+    `PROJECT_IS_TOP_LEVEL` (changes packet 5); [D-21] + [T-19] new Group 5b
+    owns CI wiring; [R-4] wording now states the single input copy; [V-5]'s
+    ASan evidence is `^CApi\.(Metadata|Infer|InferError)\.`; [V-11]'s
+    negatives run against edited lists (planner's `check_symbols.sh`
+    override argument, accepted). Also accepted: the lock ([D-7]) lands in
+    Group 3 only, and the private `src/neuriplo_c_internal.hpp` (never
+    installed, never included by a public header).
   - Group 1 split, if the planner needs one: 1a = `Lifecycle.ApiVersion`,
     `Lifecycle.StatusStrings` (needs `engine_create(NULL, …)` →
     `INVALID_ARGUMENT` only), `Lifecycle.AvailableBackends`,
