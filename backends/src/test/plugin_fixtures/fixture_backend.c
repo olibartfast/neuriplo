@@ -293,6 +293,9 @@ FIXTURE_EXPORT void neuriplo_fixture_counters(size_t* handed, size_t* released, 
 }
 
 static const neuriplo_plugin_api_v1* fixture_api(void) {
+#if FIXTURE_API_DEFECT == 3
+    (void)fixture_infer; /* left out of the table on purpose */
+#endif
     static const neuriplo_plugin_api_v1 api = {
 #if FIXTURE_API_DEFECT == 1
         NEURIPLO_PLUGIN_ABI_VERSION + 1u,
