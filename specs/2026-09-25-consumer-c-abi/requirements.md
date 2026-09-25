@@ -77,7 +77,11 @@ Verified on `origin/develop` @ `4e4e237`:
   byte size per input, the existing raw-bytes contract). Success returns a
   library-owned result handle exposing per-output dtype, shape, and data
   views; the caller releases it exactly once. No additional copy beyond what
-  `get_infer_results_raw` already makes ([D-4]).
+  `get_infer_results_raw` already makes ([D-4]). Precisely: the C layer
+  copies each input view once into the `std::vector<uint8_t>` that
+  `get_infer_results_raw` takes — the same copy a same-toolchain C++ caller
+  makes to call it — and moves the returned outputs into the result without
+  copying them. No other copy of inputs or outputs is allowed.
 - [R-5] **Error model.** Every function returns a `neuriplo_status_t` (or is
   documented as infallible). No C++ exception ever crosses the boundary: every
   entry point catches everything and maps it to a status. A thread-local
@@ -106,7 +110,8 @@ Verified on `origin/develop` @ `4e4e237`:
   public headers (C, C++ wrapper, and the existing C++ API), and a CMake
   package so an outside project can `find_package(neuriplo CONFIG REQUIRED)`
   and link `neuriplo::neuriplo`. A `neuriplo.pc` pkg-config file for non-CMake
-  builds.
+  builds. The package itself requires no other dependency; a consumer of
+  the installed C++ API headers additionally provides glog ([D-19]).
 - [R-11] **Consumer-build proof.** A standalone project under
   `test/consumer/` — never configured by the root `CMakeLists.txt` — builds
   against the *installed* package: one plain-C program and one C++ program
@@ -246,6 +251,54 @@ entries below record the choice and why.
   bookkeeping counters were plain globals and would race across engines; they
   are made atomic in the fixture (specifier-owned) rather than suppressed, so
   no suppression can ever hide a race in the host.
+
+Decisions taken after Group 0, on questions the planner raised (2026-09-26):
+
+- [D-18] **Create scans `plugin_dir` once** (amends [D-11] step 4). The C layer
+  scans `config->plugin_dir` itself (step 2, `available_backend_ids`) and then
+  calls `setup_inference_engine` with `EngineOptions::plugin_dir = ""` and the
+  explicit resolved id. Equivalence: the host's `load_configured_plugins("")`
+  still scans `NEURIPLO_PLUGIN_DIR`, exactly as it would with the directory
+  passed through (that scan never depended on `plugin_dir`); plugins are never
+  unloaded, so every plugin step 2 saw is still loaded; and with an explicit id
+  the host resolves through the process-global tables
+  (`find_backend_registration`, `find_plugin_backend`), not through the
+  directory. The only observable difference is that a rejected plugin in
+  `plugin_dir` is logged, and re-`dlopen`ed, once per create instead of twice.
+  The `NEURIPLO_PLUGIN_DIR` directory is still scanned twice per create; that
+  is the host's existing behaviour and out of scope.
+- [D-19] **The package promises the C ABI and the wrapper without glog; the
+  installed C++ API needs glog, supplied by the consumer.** `neuriplo-config.cmake`
+  has no `find_dependency(glog)`: glog is PRIVATE to the shared library, and
+  the consumers [R-10]/[R-11] target (C, wrapper, FFI) must configure with
+  nothing but neuriplo. The C++ API headers are still installed ([R-10]) for
+  same-toolchain consumers; because `common.hpp` includes `<glog/logging.h>`,
+  such a consumer also runs `find_package(glog)` and links `glog::glog`
+  itself. glog is already a required dependency of the project, so this adds
+  none. `docs/C_API.md` ([T-17]) states it. Adding `find_dependency` later,
+  behind an opt-in component, would be a compatible change.
+- [D-20] **Install layout** (planner's proposal, accepted with one change).
+  `include/neuriplo/{neuriplo_c.h,neuriplo.hpp,plugin_abi.h}` install to
+  `<includedir>/neuriplo`; the C++ API and its closure
+  (`InferenceBackendSetup.hpp`, `common.hpp`, `InferenceInterface.hpp`,
+  `BackendState.hpp`, `InferenceMetadata.hpp`, `TensorDtype.hpp`,
+  `TensorDataType.hpp`) install flat to `<includedir>`, mirroring the in-tree
+  include path so existing `#include "InferenceBackendSetup.hpp"` code resolves
+  unchanged. Nothing else is installed (not `src/neuriplo_c_internal.hpp`, not
+  `PluginLoader.hpp`). `neuriplo.pc` is relocatable via `${pcfiledir}`.
+  **Change:** the `NEURIPLO_INSTALL` default must not use
+  `PROJECT_IS_TOP_LEVEL`, which only exists from CMake 3.21 while the project
+  declares 3.10 — on older CMake the default would silently be OFF for a
+  top-level build. Compute it as `CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR`.
+- [D-21] **CI ownership.** The existing `sanitizers` job in
+  `.github/workflows/ci.yml` already runs the full `ctest` under
+  ASan/LSan/UBSan for five backends, so every `CApi*` case gets ASan coverage
+  in CI with no change. Not covered anywhere: the TSan run ([V-8], [V-9]),
+  `check_symbols.sh` and its negatives ([V-11]), `test/consumer/run.sh`
+  ([V-12]), and `smoke_ctypes.py` ([V-13]). They are wired by a new
+  Group 5b ([T-19], plan.md), delegable, writable
+  `.github/workflows/ci.yml` only, validated with `act` per `AGENTS.md`, and
+  run after [T-16] exists so all four land in one workflow change.
 
 ## Constraints
 
