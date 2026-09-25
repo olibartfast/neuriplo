@@ -8,7 +8,7 @@
 
 | Area | Current choice | Boundary |
 | --- | --- | --- |
-| Library | C++17 shared library | Do not raise the language standard without an explicit compatibility decision. |
+| Library | C++17 shared library | Do not raise the language standard without an explicit compatibility decision. Its public headers are the C++ API (same-toolchain consumers) and the consumer C ABI `include/neuriplo/neuriplo_c.h` (C99, stable, versioned) with the header-only wrapper `include/neuriplo/neuriplo.hpp`. |
 | Build | CMake 3.10 or newer | `CMakeLists.txt` and `cmake/` define backend selection, validation, compilation, linking, tests, and plugins. |
 | Required libraries | glog | Required by the common library. OpenCV is **not**: it is required only by the `OPENCV_DNN` backend and is linked from there (`cmake/LinkBackend.cmake`), so the other 13 backends build and test with no OpenCV installed. Backend SDKs remain selection-dependent. |
 | Backends | 14 registered runtime or pipeline backends | `cmake/BackendRegistry.cmake` is the CMake-visible backend-ID authority. |
@@ -37,6 +37,15 @@ live in `versions.env`; the human-readable backend inventory lives in
 - The plugin boundary is the versioned C ABI in
   `include/neuriplo/plugin_abi.h`. Memory ownership, metadata, error propagation,
   and ABI mismatch behavior must be covered explicitly.
+- The consumer boundary is the versioned C ABI in
+  `include/neuriplo/neuriplo_c.h` (`NEURIPLO_C_API_VERSION`, independent of the
+  plugin ABI version) -- the opposite direction: applications call it,
+  `libneuriplo` implements it. No C++ type or exception crosses it; its
+  exported symbol list (`scripts/abi/neuriplo_c.symbols`) and struct layouts are
+  checked in the build. `include/neuriplo/neuriplo.hpp` is a header-only C++
+  wrapper over it that includes nothing else from neuriplo. The C++ API
+  (`InferenceBackendSetup.hpp`, `InferenceInterface`) remains for consumers
+  built with the same toolchain; it is not an ABI.
 - Decorators are optional and disabled by default. They must not change the
   production path when not enabled.
 - `RawOutputTensor` is the typed contiguous-buffer path. Avoid materializing
@@ -113,5 +122,5 @@ full local job described in `docs/LOCAL_CI.md`.
   backend, model, device, and architecture combinations are directly
   interchangeable.
 
-_Revision: 2026-09-11 - removed contributor workflow from the technical
-constitution and aligned feature-packet scope with proportional use._
+_Revision: 2026-09-26 - added the consumer C ABI boundary beside the plugin
+ABI (Phase 7, `specs/2026-09-25-consumer-c-abi`)._

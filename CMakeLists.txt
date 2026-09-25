@@ -90,7 +90,8 @@ set(SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/InferenceMetadata.cpp
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/ModelRunner.cpp
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/plugin/PluginLoader.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/InferenceBackendSetup.cpp)
+    ${CMAKE_CURRENT_LIST_DIR}/src/InferenceBackendSetup.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/neuriplo_c.cpp)
 
 include(SelectBackend)
 
@@ -134,6 +135,11 @@ target_link_libraries(neuriplo PRIVATE
 # The registry resolves the default registration by id when several backends
 # are compiled in; with one backend this matches the old single-entry behavior.
 target_compile_definitions(neuriplo PRIVATE NEURIPLO_DEFAULT_BACKEND="${DEFAULT_BACKEND}")
+
+# Consumer C ABI (include/neuriplo/neuriplo_c.h): NEURIPLO_C_BUILDING turns the
+# header's NEURIPLO_C_API into dllexport on Windows while libneuriplo itself is
+# compiled; consumers see dllimport.
+target_compile_definitions(neuriplo PRIVATE NEURIPLO_C_BUILDING)
 
 include(LinkBackend)
 include(PluginBackends)
