@@ -26,8 +26,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* CMake always defines FIXTURE_BACKEND_ID; the fallback only lets static
+ * analysers that do not see the build's definitions parse this file. */
 #ifndef FIXTURE_BACKEND_ID
-#error "FIXTURE_BACKEND_ID must be defined"
+#define FIXTURE_BACKEND_ID "FIXTURE_UNCONFIGURED"
 #endif
 #ifndef FIXTURE_API_DEFECT
 #define FIXTURE_API_DEFECT 0
