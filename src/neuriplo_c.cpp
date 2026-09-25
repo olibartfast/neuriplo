@@ -4,8 +4,9 @@
 // neuriplo_engine_create up to backend resolution (steps 1-3 of [D-11]),
 // plus _destroy / _backend_id. Group 1b adds the backend list
 // (neuriplo_available_backends and friends) and engine construction (steps
-// 4-5 of [D-11]). Metadata, infer, result, and log stay stubbed
-// (NEURIPLO_STATUS_UNIMPLEMENTED / an inert value) for later groups
+// 4-5 of [D-11]). Group 2 adds metadata views (neuriplo_engine_input(_count) /
+// _output(_count)) and inference (neuriplo_infer and the result accessors).
+// The per-engine mutex ([D-7]) and the log callback stay for Group 3
 // (specs/2026-09-25-consumer-c-abi).
 //
 // The signatures below are the contract and must stay exactly as declared
@@ -16,9 +17,14 @@
 
 #include "BackendRuntimeRegistry.hpp"
 #include "InferenceBackendSetup.hpp"
+#include "InferenceInterface.hpp"
+#include "InferenceMetadata.hpp"
+#include "TensorDataType.hpp"
+#include "TensorDtype.hpp"
 #include "neuriplo_c_internal.hpp"
 #include "plugin/PluginLoader.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -183,12 +189,103 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_backend_list_get(const neuriplo_backend
 void NEURIPLO_CALL neuriplo_backend_list_release(neuriplo_backend_list_t* list) NEURIPLO_NOEXCEPT { delete list; }
 
 // ---------------------------------------------------------------------------
+// Metadata helpers (Group 2)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Maps InferenceMetadata's element type (which also covers Int8/Bool, which
+// widen on decode) to the C ABI's neuriplo_tensor_dtype_t. Explicit switch,
+// no default label, with a fallback return after it so an unhandled
+// enumerator is still safe.
+neuriplo_tensor_dtype_t map_layer_dtype(TensorDataType datatype) noexcept {
+    switch (datatype) {
+    case TensorDataType::Float32:
+        return NEURIPLO_TENSOR_DTYPE_FLOAT32;
+    case TensorDataType::Int32:
+        return NEURIPLO_TENSOR_DTYPE_INT32;
+    case TensorDataType::Int64:
+        return NEURIPLO_TENSOR_DTYPE_INT64;
+    case TensorDataType::UInt8:
+        return NEURIPLO_TENSOR_DTYPE_UINT8;
+    case TensorDataType::Int8:
+        return NEURIPLO_TENSOR_DTYPE_INT8;
+    case TensorDataType::Bool:
+        return NEURIPLO_TENSOR_DTYPE_BOOL;
+    }
+    return NEURIPLO_TENSOR_DTYPE_FLOAT32;
+}
+
+// Maps a raw inference output's TensorDtype (FP32/INT32/INT64/UINT8 only) to
+// the C ABI's neuriplo_tensor_dtype_t. Same explicit-switch-plus-fallback
+// shape as map_layer_dtype.
+neuriplo_tensor_dtype_t map_raw_dtype(TensorDtype dtype) noexcept {
+    switch (dtype) {
+    case TensorDtype::FP32:
+        return NEURIPLO_TENSOR_DTYPE_FLOAT32;
+    case TensorDtype::INT32:
+        return NEURIPLO_TENSOR_DTYPE_INT32;
+    case TensorDtype::INT64:
+        return NEURIPLO_TENSOR_DTYPE_INT64;
+    case TensorDtype::UINT8:
+        return NEURIPLO_TENSOR_DTYPE_UINT8;
+    }
+    return NEURIPLO_TENSOR_DTYPE_FLOAT32;
+}
+
+// Fills `names`, `shapes`, and `infos` (each freshly cleared) from `layers`.
+// `names` and `shapes` are grown to their final size first -- with capacity
+// reserved so no further reallocation happens -- and only then does the
+// second pass take pointers into them (name.c_str(), shape.data()) to build
+// `infos`. A std::string may move its short-string buffer when the vector
+// holding it reallocates, and a std::vector's data() is only stable once
+// nothing pushes into that vector again, so pointers must never be taken
+// before every container is at its final size.
+void build_tensor_infos(const std::vector<LayerInfo>& layers, std::vector<std::string>& names,
+                        std::vector<std::vector<int64_t>>& shapes, std::vector<neuriplo_tensor_info_t>& infos) {
+    names.clear();
+    shapes.clear();
+    infos.clear();
+    names.reserve(layers.size());
+    shapes.reserve(layers.size());
+    infos.reserve(layers.size());
+
+    for (const LayerInfo& layer : layers) {
+        names.push_back(layer.name);
+        shapes.push_back(layer.shape);
+    }
+
+    for (size_t i = 0; i < layers.size(); ++i) {
+        neuriplo_tensor_info_t info{};
+        info.struct_size = sizeof(neuriplo_tensor_info_t);
+        info.dtype = map_layer_dtype(layers[i].datatype);
+        info.name = names[i].c_str();
+        info.shape = shapes[i].empty() ? nullptr : shapes[i].data();
+        info.ndim = shapes[i].size();
+        info.batch_size = layers[i].batch_size;
+        infos.push_back(info);
+    }
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
 // Engine lifecycle
 // ---------------------------------------------------------------------------
 
 struct neuriplo_engine_t {
     std::unique_ptr<InferenceInterface> backend;
     std::string backend_id;
+
+    // Metadata storage: built once in neuriplo_engine_create and never
+    // mutated afterwards, so neuriplo_engine_input/_output can hand out
+    // stable pointers without touching the backend.
+    std::vector<std::string> input_names;
+    std::vector<std::vector<int64_t>> input_shapes;
+    std::vector<neuriplo_tensor_info_t> input_infos;
+    std::vector<std::string> output_names;
+    std::vector<std::vector<int64_t>> output_shapes;
+    std::vector<neuriplo_tensor_info_t> output_infos;
 };
 
 neuriplo_status_t NEURIPLO_CALL neuriplo_engine_create(const neuriplo_engine_config_t* config,
@@ -315,10 +412,14 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_engine_create(const neuriplo_engine_con
                 message += config->model_path;
                 message += "': ";
                 message += e.what();
-                // Safe to build this message here only because this lambda always
-                // runs under guarded(): any bad_alloc during construction above is
-                // caught separately and mapped to OUT_OF_MEMORY. Do not copy this
-                // pattern outside a guarded() context.
+                // Safe to build this message here, inside a catch handler that
+                // is not itself noexcept-guarded, only because this whole
+                // lambda runs inside guarded()'s try block: if building this
+                // string throws std::bad_alloc, that exception escapes this
+                // handler (a catch block does not catch exceptions thrown
+                // within itself) and is caught by guarded()'s own catch,
+                // which maps it to OUT_OF_MEMORY. Do not copy this pattern
+                // outside a guarded() context.
                 return neuriplo_capi::fail(NEURIPLO_STATUS_MODEL_LOAD, message.c_str());
             }
 
@@ -336,6 +437,15 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_engine_create(const neuriplo_engine_con
             auto engine = std::make_unique<neuriplo_engine_t>();
             engine->backend = std::move(backend);
             engine->backend_id = resolved_id;
+
+            // Metadata ([T-8], [R-3]): one copy of the backend's metadata,
+            // taken now while still inside this guard so a throw here maps
+            // to MODEL_LOAD, same as a construction failure.
+            const InferenceMetadata metadata = engine->backend->get_inference_metadata();
+            build_tensor_infos(metadata.getInputs(), engine->input_names, engine->input_shapes, engine->input_infos);
+            build_tensor_infos(metadata.getOutputs(), engine->output_names, engine->output_shapes,
+                               engine->output_infos);
+
             *out_engine = engine.release();
             neuriplo_capi::clear_last_error();
             return NEURIPLO_STATUS_OK;
@@ -360,40 +470,177 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_engine_backend_id(const neuriplo_engine
     return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_engine_input_count(const neuriplo_engine_t* /*engine*/,
-                                                            size_t* /*out_count*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+// ---------------------------------------------------------------------------
+// Metadata
+// ---------------------------------------------------------------------------
+
+neuriplo_status_t NEURIPLO_CALL neuriplo_engine_input_count(const neuriplo_engine_t* engine,
+                                                            size_t* out_count) NEURIPLO_NOEXCEPT {
+    if (out_count != nullptr) {
+        *out_count = 0;
+    }
+    if (engine == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_input_count", "engine is NULL");
+    }
+    if (out_count == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_input_count", "out_count is NULL");
+    }
+    *out_count = engine->input_infos.size();
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_engine_input(const neuriplo_engine_t* /*engine*/, size_t /*index*/,
-                                                      const neuriplo_tensor_info_t** /*out_info*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_engine_input(const neuriplo_engine_t* engine, size_t index,
+                                                      const neuriplo_tensor_info_t** out_info) NEURIPLO_NOEXCEPT {
+    if (out_info != nullptr) {
+        *out_info = nullptr;
+    }
+    if (engine == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_input", "engine is NULL");
+    }
+    if (out_info == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_input", "out_info is NULL");
+    }
+    if (index >= engine->input_infos.size()) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_input", "index is out of range");
+    }
+    *out_info = &engine->input_infos[index];
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_engine_output_count(const neuriplo_engine_t* /*engine*/,
-                                                             size_t* /*out_count*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_engine_output_count(const neuriplo_engine_t* engine,
+                                                             size_t* out_count) NEURIPLO_NOEXCEPT {
+    if (out_count != nullptr) {
+        *out_count = 0;
+    }
+    if (engine == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_output_count", "engine is NULL");
+    }
+    if (out_count == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_output_count", "out_count is NULL");
+    }
+    *out_count = engine->output_infos.size();
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_engine_output(const neuriplo_engine_t* /*engine*/, size_t /*index*/,
-                                                       const neuriplo_tensor_info_t** /*out_info*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_engine_output(const neuriplo_engine_t* engine, size_t index,
+                                                       const neuriplo_tensor_info_t** out_info) NEURIPLO_NOEXCEPT {
+    if (out_info != nullptr) {
+        *out_info = nullptr;
+    }
+    if (engine == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_output", "engine is NULL");
+    }
+    if (out_info == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_output", "out_info is NULL");
+    }
+    if (index >= engine->output_infos.size()) {
+        return neuriplo_capi::invalid_argument("neuriplo_engine_output", "index is out of range");
+    }
+    *out_info = &engine->output_infos[index];
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_infer(neuriplo_engine_t* /*engine*/, const neuriplo_input_view_t* /*inputs*/,
-                                               size_t /*n_inputs*/,
-                                               neuriplo_result_t** /*out_result*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+// ---------------------------------------------------------------------------
+// Inference
+// ---------------------------------------------------------------------------
+
+struct neuriplo_result_t {
+    std::vector<RawOutputTensor> outputs;
+    std::vector<neuriplo_tensor_view_t> views;
+};
+
+neuriplo_status_t NEURIPLO_CALL neuriplo_infer(neuriplo_engine_t* engine, const neuriplo_input_view_t* inputs,
+                                               size_t n_inputs, neuriplo_result_t** out_result) NEURIPLO_NOEXCEPT {
+    if (out_result != nullptr) {
+        *out_result = nullptr;
+    }
+    if (engine == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_infer", "engine is NULL");
+    }
+    if (out_result == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_infer", "out_result is NULL");
+    }
+    if (inputs == nullptr && n_inputs > 0) {
+        return neuriplo_capi::invalid_argument("neuriplo_infer", "inputs is NULL with n_inputs > 0");
+    }
+    for (size_t i = 0; i < n_inputs; ++i) {
+        if (inputs[i].data == nullptr && inputs[i].size_bytes > 0) {
+            return neuriplo_capi::invalid_argument("neuriplo_infer", "an input has data NULL and size_bytes > 0");
+        }
+    }
+
+    return neuriplo_capi::guarded(neuriplo_capi::GuardContext::Infer, "neuriplo_infer", [&]() -> neuriplo_status_t {
+        std::vector<std::vector<uint8_t>> input_tensors;
+        input_tensors.reserve(n_inputs);
+        for (size_t i = 0; i < n_inputs; ++i) {
+            if (inputs[i].size_bytes == 0) {
+                input_tensors.emplace_back();
+            } else {
+                const auto* bytes = static_cast<const uint8_t*>(inputs[i].data);
+                input_tensors.emplace_back(bytes, bytes + inputs[i].size_bytes);
+            }
+        }
+
+        std::vector<RawOutputTensor> outputs = engine->backend->get_infer_results_raw(input_tensors);
+
+        auto result = std::make_unique<neuriplo_result_t>();
+        result->outputs = std::move(outputs);
+        result->views.reserve(result->outputs.size());
+        for (const RawOutputTensor& out : result->outputs) {
+            neuriplo_tensor_view_t view{};
+            view.struct_size = sizeof(neuriplo_tensor_view_t);
+            view.dtype = map_raw_dtype(out.dtype);
+            view.data = out.bytes.empty() ? nullptr : out.bytes.data();
+            view.size_bytes = out.bytes.size();
+            view.element_count = out.element_count();
+            view.shape = out.shape.empty() ? nullptr : out.shape.data();
+            view.ndim = out.shape.size();
+            result->views.push_back(view);
+        }
+
+        *out_result = result.release();
+        neuriplo_capi::clear_last_error();
+        return NEURIPLO_STATUS_OK;
+    });
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_result_output_count(const neuriplo_result_t* /*result*/,
-                                                             size_t* /*out_count*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_result_output_count(const neuriplo_result_t* result,
+                                                             size_t* out_count) NEURIPLO_NOEXCEPT {
+    if (out_count != nullptr) {
+        *out_count = 0;
+    }
+    if (result == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_result_output_count", "result is NULL");
+    }
+    if (out_count == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_result_output_count", "out_count is NULL");
+    }
+    *out_count = result->views.size();
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-neuriplo_status_t NEURIPLO_CALL neuriplo_result_output(const neuriplo_result_t* /*result*/, size_t /*index*/,
-                                                       const neuriplo_tensor_view_t** /*out_view*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
+neuriplo_status_t NEURIPLO_CALL neuriplo_result_output(const neuriplo_result_t* result, size_t index,
+                                                       const neuriplo_tensor_view_t** out_view) NEURIPLO_NOEXCEPT {
+    if (out_view != nullptr) {
+        *out_view = nullptr;
+    }
+    if (result == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_result_output", "result is NULL");
+    }
+    if (out_view == nullptr) {
+        return neuriplo_capi::invalid_argument("neuriplo_result_output", "out_view is NULL");
+    }
+    if (index >= result->views.size()) {
+        return neuriplo_capi::invalid_argument("neuriplo_result_output", "index is out of range");
+    }
+    *out_view = &result->views[index];
+    neuriplo_capi::clear_last_error();
+    return NEURIPLO_STATUS_OK;
 }
 
-void NEURIPLO_CALL neuriplo_result_release(neuriplo_result_t* /*result*/) NEURIPLO_NOEXCEPT {}
+void NEURIPLO_CALL neuriplo_result_release(neuriplo_result_t* result) NEURIPLO_NOEXCEPT { delete result; }
