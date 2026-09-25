@@ -137,6 +137,24 @@ Verified on `origin/develop` @ `62825dd`:
   loader cannot edit the tests that score it; its own tests are output, not
   acceptance. See `orchestration.md`.
 
+- [D-7] **Unknown dtype rejects the whole call** (decides [Q-2], [T-1]). An
+  output dtype outside `neuriplo_dtype_t` throws `InferenceExecutionException`
+  from both `get_infer_results_raw` and the legacy `get_infer_results` view; an
+  unknown metadata `element_type` rejects the backend with `ModelLoadException`.
+  No silent `Float32` substitution, no silently empty element vector.
+- [D-8] **Output size is strict equality** (decides [Q-3], [T-1]).
+  `size_bytes == tensor_dtype_size(dtype) × Π shape`, every dimension ≥ 0. A
+  shorter buffer is an overread; a longer one means the plugin and host
+  disagree about the tensor, and both are rejected.
+- [D-9] **Diagnostic vocabulary** (fixed by the acceptance suite, [T-4]).
+  Metadata rejections name the plugin's library path, the layer as
+  `input layer <i>` / `output layer <i>`, and the field (`name`, `shape`,
+  `ndim`, `element_type`, or `inputs` / `outputs` for a null array). Output
+  rejections name the backend id, the tensor as `output <i>`, and the field
+  (`tensors`, `data`, `shape`, `ndim`, `size_bytes`, `dtype`). Descriptor
+  pointers returned by `find_plugin_backend` stay valid and stable for the
+  process lifetime, matching [D-5].
+
 ## Constraints
 
 - The C ABI boundary rules in `specs/tech-stack.md` hold: no C++ types, STL
@@ -184,11 +202,11 @@ Verified on `origin/develop` @ `62825dd`:
   Phase 3/4? Recommendation: Phase 3/4, because a fix means deciding what a
   device request *means* across all backends, which is exactly Phase 3's
   contract work. It is recorded in Out of Scope so it is not lost.
-- [Q-2] Should an unknown dtype reject the whole inference call, or drop the
+- [Q-2] **Decided → [D-7].** Should an unknown dtype reject the whole inference call, or drop the
   offending tensor and continue? Recommendation: reject the call — a plugin
   returning a dtype the host cannot name is broken, and partial results are
   harder to debug than a clear failure. Needs a decision before Group 3.
-- [Q-3] Should the size/shape consistency check in [R-2] be strict equality
+- [Q-3] **Decided → [D-8].** Should the size/shape consistency check in [R-2] be strict equality
   (`size_bytes == element_size × Π shape`) or a lower bound? Recommendation:
   strict equality, since every conforming plugin knows both. A lower bound
   would admit the buffer-overread case the check exists to catch.

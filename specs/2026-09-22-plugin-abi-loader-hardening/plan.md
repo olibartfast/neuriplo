@@ -124,3 +124,19 @@ The group where the real ownership defect lives; it needs [T-1] decided first.
   specified in `orchestration.md`. Groups 2, 3, 4 and 5 are the delegable ones;
   Group 0 is specifier-owned by [D-6] and Group 6 is judgement work.
 - Record in this section anything that deviated from the plan and why.
+- Group 0 (2026-09-25): [T-2] ships one fixture source,
+  `plugin_fixtures/fixture_backend.c`, compiled into seven modules by
+  `FIXTURE_BACKEND_ID` / `FIXTURE_API_DEFECT`, instead of one translation unit
+  per condition. Load-time defects need their own module (the defect is in the
+  exported table); call-time defects are chosen per instance by `model_path`
+  on the `FIXTURE_SCRIPTED` module. Same coverage as [R-6], one file to keep in
+  step with `plugin_abi.h`. The duplicate-id module lives in a `duplicate/`
+  subdirectory so a scan of the main fixture directory never races it against
+  `FIXTURE_GOOD`.
+- Group 0: the suite is registered with `gtest_discover_tests`, one process per
+  case, because the loader's plugin table is process-global and never unloads.
+- Group 0: [V-5]'s "copy throws" case has no fixture — after [D-8] the copy is
+  bounded by validated sizes and cannot be made to throw from plugin data. It is
+  a reviewer obligation on the RAII guard instead; see validation Deviations.
+- Group 1 needs no production change: all six load-time rejections pass with
+  path and reason in the diagnostic (pre-hardening capture, validation.md).
