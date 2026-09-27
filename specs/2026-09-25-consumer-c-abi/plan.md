@@ -286,3 +286,22 @@ Delegable; runs after [T-16] exists (so after Group 6's smoke script, before
     path) — so 1a still includes create's argument checks and backend
     resolution; 1b = the rest of create (`MODEL_LOAD`, `struct_size`,
     destroy, backend id). The cleaner cut is by function, not by case.
+- Groups 3–6 (2026-09-27), deviations:
+  - Groups 3 and 4 ran one after the other in the main checkout, in one
+    orchestrator session, instead of in parallel worktrees A/B with
+    delegated workers. Their writable paths stayed disjoint as planned, and
+    each group was scored against its own packet checks before its commit
+    (`09845ef`, `0e9a717`).
+  - [T-16]: `smoke_ctypes.py` takes the fixture plugin directory as a second
+    argument, and `test/consumer/run.sh` runs it against the same temporary
+    prefix, so [T-19]'s consumer job makes one call for [V-12] and [V-13]
+    (validation.md, Deviations).
+  - [T-19]: in the new CI job, the negative symbol checks use explicit
+    `if ...; then exit 1; fi`. Under `set -e`, a failing `! cmd` does not
+    stop the script, so written the other way they could never fail the job.
+    The TSan job lowers `vm.mmap_rnd_bits` on the host (skipped under `act`)
+    and installs clang-18 inside the builder image, which counts as CI
+    tooling, not a project dependency.
+    Its container runs with `--security-opt seccomp=unconfined`, because
+    Docker's default seccomp profile blocks TSan's `personality()` re-exec.
+    The first local `act` run failed on exactly that.
