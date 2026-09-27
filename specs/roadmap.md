@@ -189,11 +189,13 @@ Exit criteria:
 
 ## Phase 7 — Stable Consumer C ABI
 
-**Status: Specified** — packet at `specs/2026-09-25-consumer-c-abi/`, branch
-`feature/consumer-c-abi`. Its prerequisite, Phase 2, has merged (its fixture
-plugins are this phase's test backends). Numbered 7 only because it
-was added after Phases 3–6 were written; it does not depend on them and can
-run before them.
+**Status: Implemented, pending [M-1]–[M-3]** — packet at
+`specs/2026-09-25-consumer-c-abi/`, branch `feature/consumer-c-abi`. Groups
+0–6 have landed, and every automated check in `validation.md` passes with
+recorded evidence. The phase moves to Complete once three manual checks have
+run: the documentation walkthrough, the contract read, and the Unity run on
+Windows. It was numbered 7 only because it was added after Phases 3–6 were
+written. It does not depend on them.
 
 Goal: let any third-party application — C++ or not — run inference through
 neuriplo across compiler, standard-library, and language boundaries.
@@ -225,6 +227,9 @@ validation defined before implementation and evidence recorded after execution.
 Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
+
+_Revision: 2026-09-27 - Phase 7 implemented; Complete pending the manual
+checks [M-1]–[M-3]._
 
 _Revision: 2026-09-25 - added Phase 7 (stable consumer C ABI) with its feature
 packet._

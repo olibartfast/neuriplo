@@ -646,6 +646,7 @@ leaving the cell looking measured.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | 0 | Specifier / architect | strongest | 284k | — | 67 | — | 1889 s | — | n/a (writes the suite); [M-4]: 42/42 `CApi*` cases fail against the stubs, 32/32 `PluginAbi*` pass | 0 |
 | 2 | 1a–5 | Planner (packets) | strongest | pending (orchestrator fills from the harness) | — | pending | — | pending | — | n/a (writes packets) | 0 |
+| 3 | 3, 4, 5, 5b, 6 | Orchestrator, inline (no delegated worker) | strongest | — | — | — | — | — | — | Group 3: TSan 7/7 + gcc 65/65 first pass; Group 4: 9/9 first pass; Group 5: acceptance passed except `format.sh --check` (clang-format of `consumer.cpp`), fixed before commit; 5b: CI negative-check defect found in review and fixed before commit | 0 |
 
 Totals are the subagent token counts the harness reported; "—" means the
 harness did not report it.
