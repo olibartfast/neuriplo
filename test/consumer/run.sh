@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Consumer proof ([T-14], [V-12]): installs <build-dir> to a temporary prefix,
 # builds test/consumer against it with only CMAKE_PREFIX_PATH set, and runs
-# the C and C++ programs; then builds the C program again through pkg-config.
-# Every program must print exactly "OK FIXTURE_GOOD 2 4 6 8".
+# the C and C++ programs; then builds the C program again through pkg-config,
+# and finally drives the library from Python ctypes. Every program must print exactly "OK FIXTURE_GOOD 2 4 6 8".
 #
 #   ./test/consumer/run.sh <build-dir>
 set -euo pipefail
@@ -51,5 +51,13 @@ LIB_DIR="$(dirname "${PC_DIR}")"
 read -r -a PC_FLAGS <<< "$(PKG_CONFIG_PATH="${PC_DIR}" pkg-config --cflags --libs neuriplo)"
 cc -std=c99 "${SOURCE_DIR}/consumer.c" -o "${WORK}/consumer_c_pkgconfig" "${PC_FLAGS[@]}"
 expect_ok "pkg-config consumer_c" env LD_LIBRARY_PATH="${LIB_DIR}" "${WORK}/consumer_c_pkgconfig" "${PLUGIN_DIR}"
+
+# Python ctypes ([T-16], [V-13]), against the same installed prefix.
+if command -v python3 > /dev/null; then
+    expect_ok "python ctypes" python3 "${SOURCE_DIR}/python/smoke_ctypes.py" "${PREFIX}" "${PLUGIN_DIR}"
+else
+    echo "consumer check: FAIL (python3 not found for the ctypes smoke test)" >&2
+    exit 1
+fi
 
 echo "consumer check: PASS"
