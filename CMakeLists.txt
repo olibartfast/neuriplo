@@ -91,7 +91,8 @@ set(SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/ModelRunner.cpp
     ${CMAKE_CURRENT_LIST_DIR}/backends/src/plugin/PluginLoader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/InferenceBackendSetup.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/neuriplo_c.cpp)
+    ${CMAKE_CURRENT_LIST_DIR}/src/neuriplo_c.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/neuriplo_c_log.cpp)
 
 include(SelectBackend)
 

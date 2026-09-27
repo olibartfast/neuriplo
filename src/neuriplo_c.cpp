@@ -6,8 +6,8 @@
 // (neuriplo_available_backends and friends) and engine construction (steps
 // 4-5 of [D-11]). Group 2 adds metadata views (neuriplo_engine_input(_count) /
 // _output(_count)) and inference (neuriplo_infer and the result accessors).
-// The per-engine mutex ([D-7]) and the log callback stay for Group 3
-// (specs/2026-09-25-consumer-c-abi).
+// Group 3 adds the per-engine mutex ([D-7]); the log callback
+// ([D-16]) lives in neuriplo_c_log.cpp (specs/2026-09-25-consumer-c-abi).
 //
 // The signatures below are the contract and must stay exactly as declared
 // (NEURIPLO_CALL and NEURIPLO_NOEXCEPT repeated, NEURIPLO_C_API not
@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -115,16 +116,6 @@ const char* NEURIPLO_CALL neuriplo_last_error(void) NEURIPLO_NOEXCEPT {
         return "neuriplo: last-error message unavailable";
     }
     return g_last_error.c_str();
-}
-
-// ---------------------------------------------------------------------------
-// Logging
-// ---------------------------------------------------------------------------
-
-neuriplo_status_t NEURIPLO_CALL neuriplo_set_log_callback(neuriplo_log_callback_t /*callback*/,
-                                                          neuriplo_log_level_t /*min_level*/,
-                                                          void* /*user_data*/) NEURIPLO_NOEXCEPT {
-    return NEURIPLO_STATUS_UNIMPLEMENTED;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +277,10 @@ struct neuriplo_engine_t {
     std::vector<std::string> output_names;
     std::vector<std::vector<int64_t>> output_shapes;
     std::vector<neuriplo_tensor_info_t> output_infos;
+
+    // Serialises neuriplo_infer's backend call on this engine ([D-7]). It
+    // covers nothing else: metadata getters and _backend_id stay lock-free.
+    std::mutex infer_mutex;
 };
 
 neuriplo_status_t NEURIPLO_CALL neuriplo_engine_create(const neuriplo_engine_config_t* config,
@@ -585,7 +580,11 @@ neuriplo_status_t NEURIPLO_CALL neuriplo_infer(neuriplo_engine_t* engine, const 
             }
         }
 
-        std::vector<RawOutputTensor> outputs = engine->backend->get_infer_results_raw(input_tensors);
+        std::vector<RawOutputTensor> outputs;
+        {
+            const std::lock_guard<std::mutex> lock(engine->infer_mutex);
+            outputs = engine->backend->get_infer_results_raw(input_tensors);
+        }
 
         auto result = std::make_unique<neuriplo_result_t>();
         result->outputs = std::move(outputs);
