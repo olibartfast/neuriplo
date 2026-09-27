@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/@NEURIPLO_PC_RELATIVE_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: neuriplo
+Description: Backend-agnostic inference library (consumer C ABI and C++ wrapper)
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lneuriplo
+Cflags: -I${includedir}

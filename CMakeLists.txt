@@ -158,3 +158,71 @@ option(NEURIPLO_REQUIRE_GMOCK "Fail configuration when GTest::gmock is unavailab
 if(BUILD_INFERENCE_ENGINE_TESTS)
     include(SetupTests)
 endif(BUILD_INFERENCE_ENGINE_TESTS)
+
+# ---------------------------------------------------------------------------
+# Install rules and package export ([T-13], specs/2026-09-25-consumer-c-abi).
+# Default ON only for a top-level build, so a parent project that
+# add_subdirectory()s neuriplo gains no install rules. Computed without
+# PROJECT_IS_TOP_LEVEL (CMake 3.21+) because the project declares 3.10 ([D-20]).
+# ---------------------------------------------------------------------------
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(NEURIPLO_INSTALL_DEFAULT ON)
+else()
+    set(NEURIPLO_INSTALL_DEFAULT OFF)
+endif()
+option(NEURIPLO_INSTALL "Generate install rules" ${NEURIPLO_INSTALL_DEFAULT})
+
+if(NEURIPLO_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS neuriplo EXPORT neuriplo-targets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+    # Consumer C ABI, its C++ wrapper, and the plugin ABI.
+    install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/neuriplo/neuriplo_c.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/neuriplo/neuriplo.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/neuriplo/plugin_abi.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/neuriplo)
+
+    # The existing C++ API and its include closure, flat. Its consumers also
+    # need glog ([D-19]); the C ABI and the wrapper need nothing but neuriplo.
+    install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/InferenceBackendSetup.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/common.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/backends/src/InferenceInterface.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/backends/src/BackendState.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/backends/src/InferenceMetadata.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/backends/src/TensorDtype.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/backends/src/TensorDataType.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+    set(NEURIPLO_CMAKE_INSTALL_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/neuriplo)
+    install(EXPORT neuriplo-targets
+        NAMESPACE neuriplo::
+        DESTINATION ${NEURIPLO_CMAKE_INSTALL_DIR})
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/neuriplo-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/neuriplo-config.cmake
+        INSTALL_DESTINATION ${NEURIPLO_CMAKE_INSTALL_DIR})
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/neuriplo-config-version.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion)
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/neuriplo-config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/neuriplo-config-version.cmake
+        DESTINATION ${NEURIPLO_CMAKE_INSTALL_DIR})
+
+    # pkg-config. Relocatable: `cmake --install --prefix X` does not re-run
+    # configure_file, so prefix is derived from the .pc file's own location.
+    file(RELATIVE_PATH NEURIPLO_PC_RELATIVE_PREFIX
+        "${CMAKE_INSTALL_FULL_LIBDIR}/pkgconfig" "${CMAKE_INSTALL_PREFIX}")
+    string(REGEX REPLACE "/$" "" NEURIPLO_PC_RELATIVE_PREFIX "${NEURIPLO_PC_RELATIVE_PREFIX}")
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/neuriplo.pc.in ${CMAKE_CURRENT_BINARY_DIR}/neuriplo.pc @ONLY)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/neuriplo.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+endif()
