@@ -10,17 +10,15 @@
 // Rule ([R-8], [V-10]): this header includes no neuriplo header other than
 // neuriplo_c.h, and only standard C++ headers otherwise.
 //
-// STATUS: Group 0 skeleton (specs/2026-09-25-consumer-c-abi). The declarations
-// below are the exact public API Group 4 implements -- names, signatures,
-// const/noexcept qualifiers, and documented behaviour are the contract the
-// acceptance suite (backends/src/test/CApiWrapperTest.cpp) compiles against.
-// Group 4 replaces the bodies (and may add private helpers and members) but
-// must not change a public declaration without the specifier.
+// The public declarations below are the contract the acceptance suite
+// (backends/src/test/CApiWrapperTest.cpp) compiles against; changing one
+// needs the specifier (specs/2026-09-25-consumer-c-abi).
 
 #include "neuriplo_c.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -42,27 +40,71 @@ class Error : public std::runtime_error {
     neuriplo_status_t status_;
 };
 
-namespace detail {
-// Group 0 placeholder; Group 4 removes it.
-[[noreturn]] inline void unimplemented() {
-    throw Error(NEURIPLO_STATUS_UNIMPLEMENTED, "neuriplo.hpp: not implemented yet (Group 4)");
-}
-} // namespace detail
-
 // Throws Error(status, <last error>) when status is not NEURIPLO_STATUS_OK.
 inline void check(neuriplo_status_t status) {
-    (void)status;
-    detail::unimplemented();
+    if (status == NEURIPLO_STATUS_OK) {
+        return;
+    }
+    const char* message = neuriplo_last_error();
+    if (message == nullptr || message[0] == '\0') {
+        message = neuriplo_status_string(status);
+    }
+    throw Error(status, message);
 }
 
 // neuriplo_api_version() of the loaded library.
-inline uint32_t api_version() noexcept { return 0; }
+inline uint32_t api_version() noexcept { return neuriplo_api_version(); }
+
+namespace detail {
+
+// Releases a neuriplo_backend_list_t on every path out of backends().
+class BackendListHolder {
+  public:
+    BackendListHolder() = default;
+    BackendListHolder(const BackendListHolder&) = delete;
+    BackendListHolder& operator=(const BackendListHolder&) = delete;
+    ~BackendListHolder() { neuriplo_backend_list_release(list_); }
+
+    neuriplo_backend_list_t* list_ = nullptr;
+};
+
+template <typename T> struct dependent_false {
+    static constexpr bool value = false;
+};
+
+template <typename T> struct dtype_of {
+    static_assert(dependent_false<T>::value, "data_as<T>: T must be float, int32_t, int64_t, or uint8_t");
+};
+template <> struct dtype_of<float> {
+    static constexpr neuriplo_tensor_dtype_t value = NEURIPLO_TENSOR_DTYPE_FLOAT32;
+};
+template <> struct dtype_of<int32_t> {
+    static constexpr neuriplo_tensor_dtype_t value = NEURIPLO_TENSOR_DTYPE_INT32;
+};
+template <> struct dtype_of<int64_t> {
+    static constexpr neuriplo_tensor_dtype_t value = NEURIPLO_TENSOR_DTYPE_INT64;
+};
+template <> struct dtype_of<uint8_t> {
+    static constexpr neuriplo_tensor_dtype_t value = NEURIPLO_TENSOR_DTYPE_UINT8;
+};
+
+} // namespace detail
 
 // Backend ids available in this process (neuriplo_available_backends), in the
 // library's order. plugin_dir "" scans nothing extra.
 inline std::vector<std::string> backends(const std::string& plugin_dir = std::string()) {
-    (void)plugin_dir;
-    detail::unimplemented();
+    detail::BackendListHolder holder;
+    check(neuriplo_available_backends(plugin_dir.c_str(), &holder.list_));
+    size_t count = 0;
+    check(neuriplo_backend_list_count(holder.list_, &count));
+    std::vector<std::string> ids;
+    ids.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        const char* id = nullptr;
+        check(neuriplo_backend_list_get(holder.list_, i, &id));
+        ids.emplace_back(id);
+    }
+    return ids;
 }
 
 // Owning mirror of neuriplo_engine_config_t. Empty strings mean "default"
@@ -109,20 +151,27 @@ class TensorView {
   public:
     explicit TensorView(const neuriplo_tensor_view_t* view) noexcept : view_(view) {}
 
-    neuriplo_tensor_dtype_t dtype() const noexcept {
-        (void)view_;
-        return NEURIPLO_TENSOR_DTYPE_FLOAT32;
+    neuriplo_tensor_dtype_t dtype() const noexcept { return view_->dtype; }
+    const void* data() const noexcept { return view_->data; }
+    size_t size_bytes() const noexcept { return view_->size_bytes; }
+    size_t element_count() const noexcept { return view_->element_count; }
+    std::vector<int64_t> shape() const {
+        if (view_->ndim == 0) {
+            return {};
+        }
+        return std::vector<int64_t>(view_->shape, view_->shape + view_->ndim);
     }
-    const void* data() const noexcept { return nullptr; }
-    size_t size_bytes() const noexcept { return 0; }
-    size_t element_count() const noexcept { return 0; }
-    std::vector<int64_t> shape() const { detail::unimplemented(); }
 
     // Typed element pointer. T must match dtype(): float <-> FLOAT32,
     // int32_t <-> INT32, int64_t <-> INT64, uint8_t <-> UINT8; any other
     // combination throws Error(NEURIPLO_STATUS_INVALID_ARGUMENT). May return
     // nullptr for a zero-element tensor.
-    template <typename T> const T* data_as() const { detail::unimplemented(); }
+    template <typename T> const T* data_as() const {
+        if (dtype() != detail::dtype_of<T>::value) {
+            throw Error(NEURIPLO_STATUS_INVALID_ARGUMENT, "neuriplo::TensorView::data_as: T does not match dtype()");
+        }
+        return static_cast<const T*>(data());
+    }
 
   private:
     const neuriplo_tensor_view_t* view_;
@@ -135,21 +184,30 @@ class Result {
     explicit Result(neuriplo_result_t* owned) noexcept : handle_(owned) {}
     Result(Result&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
     Result& operator=(Result&& other) noexcept {
-        std::swap(handle_, other.handle_);
+        if (this != &other) {
+            neuriplo_result_release(handle_);
+            handle_ = other.handle_;
+            other.handle_ = nullptr;
+        }
         return *this;
     }
     Result(const Result&) = delete;
     Result& operator=(const Result&) = delete;
-    ~Result() {}
+    ~Result() { neuriplo_result_release(handle_); }
 
     // Number of outputs. Throws Error (INVALID_ARGUMENT on a moved-from Result).
-    size_t size() const { detail::unimplemented(); }
+    size_t size() const {
+        size_t count = 0;
+        check(neuriplo_result_output_count(handle_, &count));
+        return count;
+    }
 
     // Output `index`. Throws Error(INVALID_ARGUMENT) when index >= size() or
     // on a moved-from Result.
     TensorView output(size_t index) const {
-        (void)index;
-        detail::unimplemented();
+        const neuriplo_tensor_view_t* view = nullptr;
+        check(neuriplo_result_output(handle_, index, &view));
+        return TensorView(view);
     }
 
     // The owned handle; nullptr after a move.
@@ -166,35 +224,87 @@ class Engine {
   public:
     // neuriplo_engine_create. Throws Error on any failure.
     explicit Engine(const EngineConfig& config) {
-        (void)config;
-        detail::unimplemented();
+        std::vector<neuriplo_dims_t> dims;
+        dims.reserve(config.input_sizes.size());
+        for (const std::vector<int64_t>& shape : config.input_sizes) {
+            dims.push_back(neuriplo_dims_t{shape.empty() ? nullptr : shape.data(), shape.size()});
+        }
+        neuriplo_engine_config_t c_config;
+        std::memset(&c_config, 0, sizeof(c_config));
+        c_config.struct_size = static_cast<uint32_t>(sizeof(c_config));
+        c_config.use_gpu = config.use_gpu ? 1 : 0;
+        c_config.backend_id = config.backend_id.c_str();
+        c_config.model_path = config.model_path.c_str();
+        c_config.batch_size = config.batch_size;
+        c_config.input_sizes = dims.empty() ? nullptr : dims.data();
+        c_config.n_input_sizes = dims.size();
+        c_config.plugin_dir = config.plugin_dir.c_str();
+        check(neuriplo_engine_create(&c_config, &handle_));
     }
     Engine(Engine&& other) noexcept : handle_(other.handle_) { other.handle_ = nullptr; }
     Engine& operator=(Engine&& other) noexcept {
-        std::swap(handle_, other.handle_);
+        if (this != &other) {
+            neuriplo_engine_destroy(handle_);
+            handle_ = other.handle_;
+            other.handle_ = nullptr;
+        }
         return *this;
     }
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
-    ~Engine() {}
+    ~Engine() { neuriplo_engine_destroy(handle_); }
 
     // Resolved backend id. Throws Error (INVALID_ARGUMENT on a moved-from Engine).
-    std::string backend_id() const { detail::unimplemented(); }
+    std::string backend_id() const {
+        const char* id = nullptr;
+        check(neuriplo_engine_backend_id(handle_, &id));
+        return id;
+    }
 
     // Model inputs / outputs, in model order. Throw Error.
-    std::vector<TensorInfo> inputs() const { detail::unimplemented(); }
-    std::vector<TensorInfo> outputs() const { detail::unimplemented(); }
+    std::vector<TensorInfo> inputs() const { return infos(neuriplo_engine_input_count, neuriplo_engine_input); }
+    std::vector<TensorInfo> outputs() const { return infos(neuriplo_engine_output_count, neuriplo_engine_output); }
 
     // neuriplo_infer. Throws Error (INVALID_ARGUMENT on a moved-from Engine).
     Result infer(const std::vector<InputView>& inputs) {
-        (void)inputs;
-        detail::unimplemented();
+        std::vector<neuriplo_input_view_t> views;
+        views.reserve(inputs.size());
+        for (const InputView& input : inputs) {
+            views.push_back(neuriplo_input_view_t{input.data(), input.size_bytes()});
+        }
+        neuriplo_result_t* owned = nullptr;
+        check(neuriplo_infer(handle_, views.empty() ? nullptr : views.data(), views.size(), &owned));
+        return Result(owned);
     }
 
     // The owned handle; nullptr after a move.
     neuriplo_engine_t* handle() const noexcept { return handle_; }
 
   private:
+    using CountFn = neuriplo_status_t(NEURIPLO_CALL*)(const neuriplo_engine_t*, size_t*) NEURIPLO_NOEXCEPT;
+    using InfoFn = neuriplo_status_t(NEURIPLO_CALL*)(const neuriplo_engine_t*, size_t,
+                                                     const neuriplo_tensor_info_t**) NEURIPLO_NOEXCEPT;
+
+    std::vector<TensorInfo> infos(CountFn count_fn, InfoFn info_fn) const {
+        size_t count = 0;
+        check(count_fn(handle_, &count));
+        std::vector<TensorInfo> result;
+        result.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            const neuriplo_tensor_info_t* info = nullptr;
+            check(info_fn(handle_, i, &info));
+            TensorInfo copy;
+            copy.name = info->name;
+            copy.dtype = info->dtype;
+            if (info->ndim > 0) {
+                copy.shape.assign(info->shape, info->shape + info->ndim);
+            }
+            copy.batch_size = info->batch_size;
+            result.push_back(std::move(copy));
+        }
+        return result;
+    }
+
     neuriplo_engine_t* handle_ = nullptr;
 };
 
