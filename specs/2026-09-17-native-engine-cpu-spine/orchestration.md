@@ -158,6 +158,20 @@ planner, executor, or adapter.
   ```
 - **Budget:** 12 turns. **Handback:** `GROUP 2 HANDACK pass|fail`, one line
   per T-n with evidence, acceptance tail, deviations, NO-GO, `git status`.
+- **Field notes (verified live 2026-09-30 via python onnx, do NOT rely on
+  memory):** ModelProto `ir_version=1, producer_name=2, doc_string=6, graph=7,
+  opset_import=8`; GraphProto `node=1, name=2, initializer=5, input=11,
+  output=12, value_info=13`; NodeProto `input=1, output=2, name=3, op_type=4,
+  attribute=5`; AttributeProto `name=1, f=2, i=3, s=4, t=5, g=6, floats=7,
+  ints=8, strings=9, type=20`; TensorProto `dims=1, data_type=2, float_data=4,
+  name=8, raw_data=9, external_data=13, data_location=14`. Notably
+  ModelProto.graph is 7 (not 6) and GraphProto.initializer is 5 (not 11).
+- **Fixture uses EXTERNAL data** (`resnet18.onnx` + `resnet18.onnx.data`
+  companion): the loader must resolve `data_location=EXTERNAL` via
+  `external_data` location/offset/length relative to the model directory.
+- **Split 2026-09-30 (worker-window, second time):** 2b overflowed on reads +
+  a stalled mid-file write. 2c = complete `ModelLoader.cpp` single write
+  only; 2d = tests + CMake wiring + acceptance.
 
 ## Run ledger
 
@@ -172,6 +186,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 4 | 0 (T-3 probe) | Implementer | GLM-5.3-Flash | — | — | Pass with finding (opset 18 vs pinned 12) | 1 (maintainer decision [D-8]) | Evidence recorded in [A-1]; [R-5]/[V-4a]/plan updated |
 | 5 | 2 (implement) | Implementer | GLM-5.3-Flash | budget exhausted in reads | — | n/a (blocked pre-implementation) | 0 | Fail — no files changed; packet too large for worker window; split into 2a/2b below |
 | 6 | 2a (implement) | Implementer | GLM-5.3-Flash | budget exhausted after writing 4 files | — | Self-FAIL (runtime check open); orchestrator closed it: standalone functional test (varint/fixed32/64/tags/LD/skip/truncation/group) ALL PASS under -Wall -Wextra -Werror | 1 (orchestrator functional verification) | Pass → committed as part 1 (no CMake wiring yet; zero build impact) |
+| 7 | 2b (implement) | Implementer | GLM-5.3-Flash | budget exhausted mid-write | — | Fail — partial ModelLoader.cpp (stub decode_node, no LoadGraphFromFile), no tests/wiring/acceptance | 0 | Blocked; findings preserved (field numbers, external-data) in packet notes; split into 2c/2d |
 
 ## Open questions
 
