@@ -26,6 +26,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vector that a concurrent load could reallocate.
 
 ### Added
+- Consumer C ABI, `include/neuriplo/neuriplo_c.h` (`NEURIPLO_C_API_VERSION`
+  1): a stable, versioned entry point that any language or toolchain can use.
+  It covers the engine lifecycle, backend listing, metadata views, inference
+  with library-owned results, status codes with a thread-local error message,
+  a log callback, and a documented thread-safety contract. Calls to
+  `neuriplo_infer` on one engine are serialised by a per-engine lock.
+- Header-only C++ wrapper, `include/neuriplo/neuriplo.hpp`: move-only
+  `neuriplo::Engine` and `neuriplo::Result` over the C ABI, with errors
+  thrown as `neuriplo::Error` on the application's side.
+- Install rules and packaging: `cmake --install`, a CMake package
+  (`find_package(neuriplo)`, target `neuriplo::neuriplo`), and a relocatable
+  `neuriplo.pc`. `NEURIPLO_INSTALL` defaults to ON only for a top-level
+  build.
+- ABI and consumer checks: `scripts/abi/check_symbols.sh` compares the
+  exported symbols against `scripts/abi/neuriplo_c.symbols`, and
+  `test/consumer/run.sh` runs C, C++, pkg-config, and Python `ctypes`
+  consumers against an installed prefix. Two new CI jobs, `capi-consumer`
+  and `capi-tsan`, run them.
+- `docs/C_API.md`: lifecycle, ownership, errors, threading, logging,
+  versioning, and examples in C, C++, Python, and C#/Unity.
 - `PluginAbiContractTest`: plugin ABI contract suite with first-party,
   dependency-free fixture plugins. It is built and run in every configuration
   (no vendor SDK), and covers load-time rejections, malformed metadata and

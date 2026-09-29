@@ -262,6 +262,117 @@ jobs:
           '
 
   # =============================================================
+  # Consumer C ABI (specs/2026-09-25-consumer-c-abi, [T-19])
+  # ASan needs no job of its own: the sanitizers job's full ctest already
+  # runs every CApi* case ([D-21]).
+  # =============================================================
+  capi-consumer:
+    name: "C ABI / symbols + consumer proof"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.opencvdnn \
+              --target builder \
+              --tag neuriplo-lint:OPENCV_DNN \
+              --load \
+              --cache-from type=gha,scope=docker-OPENCV_DNN \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-OPENCV_DNN' || '' }} \
+              .
+
+      - name: Symbol check, consumer proof, Python ctypes
+        run: |
+          docker run --rm neuriplo-lint:OPENCV_DNN bash -c '
+            set -euo pipefail
+            cd /app
+            rm -rf build-capi
+            cmake -S . -B build-capi -DDEFAULT_BACKEND=OPENCV_DNN \
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON -DWERROR=ON >/dev/null
+            cmake --build build-capi --parallel
+            ctest --test-dir build-capi -R "CApi|PluginAbi" --output-on-failure
+            ./scripts/abi/check_symbols.sh build-capi
+            # Both directions of drift must fail ([V-11]).
+            # (explicit ifs: set -e ignores a failing "! cmd").
+            if ./scripts/abi/check_symbols.sh build-capi <(grep -v "^neuriplo_infer$" scripts/abi/neuriplo_c.symbols); then
+              echo "negative symbol check passed unexpectedly (unlisted export)"; exit 1
+            fi
+            if ./scripts/abi/check_symbols.sh build-capi <(cat scripts/abi/neuriplo_c.symbols; echo neuriplo_not_exported); then
+              echo "negative symbol check passed unexpectedly (missing export)"; exit 1
+            fi
+            # C, C++ (CMake package and pkg-config) and Python ctypes against
+            # an installed prefix ([V-12], [V-13]).
+            ./test/consumer/run.sh build-capi
+          '
+
+  capi-tsan:
+    name: "C ABI / TSan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.opencvdnn \
+              --target builder \
+              --tag neuriplo-lint:OPENCV_DNN \
+              --load \
+              --cache-from type=gha,scope=docker-OPENCV_DNN \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-OPENCV_DNN' || '' }} \
+              .
+
+      # Recent runner kernels randomise mmap beyond what TSan's shadow layout
+      # accepts; containers share the host kernel, so lower it on the host.
+      - name: Make the kernel TSan-compatible
+        if: ${{ !env.ACT }}
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      # TSan re-execs itself with personality(ADDR_NO_RANDOMIZE), which
+      # Docker's default seccomp profile rejects ("CHECK failed:
+      # tsan_platform_linux.cpp ... personality"); this throwaway test
+      # container runs unconfined.
+      - name: TSan on the Thread and Log cases (no suppressions, [D-17])
+        run: |
+          docker run --rm --security-opt seccomp=unconfined neuriplo-lint:OPENCV_DNN bash -c '
+            set -euo pipefail
+            apt-get update >/dev/null && apt-get install -y clang-18 >/dev/null
+            cd /app
+            rm -rf build-capi-tsan
+            CC=clang-18 CXX=clang++-18 cmake -S . -B build-capi-tsan -DDEFAULT_BACKEND=OPENCV_DNN \
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+              "-DCMAKE_C_FLAGS=-fsanitize=thread -g" "-DCMAKE_CXX_FLAGS=-fsanitize=thread -g" \
+              -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread \
+              -DCMAKE_MODULE_LINKER_FLAGS=-fsanitize=thread >/dev/null
+            cmake --build build-capi-tsan --parallel
+            TSAN_OPTIONS=halt_on_error=1 ctest --test-dir build-capi-tsan -R "^CApi\.(Thread|Log)\." --output-on-failure
+          '
+
+  # =============================================================
   # CPU Backend Tests
   # Runs on GitHub-hosted runners using Docker.
   # =============================================================

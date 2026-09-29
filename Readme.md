@@ -133,6 +133,15 @@ target_include_directories(your_project PRIVATE path_to/neuriplo/include)
 
 Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
 
+That C++ API passes STL types across the library boundary, so it needs the same toolchain as `libneuriplo`. Any other application — C, C++ built with another compiler, Python, C#/Unity — should use the stable **consumer C ABI** (`neuriplo/neuriplo_c.h`) or its header-only C++ wrapper (`neuriplo/neuriplo.hpp`) from an installed package:
+
+```cmake
+find_package(neuriplo CONFIG REQUIRED)
+target_link_libraries(your_project PRIVATE neuriplo::neuriplo)
+```
+
+See [Consumer C API](docs/C_API.md) for installation, ownership, threading, and examples in C, C++, Python, and C#/Unity.
+
 ## Architecture
 
 Neuriplo's backend layer is organized around five design patterns, all built on
@@ -241,3 +250,4 @@ For detailed documentation, see the [docs/](docs/) directory:
 - **[Architecture / Design Patterns](docs/ARCHITECTURE.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
 - **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
 - **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
+- **[Consumer C API](docs/C_API.md)** - Stable C ABI and C++ wrapper for third-party applications (C, C++, Python, C#/Unity)
