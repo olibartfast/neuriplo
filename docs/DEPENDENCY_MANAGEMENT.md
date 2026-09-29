@@ -23,6 +23,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `1.50.0` | x86_64 only | yes |
+| `NATIVE` | Native Engine | `—` | x86_64, ARM64 | no |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -216,6 +217,7 @@ Per-backend version overrides (default from `versions.env`):
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
 | `DALI_VERSION` | `1.50.0` |
+| `None` | `—` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
@@ -488,6 +490,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | ExecuTorch | .pte | `backends/executorch/test/export_executorch_classifier.py` |
 | LiteRT | .tflite | manual or app-provided `.tflite` model |
 | NVIDIA DALI | .dali | serialized offline by `export/dali/generate_yolo_pipeline.py` |
+| Native Engine | ONNX | fixture exported by the ResNet-18 provisioning step (plan.md [T-27a]) |
 <!-- /GEN:test-models-table -->
 
 ### DALI pipeline metadata and validation
@@ -573,6 +576,7 @@ time.
 | `setup_executorch.sh` | ExecuTorch — builds from source — do not delete cmake-out after install |
 | `setup_litert.sh` | LiteRT — formerly TensorFlow Lite - builds from TensorFlow source |
 | `setup_dali.sh` | NVIDIA DALI — GPU preprocessing, not an inference engine - extracts the C++ distribution from the nvidia-dali wheel |
+| _(none)_ | Native Engine — first-party engine — built with the project, no external SDK to install |
 | `build_cactus.sh` | Build the Cactus Docker image (ARM64 only) |
 <!-- /GEN:setup-scripts-table -->
 

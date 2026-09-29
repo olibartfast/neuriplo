@@ -177,7 +177,14 @@ function(validate_backend_versions)
         list(GET MAPPING_PARTS 1 VERSION_VAR_NAME)
 
         # Get the version value by variable name
-        if(VERSION_VAR_NAME STREQUAL "OPENCV_VERSION")
+        # First-party backends (e.g. NATIVE) link no external SDK and therefore
+        # have no version variable in versions.env. This is a declared state,
+        # not a missing entry: validate it here so the registry can point at
+        # NEURIPLO_NO_EXTERNAL_SDK without tripping the missing-version path.
+        if(VERSION_VAR_NAME STREQUAL "NEURIPLO_NO_EXTERNAL_SDK")
+            message(STATUS "  ✓ ${BACKEND_NAME} -> no external SDK (first-party backend, no version variable)")
+            continue()
+        elseif(VERSION_VAR_NAME STREQUAL "OPENCV_VERSION")
             set(VERSION_VAR "${OPENCV_MIN_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "ONNX_RUNTIME_VERSION")
             set(VERSION_VAR "${ONNX_RUNTIME_VERSION}")
