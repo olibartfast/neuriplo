@@ -144,3 +144,16 @@ throughout.
 - `NATIVE` stays behind its CMake option and off the default path until Phase N3
   proposes the default-backend change.
 - Record in this section anything that deviated from the plan and why.
+- Group 1 (2026-09-30, orchestrator amendment): Group 1 may create
+  `backends/native/test/CMakeLists.txt` as an **empty test-dir stub** (no
+  tests, no sources). Reason: `neuriplo_add_backend_tests`
+  (`cmake/BackendRegistry.cmake`) runs an unguarded `add_subdirectory` over
+  every enabled backend's `TEST_DIR`, so the required `-DDEFAULT_BACKEND=NATIVE`
+  configure with tests on fails while the directory is absent — and the packet
+  otherwise forbids creating `backends/native/` until Group 6. The stub is
+  build glue, not adapter work; Group 6 fills the directory with the real
+  adapter tests. The alternative (an existence guard in the shared function)
+  was rejected: silently skipping missing test dirs could mask real errors for
+  every backend. Also accepted in Group 1: the `version_var: null` NATIVE entry
+  renders as a cosmetic `` `None` `` row in the GEN `cmake-version-variables`
+  table; the generator is out of scope for this group.

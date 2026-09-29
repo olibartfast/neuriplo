@@ -117,6 +117,11 @@ exist first.
 - [D-6] No new runtime dependency is introduced without resolving [Q-1] first;
   `specs/tech-stack.md` forbids it, and this phase does not treat ONNX parsing
   as an exception to that rule.
+- [D-7] **ONNX parsing is a minimal hand-written protobuf wire-format reader**
+  (resolves [Q-1], maintainer decision 2026-09-30, Option B). Scoped to the
+  `ModelProto` fields [R-2] needs, isolated behind one interface so depending
+  on protobuf plus a vendored `onnx.proto` (Option A) stays reachable without
+  touching the IR, shape inference, or kernels.
 
 ## Constraints
 
