@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Plugin loader: plugin metadata is validated before use. A null layer
+  array, null name, null shape with `ndim > 0`, rank above the host bound, or
+  unknown `element_type` rejects the backend with a diagnostic naming the
+  plugin path, the layer and the field. Before, these were undefined
+  behaviour, and an unknown dtype was silently treated as Float32.
+- Plugin loader: plugin outputs are validated before they are read. Null
+  pointers, negative dimensions, an unknown dtype, and a `size_bytes` that is
+  not exactly element size × shape product throw
+  `InferenceExecutionException` instead of being dereferenced. An unknown
+  dtype no longer yields an empty element vector in the variant view.
+- Plugin loader: `release_outputs` is called exactly once for every
+  successful `infer`, including when the host rejects the outputs or the copy
+  throws. Before, those paths leaked plugin memory.
+- Plugin loader: descriptor lookup is thread-safe. `find_plugin_backend`
+  locks, its pointers stay valid across later loads, and
+  `get_plugin_backends()` returns a snapshot rather than a reference to a
+  vector that a concurrent load could reallocate.
+
+### Added
+- `PluginAbiContractTest`: plugin ABI contract suite with first-party,
+  dependency-free fixture plugins. It is built and run in every configuration
+  (no vendor SDK), and covers load-time rejections, malformed metadata and
+  outputs, release ownership, concurrency, and isolation.
+- `docs/PLUGIN_BACKENDS.md`: packaging layout, dependency discovery,
+  versioning policy, the host validation contract, and a deployment example.
+
 ## [0.9.1] - 2026-09-11
 
 ### Fixed

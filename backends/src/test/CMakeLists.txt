@@ -142,3 +142,80 @@ if(NEURIPLO_PLUGIN_BACKENDS)
 
     add_test(NAME PluginLoaderTest COMMAND PluginLoaderTest)
 endif()
+
+# Plugin ABI contract suite (specs/2026-09-22-plugin-abi-loader-hardening).
+# Built in every configuration: the fixtures are first-party C against
+# include/neuriplo/plugin_abi.h with no vendor SDK, so plugin failure behavior
+# is part of the default gate instead of an opt-in extra.
+set(NEURIPLO_FIXTURE_PLUGIN_DIR "${CMAKE_BINARY_DIR}/plugin_fixtures")
+# The duplicate-id fixture lives apart so a directory scan of the main fixture
+# directory never races it against the plugin it duplicates.
+set(NEURIPLO_FIXTURE_DUPLICATE_DIR "${NEURIPLO_FIXTURE_PLUGIN_DIR}/duplicate")
+
+function(neuriplo_add_fixture_plugin name backend_id api_defect output_dir)
+    set(target "neuriplo_backend_fixture_${name}")
+    add_library(${target} MODULE ${CMAKE_CURRENT_LIST_DIR}/plugin_fixtures/fixture_backend.c)
+    target_include_directories(${target} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_compile_definitions(${target} PRIVATE
+        FIXTURE_BACKEND_ID="${backend_id}"
+        FIXTURE_API_DEFECT=${api_defect}
+    )
+    # The loader scans for libneuriplo_backend_* on every platform.
+    set_target_properties(${target} PROPERTIES
+        PREFIX "lib"
+        C_VISIBILITY_PRESET hidden
+        LIBRARY_OUTPUT_DIRECTORY "${output_dir}"
+        RUNTIME_OUTPUT_DIRECTORY "${output_dir}"
+    )
+    foreach(config IN ITEMS DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set_target_properties(${target} PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY_${config} "${output_dir}"
+            RUNTIME_OUTPUT_DIRECTORY_${config} "${output_dir}"
+        )
+    endforeach()
+    set(NEURIPLO_FIXTURE_TARGETS ${NEURIPLO_FIXTURE_TARGETS} ${target} PARENT_SCOPE)
+endfunction()
+
+set(NEURIPLO_FIXTURE_TARGETS "")
+neuriplo_add_fixture_plugin(good            FIXTURE_GOOD             0 "${NEURIPLO_FIXTURE_PLUGIN_DIR}")
+neuriplo_add_fixture_plugin(scripted        FIXTURE_SCRIPTED         0 "${NEURIPLO_FIXTURE_PLUGIN_DIR}")
+neuriplo_add_fixture_plugin(wrong_abi       FIXTURE_WRONG_ABI        1 "${NEURIPLO_FIXTURE_PLUGIN_DIR}")
+neuriplo_add_fixture_plugin(null_entry      FIXTURE_NULL_ENTRY       2 "${NEURIPLO_FIXTURE_PLUGIN_DIR}")
+neuriplo_add_fixture_plugin(incomplete      FIXTURE_INCOMPLETE       3 "${NEURIPLO_FIXTURE_PLUGIN_DIR}")
+neuriplo_add_fixture_plugin(missing_entry   FIXTURE_MISSING_ENTRY    4 "${NEURIPLO_FIXTURE_PLUGIN_DIR}")
+neuriplo_add_fixture_plugin(duplicate       FIXTURE_GOOD             0 "${NEURIPLO_FIXTURE_DUPLICATE_DIR}")
+
+add_executable(PluginAbiContractTest ${CMAKE_CURRENT_LIST_DIR}/PluginAbiContractTest.cpp)
+
+target_compile_definitions(PluginAbiContractTest PRIVATE
+    NEURIPLO_DEFAULT_BACKEND="${DEFAULT_BACKEND}"
+    NEURIPLO_FIXTURE_PLUGIN_DIR="${NEURIPLO_FIXTURE_PLUGIN_DIR}"
+    NEURIPLO_FIXTURE_DUPLICATE_DIR="${NEURIPLO_FIXTURE_DUPLICATE_DIR}"
+
+    NEURIPLO_FIXTURE_PLUGIN_SUFFIX="${CMAKE_SHARED_MODULE_SUFFIX}"
+)
+
+target_include_directories(PluginAbiContractTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/backends/src
+    ${CMAKE_SOURCE_DIR}/include
+    ${GLOG_INCLUDE_DIRS}
+)
+
+find_package(Threads REQUIRED)
+
+target_link_libraries(PluginAbiContractTest PRIVATE
+    neuriplo
+    ${GLOG_LIBRARIES}
+    GTest::gtest
+    GTest::gtest_main
+    glog::glog
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+)
+
+add_dependencies(PluginAbiContractTest ${NEURIPLO_FIXTURE_TARGETS})
+
+# One process per test case: the loader's plugin table is process-global and
+# never unloads, so cases must not observe each other's loads.
+include(GoogleTest)
+gtest_discover_tests(PluginAbiContractTest DISCOVERY_TIMEOUT 60)
