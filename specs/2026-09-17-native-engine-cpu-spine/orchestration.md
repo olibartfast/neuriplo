@@ -170,6 +170,8 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 2 | 1 (implement) | Implementer | GLM-5.3-Flash | 12 (budget exhausted in investigation) | — | n/a (blocked pre-implementation) | 1 (orchestrator ruled on SetupTests fork, amended packet + plan.md) | Blocked, no files changed |
 | 3 | 1 (implement) | Implementer | GLM-5.3-Flash | — | — | Pass (self-reported slip: acceptance-before-regen, re-ran verbatim) | 0 code; orchestrator re-scored (77/77 + NATIVE build + docs/format) | Pass → commit `f9f48eb`, 9 files, +134/−1 |
 | 4 | 0 (T-3 probe) | Implementer | GLM-5.3-Flash | — | — | Pass with finding (opset 18 vs pinned 12) | 1 (maintainer decision [D-8]) | Evidence recorded in [A-1]; [R-5]/[V-4a]/plan updated |
+| 5 | 2 (implement) | Implementer | GLM-5.3-Flash | budget exhausted in reads | — | n/a (blocked pre-implementation) | 0 | Fail — no files changed; packet too large for worker window; split into 2a/2b below |
+| 6 | 2a (implement) | Implementer | GLM-5.3-Flash | budget exhausted after writing 4 files | — | Self-FAIL (runtime check open); orchestrator closed it: standalone functional test (varint/fixed32/64/tags/LD/skip/truncation/group) ALL PASS under -Wall -Wextra -Werror | 1 (orchestrator functional verification) | Pass → committed as part 1 (no CMake wiring yet; zero build impact) |
 
 ## Open questions
 
