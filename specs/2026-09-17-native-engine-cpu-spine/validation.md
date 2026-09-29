@@ -55,8 +55,8 @@ ctest --test-dir build-parity -R parity --output-on-failure
       attributes is tested in a non-default configuration: stride, padding, and
       dilation for `Conv`; `transA`/`transB` (and alpha/beta if supported) for
       `Gemm`; kernel shape, stride, and padding for `MaxPool`; a non-trivial
-      target shape for `Reshape`; a non-default `axis` for `Flatten`.
-      `Add`, `Relu`, `MatMul`, and `GlobalAveragePool` have no such
+      target shape for `Reshape`; non-default `axes`/`keepdims` for
+      `ReduceMean`. `Add`, `Relu`, and `MatMul` have no such
       configuration and are covered by [V-4] alone — the earlier blanket
       wording made this item impossible to mark honestly.
 - [ ] [V-5] → [R-6]: arena test asserts (a) allocation count per inference ≤ 1
