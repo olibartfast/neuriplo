@@ -14,12 +14,11 @@ throughout.
   `specs/roadmap.md`.
   - Checks: `./scripts/quality/format.sh --check`; both files still readable in
     under five minutes.
-- [T-3] Confirm [A-1] by dumping the node list and op types of the exported
-  ResNet-18, and record the opset the fixture is actually pinned to (it is 12,
-  not 17). Deliverable: the actual op set, pasted into `requirements.md`
-  under Context, [R-5] adjusted if it differs, and an explicit decision to
-  either implement opset 12 semantics or re-pin the exporter — before Group 2
-  writes any attribute handling.
+- [x] [T-3] Confirmed [A-1] by dumping the node list and op types of the
+  exported ResNet-18 (2026-09-30, torch 2.12: opset 18, 49 nodes, no
+  BatchNormalization; evidence in [A-1]). Decision taken: re-pin the exporter
+  to opset 18 explicitly ([D-8]); [R-5] adjusted to the opset-18 set. Group 2
+  implements attribute and shape semantics against opset 18's schemas.
 
 ## Group 1 — Skeleton and build seam
 

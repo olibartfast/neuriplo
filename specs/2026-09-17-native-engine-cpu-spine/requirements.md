@@ -31,8 +31,10 @@ exist first.
   table keyed by op). This phase ships only the CPU device layer, but the seam
   is a requirement of this phase, not a later refactor.
 - [R-5] CPU reference kernels sufficient for ResNet-18: `Conv`, `Gemm`,
-  `MatMul`, `Add`, `Relu`, `MaxPool`, `GlobalAveragePool`, `Flatten`,
-  `Reshape`. FP32 only.
+  `MatMul`, `Add`, `Relu`, `MaxPool`, `ReduceMean`, `Reshape`. FP32 only.
+  The set follows the opset-18 export the fixture is pinned to ([D-8]):
+  averaging is `ReduceMean`, flattening is `Reshape`. `MatMul` is specified
+  though the fixture does not emit it.
 - [R-6] A sequential executor over the planned graph with an arena allocator:
   one allocation per inference at most, buffers reused by liveness.
 - [R-7] Device is selected once at load time for the whole graph. There is no
@@ -122,6 +124,12 @@ exist first.
   `ModelProto` fields [R-2] needs, isolated behind one interface so depending
   on protobuf plus a vendored `onnx.proto` (Option A) stays reachable without
   touching the IR, shape inference, or kernels.
+- [D-8] **The fixture exporter is re-pinned to a modern opset explicitly**
+  (maintainer decision 2026-09-30, from [T-3]). The script's `opset_version=12`
+  pin is dead under torch ≥2.9's dynamo exporter; Group 7 [T-27a] pins the
+  export to opset 18 deliberately, and Group 2 implements attribute and shape
+  semantics against opset 18's schemas. [R-5] follows the opset-18 artifact
+  (`ReduceMean`, `Reshape`; no `GlobalAveragePool`, no `Flatten`).
 
 ## Constraints
 
@@ -179,13 +187,18 @@ exist first.
 ## Assumptions & Open Questions
 
 - [A-1] ResNet-18 as exported by the existing script needs only the [R-5] op
-  set. Corrected basis: the script exports with **`opset_version=12`**, not 17
-  (`backends/onnx-runtime/test/export_torchvision_classifier.py:23`). Group 2
-  must implement attribute and shape semantics against opset 12's schemas, or
-  the exporter must be changed and pinned first — targeting the wrong opset is
-  possible even when [T-3] confirms the node names match. Confirm by dumping the
-  actual node list before committing to the kernel list; if the export emits
-  `BatchNormalization` unfused, the set grows by one.
+  set. **Resolved 2026-09-30 by [T-3] dump** (torch 2.12, torchvision 0.27):
+  the script's `opset_version=12` pin is silently ignored by the default
+  dynamo exporter, which emits **opset 18** (ir_version 10, 49 nodes:
+  `Conv` ×20, `Relu` ×17, `Add` ×8, `MaxPool` ×1, `ReduceMean` ×1,
+  `Reshape` ×1, `Gemm` ×1; input FLOAT `[1,3,224,224]` → output FLOAT
+  `[1,1000]`). No `BatchNormalization` nodes — BN is fused into `Conv`, so
+  [R-5] does not grow. Attributes seen: `Conv` {pads, strides, dilations,
+  group, auto_pad}, `MaxPool` {kernel_shape, pads, strides, dilations,
+  ceil_mode, storage_order, auto_pad}, `ReduceMean` {keepdims=1,
+  noop_with_empty_axes=0}, `Reshape` {allowzero=1}, `Gemm` {alpha=1, beta=1,
+  transA=0, transB=1}. (Legacy `dynamo=False` path honors opset 12 with
+  `Identity`/`GlobalAveragePool`/`Flatten` instead — not used; see [D-8].)
 - [A-2] A tolerance of 1e-4 max absolute difference against ORT FP32 is
   achievable for this graph without matching accumulation order. Basis:
   inference; confirm empirically in [V-6] and record the real figure.
