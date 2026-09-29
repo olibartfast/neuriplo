@@ -4,6 +4,10 @@ Backends can be built as standalone shared libraries and loaded at runtime,
 so one process can serve models on several frameworks (e.g. ONNX Runtime and
 TensorRT) without compiling them all into `libneuriplo.so`.
 
+This page covers the **inbound** plugin ABI (`plugin_abi.h`: backends plugging
+into neuriplo). Applications calling neuriplo use the **outbound** consumer
+ABI instead; see [Consumer C API](C_API.md).
+
 ## Building
 
 ```bash

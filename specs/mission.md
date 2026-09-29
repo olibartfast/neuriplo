@@ -6,18 +6,23 @@
 
 ## Why Neuriplo Exists
 
-Neuriplo gives C++ inference applications one stable backend-orchestration
+Neuriplo gives inference applications one stable backend-orchestration
 layer across vision, graph, GGUF-native generative, and GPU preprocessing
 runtimes. Consumers should be able to select the runtime that fits their model,
 hardware, compatibility, and performance needs without rewriting their
 application around each vendor SDK.
 
 The library is primarily used by `neuriplo-infer`, but its public interfaces
-should remain usable by other C++ consumers.
+should remain usable by other consumers: C++ applications built with the same
+toolchain through the C++ API, and every other application -- C++ built with a
+different compiler or runtime, C, C#/Unity, Python, Rust, Go -- through the
+stable, versioned consumer C ABI (`include/neuriplo/neuriplo_c.h`) and the
+header-only C++ wrapper over it.
 
 ## Who It Serves
 
-- Application developers who need to run models through a consistent C++ API.
+- Application developers who need to run models through a consistent API,
+  from C++ or from any language that can call C.
 - Maintainers who must add, upgrade, test, and release native inference
   backends without destabilizing existing ones.
 - Backend contributors integrating vendor runtimes, device providers,
@@ -95,6 +100,9 @@ failure behavior without implying coverage that has not been validated.
 
 Until these are resolved, feature specifications must state their own measurable
 performance and compatibility requirements rather than inventing global targets.
+
+_Revision: 2026-09-26 - widened the consumer promise from C++ to any language
+through the stable consumer C ABI (Phase 7, `specs/2026-09-25-consumer-c-abi`)._
 
 _Revision: 2026-09-17 - admitted a first-party native runtime as a supported
 backend; narrowed the vendor-SDK non-goal to reimplementation for its own sake._
