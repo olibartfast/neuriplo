@@ -216,3 +216,16 @@ backends:
     model_source: "serialized offline by `export/dali/generate_yolo_pipeline.py`"
     arch: [x86_64]
     gpu: true
+
+  - id: NATIVE
+    name: Native Engine
+    version_var: null
+    setup_script: null
+    setup_note: "first-party engine — built with the project, no external SDK to install"
+    dir_var: null
+    dir_default: null
+    test_exe: null
+    model_format: ONNX
+    model_source: "fixture exported by the ResNet-18 provisioning step (plan.md [T-27a])"
+    arch: [x86_64, arm64]
+    gpu: false
