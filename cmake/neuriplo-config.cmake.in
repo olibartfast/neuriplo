@@ -1,0 +1,13 @@
+# neuriplo CMake package: provides the imported target neuriplo::neuriplo.
+#
+# The consumer C ABI (neuriplo/neuriplo_c.h) and its C++ wrapper
+# (neuriplo/neuriplo.hpp) need nothing but this package. glog and every
+# backend runtime are private to the shared library. A consumer of the
+# installed C++ API headers (InferenceBackendSetup.hpp and its closure) also
+# needs find_package(glog) and glog::glog ([D-19]).
+
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/neuriplo-targets.cmake")
+
+check_required_components(neuriplo)
