@@ -97,11 +97,67 @@ Q-1 resolved as [D-7] before dispatch; packet touches no parsing code.
 
 ### Packet Group 2 — ONNX loading and graph IR (T-8..T-10)
 
-*Planner writes the full packet here before dispatch. Constraints it must
-carry: [D-7] hand-written wire reader behind one interface, opset 18 schemas
-([D-8]), [R-5] op set (`Conv Gemm MatMul Add Relu MaxPool ReduceMean
-Reshape`), load-time rejection with node name + op type ([V-3]), loader unit
-tests ([V-2]), no parsing dependency in any build closure.*
+Group 1 skeleton landed — extend, do not restructure. Baseline default build
+green 77/77. [D-7]/[D-8] decided before dispatch; packet touches no kernels,
+planner, executor, or adapter.
+
+- **Writable:** new `engine/include/engine/Graph.hpp` (IR types + exception),
+  new `engine/include/engine/ModelLoader.hpp` (the ONE isolating interface),
+  new `engine/src/ModelLoader.cpp`, new `engine/src/WireReader.hpp`
+  (private, under `src/` so the T-6 glob covers it), new
+  `engine/src/WireReader.cpp`, new `engine/test/CMakeLists.txt`, new
+  `engine/test/LoaderTest.cpp`; edit `engine/CMakeLists.txt` (append the two
+  new sources + a `BUILD_INFERENCE_ENGINE_TESTS`-guarded
+  `add_subdirectory(test)` only); minimal forward-include touches to
+  `engine/include/engine/Engine.hpp` / `engine/src/Engine.cpp` only (no
+  renames, no namespace change, no restructure). Never: `specs/**`,
+  `backends/**` (incl. `backends/native/test`, Group 6), `cmake/**`,
+  top-level `CMakeLists.txt`, `docs/**`, `versions.env`, Docker, workflows,
+  `src/**`, `include/**`, `backends/src/**`.
+- **Read (1 turn, parallel):** plan.md:52-62; requirements.md:23-28
+  ([R-2]/[R-3]), :33-37 ([R-5]), :122-132 ([D-7]/[D-8]), :189-201 ([A-1]);
+  validation.md:45-50 ([V-2]/[V-3]); engine/CMakeLists.txt:1-46;
+  engine/include/engine/Engine.hpp; engine/src/Engine.cpp;
+  `export_torchvision_classifier.py:1-26` (fixture provenance only — never
+  run, never write its hard-coded `/workspace/`); cmake/Native.cmake
+  (read-only); BackendRegistry NATIVE entry (read-only); SetupTests.cmake:1-12
+  (why engine tests wire via `engine/CMakeLists.txt`, not the registry).
+- **Final state (T-8 reader per D-7):** hand-written protobuf wire-format
+  reader (varint, fixed32/64, length-delimited; fields by tag/wire-type only)
+  scoped to the `ModelProto` subset [R-2] needs — nodes, attributes,
+  initializers, graph IO, dtypes, shapes. Lives in `engine/src/WireReader.*`
+  behind the ONE public entry `engine::LoadGraphFromFile(const std::string&)`
+  in `ModelLoader.hpp`; no protobuf/ONNX names, tags, or schema constants in
+  public headers. No protobuf dependency in any build closure (no
+  `find_package`, no `FetchContent`, no vendored proto, no toolchain change;
+  GTest scoped to `engine/test/`). Opset-18 schemas per [D-8].
+- **Final state (T-9 IR):** types in `Graph.hpp`, namespace `engine`:
+  `ModelLoadException : std::runtime_error`; `enum class DataType` (float32 +
+  unknown-for-rejection); `TensorInfo{dtype, dims}`; `Attribute` (typed
+  scalar/list variant over the [A-1] sets); `Node{name, op_type, inputs,
+  outputs, attributes}`; `Graph{nodes, tensors, initializers, inputs,
+  outputs}` — document order after verifying the topological property, value
+  table for every named value, initializers as `std::vector<float>`, inputs
+  vs initializers vs intermediates explicitly distinct. Attribute surface is
+  exactly [A-1]; `Add`/`Relu`/`MatMul` take no attributes.
+- **Final state (T-10 rejection):** load-time `ModelLoadException` naming node
+  name + op type for all four classes (unknown op, unsupported attribute,
+  non-FP32 incl. non-float initializer storage, dynamic dims). Never at
+  inference, never by guessing. T-6 holds: no `neuriplo`,
+  `InferenceInterface`, or `include/neuriplo` string anywhere under `engine/`.
+- **Checks:** `engine/test/LoaderTest.cpp`, ctest `engine_loader` (positive)
+  + `engine_loader_negative` (three negatives). Positive asserts on real
+  opset-18 fixture bytes (49 nodes, [A-1] histogram, initializer count, IO
+  `FLOAT [1,3,224,224]->[1,1000]`; fixture via env/cache var, missing FAILS
+  never skips/mocks); hermetic hand-encoded wire-bytes cases keep CI green
+  without torch. Negatives assert message CONTENT per [V-3]. T-6 green;
+  default build compiles no engine sources.
+- **Acceptance (once, verbatim):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R engine_loader --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+- **Budget:** 12 turns. **Handback:** `GROUP 2 HANDACK pass|fail`, one line
+  per T-n with evidence, acceptance tail, deviations, NO-GO, `git status`.
 
 ## Run ledger
 
