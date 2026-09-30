@@ -389,6 +389,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 8 | 2c/2d (complete) | Session driver | deepseek-flash | — | — | Pass: `ctest -R engine_loader` 14/14, default `OPENCV_DNN` 77/77, format clean | 1 (maintainer decision [D-9] on int64 shape constants) | Group 2b completed: dtype-tagged initializers, int64 support, test registration + encoder fix |
 | 9 | 3a (implement, attempt 1) | Implementer | Kilo `general` subagent | — | — | Scoreboard pass (4/4 engine ctests, 77/77 default, format clean) but **orchestrator-rejected** | 1 (planner wrote corrected rework packet) | Rejected: non-standard Reshape "batch carry" (ShapeInference.cpp ~451-464) plus a fixture batch-2 test that depends on it; rework dispatched as attempt 2 |
 | 10 | 3a (rework, attempt 2) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 4/4 engine ctests, 77/77 default, docs/format clean) | 0 | Strict Reshape, hermetic per-shape seam ([V-13] shape half), fixture batch-2 rejection; committed with Group 3a |
+| 11 | 3b (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 6/6 engine ctests, 77/77 default, docs/format clean) | 0 | Liveness + 64-byte-aligned arena plan; reuse, alignment, sequential-shrink and per-shape-seam tests; committed with Group 3b |
 
 ## Open questions
 

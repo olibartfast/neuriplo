@@ -178,3 +178,13 @@ throughout.
   force the batch-1-pinned fixture to infer at batch 2; the rework enforces
   strict ONNX Reshape and asserts the fixture's batch-2 inference fails at that
   node. 3b (arena plan) and 3c (device seam) remain.
+- Group 3b (2026-09-30): T-12 landed as `engine/include/engine/Plan.hpp`
+  (`PlanMemory(const Graph&, const InferredShapes&)` → `MemoryPlan`) and
+  `engine/src/MemoryPlanner.cpp`. Node outputs that are not inputs or
+  initializers get arena buffers; lifetimes are half-open `[definition,
+  last_use)` with graph outputs live to the end; each buffer takes the lowest
+  64-byte-aligned offset that avoids every overlapping lifetime, in a
+  deterministic order, and `arena_size` is the aligned high-water mark. This is
+  the plan half of [R-12]/[V-13]: a hermetic two-`Conv` graph is planned at two
+  spatial sizes from one load, and `arena_size < sum(intermediate sizes)` proves
+  reuse ([V-5]b). 3c (device seam) remains.
