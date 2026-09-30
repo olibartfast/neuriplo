@@ -222,3 +222,13 @@ throughout.
   input of its defining node** — the invariant read-then-write kernels need and
   the reason the executor needs no copy. `EnginePlan.OutputNeverAliasesItsInput`
   guards it. Group 6 (backend adapter, T-18..T-21) is next.
+- Group 6a (2026-09-30): T-18..T-21 landed as `backends/native/src/NativeInfer.{hpp,cpp}`
+  (implements `InferenceInterface`: metadata from the graph, typed and raw output
+  paths, lifecycle Ready, engine exceptions translated to the backend's global
+  types) and `NativeRuntimeFactory.hpp` (GPU requests throw the backend
+  `InferenceException`, naming the CPU-only phase limitation). Build wiring:
+  `cmake/Native.cmake` compiles the adapter into `neuriplo` with `USE_NATIVE`
+  (and marks `neuriplo_engine` PIC), `cmake/LinkBackend.cmake` links the engine,
+  and `BackendRuntimeRegistry.cpp` registers `"NATIVE"`. The adapter tests run
+  the fixture through both output paths and assert the GPU-request throw. Group
+  6b adds the public `setup_inference_engine` boundary assertions.
