@@ -161,7 +161,7 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
 | V-11 | `OPENCV_DNN` path + link inspection | | | |
 | V-12 | `git subtree split` + standalone build | | | |
-| V-13 | `ctest -R engine_plan_reshape` | | | |
+| V-13 | `ctest -R engine_shapes` / `engine_plan_reshape` | Partial | 2026-09-30 | Shape half pass: `EngineShapes.PerShapeSeamWithoutReload` shapes one loaded graph at `[1,3,4,4]` then `[4,3,4,4]` with no reload, and the fixture's batch-1 output `[1,1000]` is asserted while batch 2 correctly fails at the pinned `Reshape`. Plan half (arena re-plan) pending Group 3b |
 | M-1 | README read-through | | | |
 | M-2 | fixture node list vs kernel set | | | |
 | M-3 | executor inspection | | | |

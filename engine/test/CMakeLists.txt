@@ -31,7 +31,21 @@ add_test(NAME engine_loader
 add_test(NAME engine_loader_negative
     COMMAND engine_loader_test --gtest_filter=EngineLoaderNegative.*)
 
+add_executable(engine_shapes_test ShapeInferenceTest.cpp)
+target_compile_features(engine_shapes_test PRIVATE cxx_std_17)
+target_compile_options(engine_shapes_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(engine_shapes_test PRIVATE
+    neuriplo_engine
+    GTest::gtest
+    GTest::gtest_main)
+
+add_test(NAME engine_shapes
+    COMMAND engine_shapes_test --gtest_filter=EngineShapes.*)
+add_test(NAME engine_shapes_negative
+    COMMAND engine_shapes_test --gtest_filter=EngineShapesNegative.*)
+
 if(NEURIPLO_NATIVE_FIXTURE)
-    set_tests_properties(engine_loader engine_loader_negative PROPERTIES
+    set_tests_properties(engine_loader engine_loader_negative
+        engine_shapes engine_shapes_negative PROPERTIES
         ENVIRONMENT "NEURIPLO_NATIVE_FIXTURE=${NEURIPLO_NATIVE_FIXTURE}")
 endif()

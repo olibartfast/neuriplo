@@ -167,3 +167,14 @@ throughout.
   top-level `enable_testing()`), and a hermetic encoder wrote the opset entry
   unwrapped — both were silent until the tests were made to run. This is the
   T-10/T-8 completion; [V-2]/[V-3] evidence recorded in `validation.md`.
+- Group 3a (2026-09-30, attempt 2): T-11 static shape inference landed as
+  `engine/include/engine/Shapes.hpp` (`InferShapes(const Graph&, const ShapeMap&)`
+  → `InferredShapes`) and `engine/src/ShapeInference.cpp`, covering the full
+  [R-5] op set against opset-18 semantics and consuming `Int64` constants for
+  `Reshape` shape and `ReduceMean` axes. Inference is per-shape and reads no
+  `value_info` for intermediates, which is the [R-12]/[V-13] shape seam:
+  `engine_shapes_test` proves the same loaded graph shapes two input dims with
+  no reload. Attempt 1 was rejected for inventing a Reshape "batch carry" to
+  force the batch-1-pinned fixture to infer at batch 2; the rework enforces
+  strict ONNX Reshape and asserts the fixture's batch-2 inference fails at that
+  node. 3b (arena plan) and 3c (device seam) remain.
