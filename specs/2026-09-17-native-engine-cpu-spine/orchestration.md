@@ -265,6 +265,48 @@ touches no loader, parser, kernels, planner, executor, or adapter code.
   ```
   Stop after it, pass or fail, and report. Do not repair and rerun.
 
+### Packet Group 3a-rework — strict Reshape, honest per-shape seam (attempt 2)
+
+Attempt 1 (ledger row 9) returned a scoreboard pass but is **rejected by the
+orchestrator**: `reshape_shape` in `engine/src/ShapeInference.cpp` grew a
+non-standard "carry the input batch forward" branch (currently ~lines 451-464)
+so the fixture could be inferred at batch 2, and
+`EngineShapes.FixtureSecondShapeWithoutReload` depends on it. ONNX `Reshape`
+uses the shape operand exactly; the pinned fixture's `Reshape(mean, [1,512])` is
+batch-1 in shape space, so a batch-2 inference must fail, not be rescued. This
+packet is the corrected rework; harness note: the worker role is the Kilo
+`general` subagent (the opencode-routed GLM worker is not available in this
+session); prompts are advisory, so the review below is the enforcement.
+
+- **Writable (nothing beyond these):** same five paths as Packet Group 3a
+  (`engine/include/engine/Shapes.hpp`, `engine/src/ShapeInference.cpp`,
+  `engine/test/ShapeInferenceTest.cpp`, and the two `CMakeLists.txt` files).
+  Never anything else.
+- **Required final state:**
+  1. In `reshape_shape`: remove the batch-carry special case entirely. After
+     applying `0`-copy, `allowzero`, and the single `-1` inference, require the
+     output element count to equal the input element count **exactly**;
+     otherwise `fail(node, "Reshape target product does not match input
+     elements")`. No reference to batch, leading dimension, or exported shape.
+  2. `EngineShapes.FixtureSecondShapeWithoutReload` must not exist. Replace it
+     with a hermetic `Graph` (hand-encoded) whose output shape follows its
+     input — a single `Relu` on `[N,3,4,4]`, or an `Add` of `[N,3,4,4]` with a
+     `[3,4,4]` constant. Load it once, call `InferShapes` twice on the same
+     `Graph` with `{"x",{1,3,4,4}}` and `{"x",{4,3,4,4}}`, and assert the two
+     output shapes `[1,3,4,4]` and `[4,3,4,4]`. This is the [V-13] shape half:
+     same loaded graph, two shapes, no reload.
+  3. Keep the batch-1 fixture assertions in `EngineShapes.FixtureInferShapes`
+     (`[1,64,112,112]` first `Conv`, `[1,1000]` output, every tensor resolves).
+     Add a fixture case asserting that inferring the same loaded fixture with
+     input `[2,3,224,224]` throws `ModelLoadException` naming the `Reshape`
+     node — that is the correct behaviour for the batch-pinned target.
+  4. Keep the `ReshapeProductMismatchNamesNode` negative. Everything else from
+     Packet Group 3a stands unchanged.
+- **Budget:** 8 turns. **Handback:** `GROUP 3a HANDBACK pass|fail` (attempt 2),
+  one line per obligation with evidence, acceptance tail, deviations, NO-GO,
+  `git status --short`.
+- **Acceptance (once, verbatim, final action):** same command as Packet Group 3a.
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
@@ -280,6 +322,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 6 | 2a (implement) | Implementer | GLM-5.3-Flash | budget exhausted after writing 4 files | — | Self-FAIL (runtime check open); orchestrator closed it: standalone functional test (varint/fixed32/64/tags/LD/skip/truncation/group) ALL PASS under -Wall -Wextra -Werror | 1 (orchestrator functional verification) | Pass → committed as part 1 (no CMake wiring yet; zero build impact) |
 | 7 | 2b (implement) | Implementer | GLM-5.3-Flash | budget exhausted mid-write | — | Fail — partial ModelLoader.cpp (stub decode_node, no LoadGraphFromFile), no tests/wiring/acceptance | 0 | Blocked; findings preserved (field numbers, external-data) in packet notes; split into 2c/2d |
 | 8 | 2c/2d (complete) | Session driver | deepseek-flash | — | — | Pass: `ctest -R engine_loader` 14/14, default `OPENCV_DNN` 77/77, format clean | 1 (maintainer decision [D-9] on int64 shape constants) | Group 2b completed: dtype-tagged initializers, int64 support, test registration + encoder fix |
+| 9 | 3a (implement, attempt 1) | Implementer | Kilo `general` subagent | — | — | Scoreboard pass (4/4 engine ctests, 77/77 default, format clean) but **orchestrator-rejected** | 1 (planner wrote corrected rework packet) | Rejected: non-standard Reshape "batch carry" (ShapeInference.cpp ~451-464) plus a fixture batch-2 test that depends on it; rework dispatched as attempt 2 |
 
 ## Open questions
 
