@@ -152,7 +152,7 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-3 | `ctest -R engine_loader_negative` | Pass | 2026-09-30 | 6 cases green, each asserting node/op/dtype in the `ModelLoadException` message: unknown op, unsupported attribute, INT64 graph input, FLOAT16 initializer, dynamic dim, missing file |
 | V-4 | `ctest -R engine_kernels` | | | |
 | V-4a | `ctest -R engine_kernels` (attribute cases) | | | |
-| V-5 | `ctest -R engine_plan` | | | |
+| V-5 | `ctest -R engine_plan` | Partial | 2026-09-30 | (b) pass: `EnginePlan.SequentialArenaSmallerThanSum` asserts `arena_size` (256) < sum of intermediate sizes (768), plus disjoint-lifetime sharing and overlapping-lifetime separation. (a) allocation-count-per-inference ≤ 1 is the executor's ([V-7]/Group 5) |
 | V-6 | `ctest -R parity` | | | observed max abs diff: |
 | V-7 | `ctest --test-dir build-native` | | | |
 | V-8 | `ctest -R native_device_request` | | | |
@@ -161,7 +161,7 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
 | V-11 | `OPENCV_DNN` path + link inspection | | | |
 | V-12 | `git subtree split` + standalone build | | | |
-| V-13 | `ctest -R engine_shapes` / `engine_plan_reshape` | Partial | 2026-09-30 | Shape half pass: `EngineShapes.PerShapeSeamWithoutReload` shapes one loaded graph at `[1,3,4,4]` then `[4,3,4,4]` with no reload, and the fixture's batch-1 output `[1,1000]` is asserted while batch 2 correctly fails at the pinned `Reshape`. Plan half (arena re-plan) pending Group 3b |
+| V-13 | `ctest -R "engine_shapes|engine_plan"` | Pass | 2026-09-30 | Shape half: `EngineShapes.PerShapeSeamWithoutReload` shapes one loaded graph at `[1,3,4,4]` then `[4,3,4,4]` with no reload; fixture batch-1 output `[1,1000]` asserted while batch 2 correctly fails at the pinned `Reshape`. Plan half: `EnginePlan.PerShapeSeamWithoutReload` plans one loaded two-`Conv` graph at 8×8 (arena 1024) then 16×16 (arena 4096) with no reload. No parser, IR, or kernel change between calls |
 | M-1 | README read-through | | | |
 | M-2 | fixture node list vs kernel set | | | |
 | M-3 | executor inspection | | | |

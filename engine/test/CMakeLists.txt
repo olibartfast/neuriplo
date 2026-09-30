@@ -44,8 +44,22 @@ add_test(NAME engine_shapes
 add_test(NAME engine_shapes_negative
     COMMAND engine_shapes_test --gtest_filter=EngineShapesNegative.*)
 
+add_executable(engine_plan_test MemoryPlannerTest.cpp)
+target_compile_features(engine_plan_test PRIVATE cxx_std_17)
+target_compile_options(engine_plan_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(engine_plan_test PRIVATE
+    neuriplo_engine
+    GTest::gtest
+    GTest::gtest_main)
+
+add_test(NAME engine_plan
+    COMMAND engine_plan_test --gtest_filter=EnginePlan.*)
+add_test(NAME engine_plan_negative
+    COMMAND engine_plan_test --gtest_filter=EnginePlanNegative.*)
+
 if(NEURIPLO_NATIVE_FIXTURE)
     set_tests_properties(engine_loader engine_loader_negative
-        engine_shapes engine_shapes_negative PROPERTIES
+        engine_shapes engine_shapes_negative
+        engine_plan engine_plan_negative PROPERTIES
         ENVIRONMENT "NEURIPLO_NATIVE_FIXTURE=${NEURIPLO_NATIVE_FIXTURE}")
 endif()

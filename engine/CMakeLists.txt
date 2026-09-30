@@ -41,7 +41,8 @@ add_library(neuriplo_engine STATIC
     src/Engine.cpp
     src/WireReader.cpp
     src/ModelLoader.cpp
-    src/ShapeInference.cpp)
+    src/ShapeInference.cpp
+    src/MemoryPlanner.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC
