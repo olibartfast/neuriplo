@@ -25,6 +25,12 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+// Raised by a kernel for inference-time failures (bad inputs, attributes, or shapes).
+class InferenceException : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 // Tensor element type. Compute is float32. Int64 appears only for embedded
 // constant tensors that carry shape indices (Reshape's shape input); anything
 // else decodes as Unknown and is rejected later with context.

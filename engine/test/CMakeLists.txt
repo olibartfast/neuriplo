@@ -68,6 +68,19 @@ target_link_libraries(engine_device_test PRIVATE
 add_test(NAME engine_device
     COMMAND engine_device_test --gtest_filter=EngineDevice.*)
 
+add_executable(engine_kernels_test KernelsTest.cpp)
+target_compile_features(engine_kernels_test PRIVATE cxx_std_17)
+target_compile_options(engine_kernels_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(engine_kernels_test PRIVATE
+    neuriplo_engine
+    GTest::gtest
+    GTest::gtest_main)
+
+add_test(NAME engine_kernels
+    COMMAND engine_kernels_test --gtest_filter=EngineKernels.*)
+add_test(NAME engine_kernels_negative
+    COMMAND engine_kernels_test --gtest_filter=EngineKernelsNegative.*)
+
 if(NEURIPLO_NATIVE_FIXTURE)
     set_tests_properties(engine_loader engine_loader_negative
         engine_shapes engine_shapes_negative

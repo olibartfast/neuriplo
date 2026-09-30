@@ -196,3 +196,8 @@ throughout.
   device layer slots into in Phase N1, and it fixes the kernel signature Group 4
   implements. Group 3 is complete; Group 4 (CPU reference kernels, T-14/T-15) is
   next.
+- Group 4a (2026-09-30): `engine::InferenceException` added beside
+  `ModelLoadException`; the private kernel layer (`engine/src/kernels/`) with
+  the `FindCpuKernel` table wired into `CpuDevice`; and `Relu`, `Add`
+  (multidirectional broadcast), `Reshape`, `ReduceMean` implemented naively with
+  hand-computed tests. 4b (`Gemm`/`MatMul`) and 4c (`Conv`/`MaxPool`) remain.
