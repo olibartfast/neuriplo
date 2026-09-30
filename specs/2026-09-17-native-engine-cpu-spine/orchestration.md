@@ -500,6 +500,42 @@ loader, parser, inference, planner, executor, or adapter code.
   cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 4b — linear-algebra kernels (T-14, part 2)
+
+Extends Group 4a. Baseline 77/77 default, engine ctests 9/9.
+
+- **Writable:** new `engine/src/kernels/Gemm.cpp`, `engine/src/kernels/MatMul.cpp`;
+  edit `engine/src/kernels/Kernels.hpp` (declare the two), `engine/src/kernels/CpuKernels.cpp`
+  (add `"Gemm"`/`"MatMul"`), `engine/CMakeLists.txt` (add sources),
+  `engine/test/KernelsTest.cpp` (add cases). Never anything else; 4a files not
+  listed here are read-only, as are `Graph.hpp`, `Device.hpp`, and the other tests.
+- **Read-only:** `engine/src/kernels/Add.cpp`/`ReduceMean.cpp` (broadcast/stride
+  style), `requirements.md` [R-5]/[A-1]; `plan.md` T-14/T-15; `validation.md` [V-4].
+- **Required semantics (naive, float32, `InferenceException` with op+node on any
+  inconsistency):**
+  - `Gemm`: two or three inputs (`A`, `B`, optional `C`) and one output.
+    `transA`/`transB` are int attributes defaulting to 0, `alpha`/`beta` are
+    float attributes defaulting to 1.0. `A` and `B` are rank-2; `C` is rank-1
+    `[N]` or rank-2 `[M,N]` and broadcasts to the output `[M,N]`. Compute
+    `Y[i,j] = alpha * sum_k A'(i,k) B'(k,j) + beta * Cb(i,j)` where `A'` is `A`
+    or `Aᵀ` per `transA` and likewise for `B`. The output dims are
+    `outputs[0].dims`; validate `[M,N]` against the transposed operands.
+  - `MatMul`: two inputs, one output. Follow ONNX MatMul: promote a 1-D lhs to
+    `[1,K]` and a 1-D rhs to `[K,1]` (dropping the added dim from the result),
+    broadcast the batch dimensions, and contract the last axis of `A` with the
+    second-to-last of `B`. Naive index math over the output; validate inner dims.
+- **Required tests:** hand-computed values in the test — `Gemm` without and with
+  `transA`/`transB`, with `alpha`/`beta` != 1 and a `[N]` bias; `MatMul` 2-D,
+  batched 3-D, and 1-D promotion on each side. Extend the table check so
+  `find("Gemm")`/`find("MatMul")` are non-null (4c adds `Conv`/`MaxPool`).
+  Negative: a Gemm inner-dim mismatch and a MatMul inner-dim mismatch throw.
+- **Budget:** 12 turns. **Handback:** `GROUP 4b HANDBACK pass|fail`, obligation
+  lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
