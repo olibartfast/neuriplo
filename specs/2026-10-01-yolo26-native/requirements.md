@@ -59,7 +59,12 @@ Out (with pointers):
 
 ## Open questions
 
-- [Q1] `Resize` mode/attrs in the fixture (expected nearest; pin at implementation).
-- [Q2] `Mod` fmod=1 semantics vs ORT on negatives (hand-computed test decides).
-- [Q3] `TopK` largest/sorted attrs and `Slice` input-form (inputs, not attrs,
-  at opset 18) — pin alongside [Q1] during Y1.
+- [Q1] Resolved 2026-10-01 (Y1b): `Resize` is nearest, asymmetric,
+  floor, cubic_coeff_a=-0.75; inputs (X, roi="", scales f32); sizes absent.
+  Loader pins all four; anything else rejects.
+- [Q2] Resolved 2026-10-01 (Y1b): `Mod` fmod=0, trunc-remainder (dividend's
+  sign), int64 inputs; fmod=1 rejected.
+- [Q3] Resolved 2026-10-01 (Y1b): `TopK` axis=-1, largest=1, sorted=1,
+  K = scalar int64 initializer (300 in fixture); non-initializer K and
+  largest/sorted≠1 rejected. `Slice` is attribute-free at opset 18
+  (data/starts/ends/axes inputs, steps omitted).
