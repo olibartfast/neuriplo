@@ -56,3 +56,4 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | Attempt | Group | Role | Model | Turns | Wall clock | First-pass acceptance | Interventions | Outcome |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | survey | Orchestrator | muse-spark | — | — | n/a | 0 | Fixture surveyed: yolo26n NMS-embedded, opset 18, 485 nodes, 23 new ops, [1,300,6] static; packet written |
+| 1 | Y1a (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 5 files in scope, `engine_loader|engine_plan` 4/4 green) | 0 | `DataType::Bool`, f32-only I/O enforced, Constant folding f32+i64 with rewiring, Flatten admission, dtype-aware planner; hermetic tests only |

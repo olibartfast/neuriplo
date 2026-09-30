@@ -41,6 +41,8 @@ int64_t dtype_bytes(DataType dtype) {
         return 4;
     case DataType::Int64:
         return 8;
+    case DataType::Bool:
+        return 1;
     case DataType::Unknown:
         return 0;
     }

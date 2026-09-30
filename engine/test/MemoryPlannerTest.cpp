@@ -161,6 +161,20 @@ engine::TensorInfo f32(std::vector<int64_t> dims) {
     return info;
 }
 
+engine::TensorInfo i64(std::vector<int64_t> dims) {
+    engine::TensorInfo info;
+    info.dtype = engine::DataType::Int64;
+    info.dims = std::move(dims);
+    return info;
+}
+
+engine::TensorInfo boolean(std::vector<int64_t> dims) {
+    engine::TensorInfo info;
+    info.dtype = engine::DataType::Bool;
+    info.dims = std::move(dims);
+    return info;
+}
+
 engine::Node relu_node(const std::string& name, const std::string& input, const std::string& output) {
     engine::Node node;
     node.name = name;
@@ -447,6 +461,66 @@ TEST_F(EnginePlan, PerShapeSeamWithoutReload) {
     EXPECT_EQ(second_plan.buffers.at("a").size, 1 * 2 * 16 * 16 * 4);
     EXPECT_EQ(second_plan.buffers.at("b").size, 1 * 4 * 16 * 16 * 4);
     EXPECT_NE(first_plan.arena_size, second_plan.arena_size);
+}
+
+// Buffers are sized by dtype: bool 1 byte, float32 4 bytes, int64 8 bytes.
+// A mixed-dtype chain plans without overlap errors.
+TEST_F(EnginePlan, DtypeAwareBufferSizes) {
+    engine::Graph graph;
+    graph.inputs.push_back({"x", f32({1, 64})});
+    graph.nodes.push_back(relu_node("relu0", "x", "a"));
+    graph.nodes.push_back(relu_node("relu1", "a", "b"));
+    graph.nodes.push_back(relu_node("relu2", "b", "c"));
+    graph.outputs.push_back({"c", f32({1, 64})});
+
+    engine::InferredShapes shapes;
+    shapes.tensors["x"] = f32({1, 64});
+    shapes.tensors["a"] = boolean({1, 64}); // 64 elements x 1 byte
+    shapes.tensors["b"] = f32({1, 64}); // 64 elements x 4 bytes
+    shapes.tensors["c"] = i64({1, 64}); // 64 elements x 8 bytes
+
+    const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+    ASSERT_EQ(plan.buffers.size(), 3U);
+    EXPECT_EQ(plan.buffers.at("a").size, 64 * 1);
+    EXPECT_EQ(plan.buffers.at("b").size, 64 * 4);
+    EXPECT_EQ(plan.buffers.at("c").size, 64 * 8);
+    for (const auto& entry : plan.buffers) {
+        EXPECT_EQ(entry.second.offset % 64, 0) << entry.first;
+        EXPECT_LE(entry.second.offset + entry.second.size, plan.arena_size)
+            << entry.first;
+    }
+}
+
+// Mixed dtypes with intersecting lifetimes must still not share bytes: `a`
+// (bool, live until node 2) and `b` (int64, defined at node 1) intersect, so
+// their byte ranges stay disjoint and planning succeeds.
+TEST_F(EnginePlan, MixedDtypeOverlappingLifetimesDoNotOverlap) {
+    engine::Graph graph;
+    graph.inputs.push_back({"x", f32({1, 16})});
+    graph.nodes.push_back(relu_node("relu0", "x", "a"));
+    graph.nodes.push_back(relu_node("relu1", "a", "b"));
+    engine::Node add;
+    add.name = "add0";
+    add.op_type = "Add";
+    add.inputs = {"a", "b"};
+    add.outputs = {"c"};
+    graph.nodes.push_back(add);
+    graph.outputs.push_back({"c", f32({1, 16})});
+
+    engine::InferredShapes shapes;
+    shapes.tensors["x"] = f32({1, 16});
+    shapes.tensors["a"] = boolean({1, 16}); // 16 bytes
+    shapes.tensors["b"] = i64({1, 16}); // 128 bytes
+    shapes.tensors["c"] = f32({1, 16}); // 64 bytes
+
+    const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+    ASSERT_EQ(plan.buffers.size(), 3U);
+    EXPECT_EQ(plan.buffers.at("a").size, 16 * 1);
+    EXPECT_EQ(plan.buffers.at("b").size, 16 * 8);
+    EXPECT_EQ(plan.buffers.at("c").size, 16 * 4);
+    EXPECT_FALSE(ranges_overlap(plan.buffers.at("a"), plan.buffers.at("b")))
+        << "a=" << plan.buffers.at("a").offset << "+" << plan.buffers.at("a").size
+        << " b=" << plan.buffers.at("b").offset << "+" << plan.buffers.at("b").size;
 }
 
 // The real fixture plans to a non-empty arena.

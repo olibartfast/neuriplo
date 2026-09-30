@@ -219,6 +219,50 @@ std::string encode_initializer_float16(const std::string& name,
     return t;
 }
 
+// Embedded TensorProto payload for a Constant 'value' attribute, stored via
+// raw_data (mirrors the survey oracle, which carries all Constants raw).
+std::string encode_constant_tensor(int64_t elem_type,
+    const std::vector<int64_t>& dims, const std::string& raw)
+{
+    std::string t;
+    for (const int64_t dim : dims) {
+        put_varint_field(t, 1, static_cast<uint64_t>(dim));
+    }
+    put_varint_field(t, 2, static_cast<uint64_t>(elem_type));
+    put_length_delimited(t, 9, raw);
+    return t;
+}
+
+std::string raw_bytes_float(const std::vector<float>& values)
+{
+    return std::string(reinterpret_cast<const char*>(values.data()),
+        values.size() * sizeof(float));
+}
+
+std::string raw_bytes_int64(const std::vector<int64_t>& values)
+{
+    return std::string(reinterpret_cast<const char*>(values.data()),
+        values.size() * sizeof(int64_t));
+}
+
+// A Constant 'value' attribute (AttributeProto type TENSOR = 4, tensor = 5).
+std::string encode_attribute_tensor(const std::string& name,
+    const std::string& tensor_bytes)
+{
+    std::string a;
+    put_length_delimited(a, 1, name);
+    put_sub(a, 5, tensor_bytes);
+    put_varint_field(a, 20, 4); // TENSOR
+    return a;
+}
+
+std::string encode_constant_node(const std::string& name,
+    const std::string& output, const std::string& tensor_bytes)
+{
+    return encode_node(name, "Constant", {}, {output},
+        {encode_attribute_tensor("value", tensor_bytes)});
+}
+
 std::string encode_model(const std::string& graph_body)
 {
     std::string model;
@@ -454,6 +498,101 @@ TEST_F(EngineLoader, HermeticInt64ReshapeConstant)
     }
 }
 
+// Hermetic positive: a float32 Constant folds into initializers. The Constant
+// node vanishes from graph.nodes and the Add consumer keeps naming the folded
+// tensor, which now resolves as an initializer.
+TEST_F(EngineLoader, HermeticConstantFoldingFloat)
+{
+    const std::vector<float> values{1.0F, -2.5F, 3.25F};
+    std::string body;
+    put_sub(body, 1,
+        encode_constant_node("const_f0", "c0",
+            encode_constant_tensor(1 /*FLOAT*/, {3}, raw_bytes_float(values))));
+    put_sub(body, 1, encode_node("add0", "Add", {"x", "c0"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {3}));
+    put_sub(body, 12, encode_value_info("y", 1, {3}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("const_fold_float.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 1U);
+    EXPECT_EQ(graph.nodes.front().name, "add0");
+    EXPECT_EQ(graph.nodes.front().op_type, "Add");
+    EXPECT_EQ(graph.nodes.front().inputs,
+        (std::vector<std::string>{"x", "c0"}));
+    ASSERT_EQ(graph.initializers.count("c0"), 1U);
+    const engine::Initializer& folded = graph.initializers.at("c0");
+    EXPECT_EQ(folded.dtype, engine::DataType::Float32);
+    EXPECT_EQ(folded.dims, (std::vector<std::int64_t>{3}));
+    EXPECT_EQ(std::get<std::vector<float>>(folded.values), values);
+}
+
+// Hermetic positive: an int64 Constant folds into initializers and feeds
+// Reshape, mirroring the survey oracle's int64 Constants.
+TEST_F(EngineLoader, HermeticConstantFoldingInt64)
+{
+    const std::vector<int64_t> values{1, 512};
+    std::string body;
+    put_sub(body, 1,
+        encode_constant_node("const_i0", "shape",
+            encode_constant_tensor(7 /*INT64*/, {2}, raw_bytes_int64(values))));
+    put_sub(body, 1, encode_node("reshape0", "Reshape", {"x", "shape"},
+                      {"y"}, {encode_attribute_int("allowzero", 0)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 4, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 48}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("const_fold_int64.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 1U);
+    EXPECT_EQ(graph.nodes.front().op_type, "Reshape");
+    ASSERT_EQ(graph.initializers.count("shape"), 1U);
+    const engine::Initializer& folded = graph.initializers.at("shape");
+    EXPECT_EQ(folded.dtype, engine::DataType::Int64);
+    EXPECT_EQ(folded.dims, (std::vector<std::int64_t>{2}));
+    EXPECT_EQ(std::get<std::vector<std::int64_t>>(folded.values), values);
+}
+
+// Hermetic positive: Flatten loads with its axis attribute.
+TEST_F(EngineLoader, HermeticFlattenLoads)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("flat0", "Flatten", {"x"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 12}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("flatten_model.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 1U);
+    EXPECT_EQ(graph.nodes.front().op_type, "Flatten");
+    ASSERT_EQ(graph.nodes.front().attributes.size(), 1U);
+    EXPECT_EQ(graph.nodes.front().attributes.front().name, "axis");
+    EXPECT_EQ(
+        std::get<std::int64_t>(graph.nodes.front().attributes.front().value),
+        1);
+}
+
+// Hermetic positive: intermediate value-info entries may be float32, int64,
+// or bool, while graph inputs/outputs stay float32-only (enforced below).
+TEST_F(EngineLoader, HermeticBoolValueInfoAccepted)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+    put_sub(body, 13, encode_value_info("flag", 9 /*BOOL*/, {2}));
+    put_sub(body, 13, encode_value_info("idx", 7 /*INT64*/, {2}));
+    put_sub(body, 13, encode_value_info("act", 1 /*FLOAT*/, {2}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("bool_vi.onnx", encode_model(body)));
+    ASSERT_EQ(graph.tensors.count("flag"), 1U);
+    EXPECT_EQ(graph.tensors.at("flag").dtype, engine::DataType::Bool);
+    ASSERT_EQ(graph.tensors.count("idx"), 1U);
+    EXPECT_EQ(graph.tensors.at("idx").dtype, engine::DataType::Int64);
+    ASSERT_EQ(graph.tensors.count("act"), 1U);
+    EXPECT_EQ(graph.tensors.at("act").dtype, engine::DataType::Float32);
+}
+
 // ===========================================================================
 // EngineLoaderNegative.* — rejections whose messages must name the node and
 // op type.
@@ -514,6 +653,73 @@ TEST_F(EngineLoaderNegative, NonFloatGraphInputRejected)
         load_error_message(encode_model(body), "int_in.onnx");
     EXPECT_NE(message.find("x_int"), std::string::npos) << "message: " << message;
     EXPECT_NE(message.find("INT64"), std::string::npos) << "message: " << message;
+}
+
+// Non-FP32 I/O: BOOL graph input and INT64/BOOL graph outputs are rejected;
+// graph I/O stays float32-only while bool intermediates are allowed.
+TEST_F(EngineLoaderNegative, BoolGraphInputRejected)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("probe_bool", "Relu",
+        {"x_bool"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x_bool", 9 /*BOOL*/, {2, 2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 2}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "bool_in.onnx");
+    EXPECT_NE(message.find("x_bool"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("BOOL"), std::string::npos) << "message: " << message;
+}
+
+TEST_F(EngineLoaderNegative, NonFloatGraphOutputRejected)
+{
+    for (const auto& [file, elem, tag] :
+        {std::tuple<std::string, int64_t, std::string>{
+                 "int_out.onnx", 7, "INT64"},
+            std::tuple<std::string, int64_t, std::string>{
+                "bool_out.onnx", 9, "BOOL"}}) {
+        std::string body;
+        put_sub(body, 1, encode_node("probe_out", "Relu",
+            {"x"}, {"y_out"}, {}));
+        put_sub(body, 11, encode_value_info("x", 1, {2, 2}));
+        put_sub(body, 12, encode_value_info("y_out", elem, {2, 2}));
+
+        const std::string message = load_error_message(encode_model(body), file);
+        EXPECT_NE(message.find("y_out"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find(tag), std::string::npos)
+            << "message: " << message;
+    }
+}
+
+// A Constant of any dtype outside FLOAT/INT64 is a load rejection naming the
+// node, the op type, and the element type.
+TEST_F(EngineLoaderNegative, ConstantOtherDtypeRejected)
+{
+    for (const auto& [file, elem, tag] :
+        {std::tuple<std::string, int64_t, std::string>{
+                 "const_i32.onnx", 6, "INT32"},
+            std::tuple<std::string, int64_t, std::string>{
+                "const_bool.onnx", 9, "BOOL"}}) {
+        const std::string raw(4, '\x01');
+        std::string body;
+        put_sub(body, 1,
+            encode_constant_node("const_bad", "c_bad",
+                encode_constant_tensor(elem, {4}, raw)));
+        put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"y"}, {}));
+        put_sub(body, 11, encode_value_info("x", 1, {4}));
+        put_sub(body, 12, encode_value_info("y", 1, {4}));
+
+        const std::string message =
+            load_error_message(encode_model(body), file);
+        EXPECT_NE(message.find("const_bad"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find("Constant"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find(tag), std::string::npos)
+            << "message: " << message;
+    }
 }
 
 // An initializer dtype outside FLOAT/INT64 is rejected by name and type.
