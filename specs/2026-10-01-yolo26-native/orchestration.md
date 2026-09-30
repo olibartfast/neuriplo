@@ -8,7 +8,54 @@ orchestrator-owned; workers get bounded writable paths per packet.
 Packet index:
 
 - Y1a below — IR dtypes + Constant folding + Flatten (no new-op policies yet)
-- Y1b (next) — allowlist + attribute policies + shape rules for the 23 ops, [Q1]–[Q3]
+- Y1b (below) — allowlist + attribute policies + shape rules for the 23 ops, [Q1]–[Q3]
+
+### Packet Y1b — allowlist, attribute policies, shape rules, Q1–Q3
+
+Y1a landed (Bool IR, Constant folding, Flatten). This packet teaches the loader
+and shape inference the 23 detection ops. No kernels (table stays empty for
+them; Y2/Y3), no executor changes.
+
+Surveyed attribute surface (yolo26n NMS-embedded, opset 18 — oracle, not a
+test dependency):
+
+- `Cast{to}`, `Concat{axis}`, `ConstantOfShape{value}`, `Conv` (unchanged),
+  `Flatten{axis}`, `Gather{axis}`, `GatherElements{axis}`, `MaxPool` (unchanged),
+  `Mod{fmod}`, `ReduceMax{keepdims}`, `Reshape{allowzero}` (unchanged),
+  `Resize{coordinate_transformation_mode, cubic_coeff_a, mode, nearest_mode}`,
+  `Softmax{axis}`, `Split{axis}`, `TopK{axis, largest, sorted}`, `Transpose{perm}`.
+- Input-form (not attrs) at opset 18: `Slice` (starts/ends/axes/steps),
+  `Split` (split sizes), `Unsqueeze`/`Expand`/`ConstantOfShape`/`Reshape` data
+  inputs, `TopK` K input, `Cast`/`Gather`/`GatherElements` indices.
+- `Mul/Div/Sub/Add/Sigmoid/Shape/Equal/Where` carry no attrs in the fixture.
+
+- **Writable:** `engine/src/ModelLoader.cpp` (allowlist + per-op attr tables),
+  `engine/src/ShapeInference.cpp` (shape rules), `engine/test/LoaderTest.cpp`,
+  `engine/test/ShapeInferenceTest.cpp` (extend in place). Never: `specs/**`,
+  `backends/**`, `cmake/**`, `scripts/**`, kernels, Device/Executor/Planner
+  sources, `Graph.hpp`.
+- **Read-only:** `/tmp/yolo26survey/yolo26n.onnx` (local oracle for discovery
+  and for a /tmp-only scratch load check — no committed test may open it).
+- **Required final state:**
+  1. All 23 ops in `allowed_attributes()` with opset-18 policies pinned to the
+     surveyed surface; anything outside the policy rejects with node + op
+     context. Resolve and report [Q1] (Resize mode/attrs), [Q2] (Mod fmod
+     semantics), [Q3] (TopK largest/sorted, Slice input form) — report the
+     answers in the handback; the orchestrator records them in requirements.
+  2. Static shape rules for all 23 (dtypes: `Shape`/`ConstantOfShape`→int64,
+     `Equal`→bool, `Cast`→target type, rest float32). TopK output shapes assume
+     constant K; a non-constant K is a load rejection, never a dynamic shape.
+  3. Full-file load verified with a /tmp-only scratch driver (never committed):
+     report node/initializer/tensor counts for the oracle file.
+  4. Committed tests stay hermetic (hand-built fixtures covering each new rule
+     at least once, plus one rejection case per policy family).
+- **Budget:** 15 turns. **Handback:** `GROUP Y1b HANDBACK pass|fail`, one line
+  per obligation with evidence, the three Q answers, deviations, NO-GO,
+  `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_loader|engine_shapes|engine_plan" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y1a — IR dtypes, Constant folding, Flatten admission
 
