@@ -536,6 +536,44 @@ Extends Group 4a. Baseline 77/77 default, engine ctests 9/9.
   cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 4c — spatial kernels (T-14, part 3 complete)
+
+Completes the [R-5] kernel set. Baseline 77/77 default, engine ctests 9/9.
+
+- **Writable:** new `engine/src/kernels/Conv.cpp`, `engine/src/kernels/MaxPool.cpp`;
+  edit `engine/src/kernels/Kernels.hpp` (declare the two), `engine/src/kernels/CpuKernels.cpp`
+  (add `"Conv"`/`"MaxPool"`), `engine/CMakeLists.txt` (add sources),
+  `engine/test/KernelsTest.cpp` (add cases). Never anything else; the 4a/4b
+  kernels, `Graph.hpp`, `Device.hpp`, and the other tests are read-only.
+- **Read-only:** `engine/src/kernels/Gemm.cpp`, `ReduceMean.cpp` (attribute and
+  stride style), `engine/include/engine/Shapes.hpp` (the reference shape
+  formulas), `requirements.md` [R-5]; `plan.md` T-14/T-15; `validation.md` [V-4]/[V-4a].
+- **Required semantics (naive, float32, `InferenceException` with op+node on any
+  inconsistency):**
+  - `Conv`: NCHW input `[N,C,H,W]`, weight `[M, C/group, kH, kW]`, optional bias
+    `[M]`; `group`, `strides`, `dilations`, `pads`, `auto_pad` attributes with
+    the same notation as shape inference. Output `[N, M, oH, oW]` where
+    `o = floor((in + pad_begin + pad_end - dilation*(k-1) - 1)/stride) + 1`.
+    `auto_pad` NOTSET/VALID/SAME_UPPER/SAME_LOWER as in shape inference.
+    7-deep index loop; validate every dimension and the group split.
+  - `MaxPool`: NCHW `[N,C,H,W]`; `kernel_shape` required; `strides`, `dilations`,
+    `pads`, `ceil_mode`, `auto_pad`. Same window formula with `ceil_mode`
+    choosing `ceil`; out-of-window positions are `-inf` for the max. Only the
+    primary output is written. Validate the shapes.
+- **Required tests (hand-computed values in the test):** `Conv` 1×1 with identity
+  weight and with a known 2×2 kernel; `Conv` with bias; a `group == C` depthwise
+  case; `Conv` with non-default stride and padding; `MaxPool` 2×2 stride 2 over
+  a known 4×4; `MaxPool` with padding and `ceil_mode`. Extend the table check so
+  all eight op types resolve. Negative: a `Conv` channel mismatch and a
+  `MaxPool` shape mismatch throw `InferenceException` naming the op.
+- **Working method:** complete final content per file; read before editing;
+  targeted checks freely. Budget 14 turns. **Handback:** `GROUP 4c HANDBACK
+  pass|fail`, obligation lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
