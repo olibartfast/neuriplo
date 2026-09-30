@@ -840,6 +840,55 @@ and `ONNX_RUNTIME`, compared elementwise.
   cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_parity_fixture && cmake --build build-parity --parallel && ctest --test-dir build-parity -R "parity" --output-on-failure
   ```
 
+### Packet Group 7b — inventory, engine README, changelog (T-23, T-24, T-26 docs half)
+
+Group 7a landed; parity green at 3.14713e-05. This packet makes the NATIVE
+inventory and its documentation coherent. **Decision (orchestrator, specifier):**
+NATIVE gets **no Dockerfile** — it has no external SDK and the CI backend matrix
+(`.github/workflows/ci.yml`) pairs each row with a vendor Docker image, so NATIVE
+is intentionally absent from that matrix and is exercised through the ordinary
+`-DDEFAULT_BACKEND=NATIVE` configure. This packet records that absence explicitly
+in `docs/backends.yaml`; no workflow file changes. Spec files (`specs/**`) and
+`validation.md` stay orchestrator-owned.
+
+- **Writable:** `docs/backends.yaml`, regenerated `docs/DEPENDENCY_MANAGEMENT.md`,
+  new `engine/README.md`, `CHANGELOG.md`. Never anything else; `specs/**`,
+  `.github/workflows/**`, `cmake/**`, `engine/*.hpp|*.cpp`, other `backends/**`
+  are read-only.
+- **Read-only:** `docs/backends.yaml` current NATIVE entry, `scripts/gen_backend_docs.py`,
+  `README.md`, `specs/2026-09-17-native-engine-cpu-spine/requirements.md` (scope,
+  [D-2]/[D-3]/[D-4], [R-11]), `specs/tech-stack.md` (engine rules), `engine/` sources.
+- **Required final state:**
+  1. `docs/backends.yaml` NATIVE entry: add `dockerfile: null` and change
+     `test_exe: null` to `test_exe: NativeInferTest`; add a one-line comment above
+     the entry stating the intentional no-Docker decision (no external SDK; not in
+     the CI vendor-image matrix). Do not change the other fields.
+  2. Run `python3 scripts/gen_backend_docs.py` and confirm `--check` is clean
+     afterward.
+  3. `engine/README.md`: a concise entrypoint stating (a) the engine is an
+     interpreter — parse, infer shapes, plan memory, execute node by node, not a
+     plan-building compiler; (b) device is chosen once per graph and a graph that
+     cannot run entirely on the device is rejected at load; (c) CPU reference
+     kernels are the correctness oracle for the future CUDA path and are
+     **deliberately unoptimized — not a performance target**; (d) the boundary
+     (nothing under `engine/` includes the backend abstraction); (e) a short
+     directory map and how to build/test with `-DDEFAULT_BACKEND=NATIVE`
+     (including `build-parity` for the ONNX_RUNTIME parity check). No spec legend
+     IDs in the prose.
+  4. `CHANGELOG.md` under `[Unreleased]` / `Added`: one entry for the first-party
+     `NATIVE` backend — ONNX loader and graph IR, static shape inference, arena
+     memory planner, CPU reference kernels, sequential executor, and the
+     `InferenceInterface` adapter; validated elementwise against `ONNX_RUNTIME`
+     (max abs diff 3.15e-05, budget 1e-4); a GPU request is rejected in this phase.
+     Match the file's existing tone and wrapping.
+- **Budget:** 10 turns. **Handback:** `GROUP 7b HANDBACK pass|fail`, obligation
+  lines, `gen_backend_docs.py --check` result, acceptance tail, deviations, NO-GO,
+  `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  python3 scripts/gen_backend_docs.py && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
