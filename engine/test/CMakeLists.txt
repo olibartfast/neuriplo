@@ -57,6 +57,17 @@ add_test(NAME engine_plan
 add_test(NAME engine_plan_negative
     COMMAND engine_plan_test --gtest_filter=EnginePlanNegative.*)
 
+add_executable(engine_device_test DeviceTest.cpp)
+target_compile_features(engine_device_test PRIVATE cxx_std_17)
+target_compile_options(engine_device_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(engine_device_test PRIVATE
+    neuriplo_engine
+    GTest::gtest
+    GTest::gtest_main)
+
+add_test(NAME engine_device
+    COMMAND engine_device_test --gtest_filter=EngineDevice.*)
+
 if(NEURIPLO_NATIVE_FIXTURE)
     set_tests_properties(engine_loader engine_loader_negative
         engine_shapes engine_shapes_negative

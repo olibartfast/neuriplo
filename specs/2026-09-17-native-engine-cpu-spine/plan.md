@@ -188,3 +188,11 @@ throughout.
   the plan half of [R-12]/[V-13]: a hermetic two-`Conv` graph is planned at two
   spatial sizes from one load, and `arena_size < sum(intermediate sizes)` proves
   reuse ([V-5]b). 3c (device seam) remains.
+- Group 3c (2026-09-30): T-13 landed as `engine/include/engine/Device.hpp` and
+  `engine/src/CpuDevice.cpp` — `TensorView`, the `KernelFn` calling convention,
+  and `Allocator`/`Transfer`/`KernelTable`/`Device` behind interfaces, with the
+  single CPU implementation `CpuDevice()` (64-byte-aligned allocation, memcpy
+  transfers, device-owned empty kernel table). This is the [R-4] seam the CUDA
+  device layer slots into in Phase N1, and it fixes the kernel signature Group 4
+  implements. Group 3 is complete; Group 4 (CPU reference kernels, T-14/T-15) is
+  next.
