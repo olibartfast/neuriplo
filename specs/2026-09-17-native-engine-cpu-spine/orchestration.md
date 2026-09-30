@@ -960,6 +960,31 @@ Obligations (report observed output verbatim):
   pass|fail`, one line per obligation with observed evidence, deviations,
   NO-GO, `git status --short` (must show clean apart from gitignored `build-*`).
 
+### Packet Group 7c-repair — includes gate knows engine/include (V-10)
+
+The 7c-builds worker returned fail on exactly one gate: `./scripts/quality/run.sh`
+stops at the includes check because `scripts/quality/check_includes.py`
+`INCLUDE_ROOTS` (lines 47–56) does not list `engine/include`, so the five
+`engine/*.hpp` includes Group 6a added under `backends/native/src/` are
+unresolvable and the tool errors by design. Not a code defect (format passes,
+ASan+UBSan 12/12 clean). This packet fixes the tool configuration, nothing else.
+
+- **Writable:** `scripts/quality/check_includes.py` — add `"engine/include"` to
+  `INCLUDE_ROOTS` (alongside `"include"`, `"backends/src"`, `"src"`), keeping list
+  order and style. Verify against `engine/CMakeLists.txt`
+  `target_include_directories` that `engine/include` is indeed the mirrored
+  include root. Never anything else; `specs/**`, `engine/**`, `backends/**`,
+  `cmake/**` are read-only.
+- **Required final state:** `./scripts/quality/run.sh` passes the includes gate
+  (full `run.sh` green if it completes in budget; at minimum the includes gate
+  plus `./scripts/quality/format.sh --check` clean).
+- **Budget:** 5 turns. **Handback:** `GROUP 7c-REPAIR HANDBACK pass|fail`,
+  the `run.sh` tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  ./scripts/quality/run.sh && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
