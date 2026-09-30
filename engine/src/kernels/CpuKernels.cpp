@@ -18,6 +18,8 @@ KernelFn FindCpuKernel(const std::string& op_type) {
         {"Add", &Add},
         {"Reshape", &Reshape},
         {"ReduceMean", &ReduceMean},
+        {"Gemm", &Gemm},
+        {"MatMul", &MatMul},
     };
     const auto it = table.find(op_type);
     return it == table.end() ? nullptr : it->second;
