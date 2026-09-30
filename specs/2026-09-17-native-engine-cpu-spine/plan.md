@@ -204,3 +204,8 @@ throughout.
 - Group 4b (2026-09-30): `Gemm` (transA/transB, alpha/beta, optional rank-1
   `[N]` or rank-2 `[M,N]` bias) and `MatMul` (batch broadcasting, 1-D promotion
   on either side) landed with hand-computed tests. 4c (`Conv`/`MaxPool`) remains.
+- Group 4c (2026-09-30): `Conv` (NCHW, groups, strides, dilations, explicit and
+  automatic padding, optional bias) and `MaxPool` (kernel shape, ceil mode,
+  padding) complete the [R-5] reference kernel set; the eight-op table resolves
+  through `CpuDevice`. Group 4 is complete; Group 5 (sequential executor,
+  T-16/T-17) is next.

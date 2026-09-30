@@ -316,6 +316,138 @@ TEST(EngineKernels, MatMulPromotesOneDimensionalRhs) {
     EXPECT_EQ(out, (std::vector<float>{4.0f, 10.0f}));
 }
 
+// Conv with a 1x1 identity weight copies the input through unchanged.
+TEST(EngineKernels, ConvIdentityOneByOne) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+    std::vector<float> w = {1.0f};
+    std::vector<float> out(9, 0.0f);
+    engine::Node node = MakeNode("conv_id", "Conv");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 3, 3}), FloatView(w, {1, 1, 1, 1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 3, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f}));
+}
+
+// Conv with a 2x2 all-ones kernel sums each 2x2 input window.
+TEST(EngineKernels, ConvKnownTwoByTwoKernel) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("conv_2x2", "Conv");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 3, 3}), FloatView(w, {1, 1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{12.0f, 16.0f, 24.0f, 28.0f}));
+}
+
+// Conv adds a rank-1 [M] bias to every output channel.
+TEST(EngineKernels, ConvWithBias) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> b = {0.5f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("conv_bias", "Conv");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 3, 3}), FloatView(w, {1, 1, 2, 2}),
+                                              FloatView(b, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{12.5f, 16.5f, 24.5f, 28.5f}));
+}
+
+// Conv with group == C is depthwise: each output channel sees only its own
+// input channel.
+TEST(EngineKernels, ConvDepthwiseGroupEqualsChannels) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 10.0f, 20.0f, 30.0f, 40.0f};
+    std::vector<float> w = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("conv_dw", "Conv");
+    node.attributes.emplace_back("group", int64_t{2});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 2, 2, 2}), FloatView(w, {2, 1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 2, 1, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{5.0f, 50.0f}));
+}
+
+// Conv with stride 2 and a one-cell pad samples the padded input on the
+// computation lattice.
+TEST(EngineKernels, ConvStrideAndPadding) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+                            9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("conv_stride_pad", "Conv");
+    node.attributes.emplace_back("strides", std::vector<int64_t>{2, 2});
+    node.attributes.emplace_back("pads", std::vector<int64_t>{1, 1, 1, 1});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 4, 4}), FloatView(w, {1, 1, 3, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{14.0f, 30.0f, 57.0f, 99.0f}));
+}
+
+// MaxPool with a 2x2 window and stride 2 takes the max of each disjoint block.
+TEST(EngineKernels, MaxPoolTwoByTwoStrideTwo) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MaxPool");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+                            9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("pool_2x2", "MaxPool");
+    node.attributes.emplace_back("kernel_shape", std::vector<int64_t>{2, 2});
+    node.attributes.emplace_back("strides", std::vector<int64_t>{2, 2});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 4, 4})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{6.0f, 8.0f, 14.0f, 16.0f}));
+}
+
+// MaxPool rounds the output up with ceil_mode and ignores the padded border.
+TEST(EngineKernels, MaxPoolPaddingAndCeilMode) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MaxPool");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("pool_pad_ceil", "MaxPool");
+    node.attributes.emplace_back("kernel_shape", std::vector<int64_t>{2, 2});
+    node.attributes.emplace_back("strides", std::vector<int64_t>{2, 2});
+    node.attributes.emplace_back("pads", std::vector<int64_t>{0, 0, 1, 1});
+    node.attributes.emplace_back("ceil_mode", int64_t{1});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 3, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{5.0f, 6.0f, 8.0f, 9.0f}));
+}
+
 // The op-type table resolves the implemented kernels and rejects unknown ops.
 TEST(EngineKernels, TableResolvesKnownOpsAndRejectsUnknown) {
     const engine::KernelTable& table = engine::CpuDevice().kernels();
@@ -325,6 +457,8 @@ TEST(EngineKernels, TableResolvesKnownOpsAndRejectsUnknown) {
     EXPECT_NE(table.find("ReduceMean"), nullptr);
     EXPECT_NE(table.find("Gemm"), nullptr);
     EXPECT_NE(table.find("MatMul"), nullptr);
+    EXPECT_NE(table.find("Conv"), nullptr);
+    EXPECT_NE(table.find("MaxPool"), nullptr);
     EXPECT_EQ(table.find("NoSuchOp"), nullptr);
 }
 
@@ -422,5 +556,45 @@ TEST(EngineKernelsNegative, MatMulRejectsInnerDimMismatch) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("MatMul"), std::string::npos) << error.what();
+    }
+}
+
+// Conv rejects a weight whose channel dimension disagrees with input/group.
+TEST(EngineKernelsNegative, ConvRejectsChannelMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("conv_bad", "Conv");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 2, 3, 2}), FloatView(w, {1, 1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 1})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Conv"), std::string::npos) << error.what();
+    }
+}
+
+// MaxPool rejects a declared output shape that does not match its window.
+TEST(EngineKernelsNegative, MaxPoolRejectsShapeMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MaxPool");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+    std::vector<float> out(9, 0.0f);
+    engine::Node node = MakeNode("pool_bad", "MaxPool");
+    node.attributes.emplace_back("kernel_shape", std::vector<int64_t>{2, 2});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 3, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 3, 3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("MaxPool"), std::string::npos) << error.what();
     }
 }

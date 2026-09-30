@@ -34,6 +34,14 @@ void Gemm(const Node& node, const std::vector<TensorView>& inputs, const std::ve
 // ONNX matrix product with 1-D operand promotion and batch broadcasting.
 void MatMul(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
+// NCHW convolution with groups, strides, dilations, and explicit or automatic
+// padding, plus an optional rank-1 bias.
+void Conv(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// NCHW max pooling with a required kernel_shape, strides, dilations, explicit
+// or automatic padding, and ceil_mode. Only the primary output is written.
+void MaxPool(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 // Returns the kernel for `op_type`, or null when the CPU device has no
 // implementation for it.
 KernelFn FindCpuKernel(const std::string& op_type);
