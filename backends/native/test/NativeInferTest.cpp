@@ -1,5 +1,6 @@
 #include "NativeInfer.hpp"
 
+#include "InferenceBackendSetup.hpp"
 #include "NativeRuntimeFactory.hpp"
 
 #include <cstddef>
@@ -119,6 +120,36 @@ TEST(NativeRuntimeFactoryTest, RejectsGpuRequests) {
     EXPECT_STREQ(factory.name(), "NativeRuntimeFactory");
     EXPECT_NE(factory.create_allocator(), nullptr);
     EXPECT_NE(factory.create_converter(), nullptr);
+}
+
+// [V-8]b: the NATIVE factory rejects GPU requests by throwing the global
+// InferenceException; the public boundary translates that throw into the
+// nullptr contract. No engine is constructed and no inference runs.
+TEST_F(NativeInferTest, EngineOptionsGpuRequestReturnsNull) {
+    EngineOptions options;
+    options.model_path = fixture_;
+    options.backend_id = "NATIVE";
+    options.use_gpu = true;
+
+    EXPECT_EQ(setup_inference_engine(options), nullptr);
+}
+
+TEST_F(NativeInferTest, LegacyOverloadGpuRequestReturnsNull) {
+    EXPECT_EQ(setup_inference_engine(fixture_, /*use_gpu=*/true, 1, {}), nullptr);
+}
+
+// Control: the same NATIVE backend with the GPU request removed must construct
+// a ready backend. This proves the nulls above come from the GPU rejection and
+// not from a general failure (e.g. an unresolvable backend id or model).
+TEST_F(NativeInferTest, CpuRequestReturnsReadyBackend) {
+    EngineOptions options;
+    options.model_path = fixture_;
+    options.backend_id = "NATIVE";
+    options.use_gpu = false;
+
+    auto backend = setup_inference_engine(options);
+    ASSERT_NE(backend, nullptr);
+    EXPECT_EQ(backend->state(), BackendState::Ready);
 }
 
 TEST(NativeInferErrorTest, MissingModelThrowsModelLoadException) {

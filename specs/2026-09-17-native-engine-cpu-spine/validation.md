@@ -154,8 +154,8 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-4a | `ctest -R engine_kernels` (attribute cases) | Pass | 2026-09-30 | Non-default configurations covered: Conv stride/pad/dilation and group, Gemm transA/transB + alpha/beta + bias, MaxPool ceil with padding, Reshape rank change, ReduceMean keepdims 0/1 and Int64 axes |
 | V-5 | `ctest -R "engine_plan|engine_executor"` | Pass | 2026-09-30 | (a) `EngineExecutor.ArenaAllocatedOnceAndReused` (counting device) asserts one arena allocation across construction + two `Run`s and none in `Run`. (b) `EnginePlan.SequentialArenaSmallerThanSum` asserts `arena_size` (512) < sum of buffer sizes (768); `EnginePlan.OutputNeverAliasesItsInput` proves no output shares bytes with its defining node's inputs |
 | V-6 | `ctest -R parity` | | | observed max abs diff: |
-| V-7 | `ctest --test-dir build-native` | | | |
-| V-8 | `ctest -R native_device_request` | | | |
+| V-7 | `ctest --test-dir build-native` | Partial | 2026-09-30 | NATIVE adapter contract covered by `NativeInferTest` under `DEFAULT_BACKEND=NATIVE`: metadata (one input, one output `[1,1000]`), typed path, and `get_infer_results_raw` (`FP32`, `{1,1000}`, 4000 bytes). The *shared* `BackendHybridTestBase` template is not instantiated for NATIVE (it is compile-only for `MockInferenceInterface`, and its `TestEdgeCases` asserts `std::invalid_argument` while the real interface throws `InferenceExecutionException`); tracked for Group 7 |
+| V-8 | `ctest -R NativeInfer` | Pass | 2026-09-30 | (a) factory `create_backend(path, use_gpu=true)` throws `InferenceException` naming the CPU-only limitation. (b) `setup_inference_engine(EngineOptions{backend_id="NATIVE", use_gpu=true})` and the legacy `setup_inference_engine(path, true, 1, {})` both return `nullptr`; a `use_gpu=false` control returns a Ready backend. No inference runs in either rejected path |
 | V-9 | `gen_backend_docs.py --check` | | | |
 | V-9a | Docker + CI inventory enumeration | | | |
 | V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
