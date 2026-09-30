@@ -916,6 +916,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 18 | 6a (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 12/12 native ctests incl. 6 NativeInfer cases, 77/77 default, docs/format clean) | 1 (worker noted PIC + engine-link placement deviations, both accepted) | `NativeInfer` + `NativeRuntimeFactory`, CMake/registry wiring, adapter tests (metadata, typed + raw paths, GPU-rejection throw); committed with Group 6a |
 | 19 | 6b (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 12/12 native ctests, 77/77 default, docs/format clean) | 0 | Public `setup_inference_engine` GPU-request boundary: both overloads return `nullptr`, CPU control returns a Ready backend; committed with Group 6b |
 | 20 | 7a (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: `native_parity` 27.4 s, observed max abs diff 3.14713e-05) | 0 | Deterministic opset-18 fixture provisioning + NATIVE↔ONNX_RUNTIME parity; committed with Group 7a |
+| 21 | 7b (implement) | Implementer | opencode session (worker) | — | — | Pass (orchestrator re-scored: `gen_backend_docs.py --check` clean, `format.sh --check` clean, no legend IDs in README) | 0 | NATIVE inventory coherence (`dockerfile: null` + `test_exe: NativeInferTest` with intentional-absence comment), `engine/README.md`, CHANGELOG entry; committed with Group 7b |
 
 ## Open questions
 

@@ -156,13 +156,13 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-6 | `ctest -R parity` (`build-parity`, NATIVE + ONNX_RUNTIME) | Pass | 2026-09-30 | observed max abs diff: **3.14713e-05** (budget 1e-4 per [A-2]). Same provisioned file and identical `1×3×224×224` float input through both backends; one 1000-element output each. Fixture provisioned by `native_parity_fixture` (opset 18, torchvision 0.27.0 pinned); missing fixture fails, never skips |
 | V-7 | `ctest --test-dir build-native` | Partial | 2026-09-30 | NATIVE adapter contract covered by `NativeInferTest` under `DEFAULT_BACKEND=NATIVE`: metadata (one input, one output `[1,1000]`), typed path, and `get_infer_results_raw` (`FP32`, `{1,1000}`, 4000 bytes). The *shared* `BackendHybridTestBase` template is not instantiated for NATIVE (it is compile-only for `MockInferenceInterface`, and its `TestEdgeCases` asserts `std::invalid_argument` while the real interface throws `InferenceExecutionException`); tracked for Group 7 |
 | V-8 | `ctest -R NativeInfer` | Pass | 2026-09-30 | (a) factory `create_backend(path, use_gpu=true)` throws `InferenceException` naming the CPU-only limitation. (b) `setup_inference_engine(EngineOptions{backend_id="NATIVE", use_gpu=true})` and the legacy `setup_inference_engine(path, true, 1, {})` both return `nullptr`; a `use_gpu=false` control returns a Ready backend. No inference runs in either rejected path |
-| V-9 | `gen_backend_docs.py --check` | | | |
-| V-9a | Docker + CI inventory enumeration | | | |
+| V-9 | `gen_backend_docs.py --check` | Pass | 2026-10-01 | Clean after Group 7b (`dockerfile: null` + `test_exe: NativeInferTest` on NATIVE produce no GEN diff); 15 registry IDs agree with 15 yaml IDs |
+| V-9a | Docker + CI inventory enumeration | Pass | 2026-10-01 | 13/15 yaml `dockerfile` paths exist; NATIVE `null` intentional (no SDK, exercised via `-DDEFAULT_BACKEND=NATIVE`); CI matrix (10 backends) is a vendor-image subset, NATIVE/CACTUS/LLAMACPP/EXECUTORCH/DALI absent by construction; `windows-build.yml`/`cache-prune.yml` carry no backend identifiers. Two pre-existing gaps noted, untouched: DALI references missing `docker/Dockerfile.dali`, MIGRAPHX entry spells `Dockerfile.migrachx` vs file `Dockerfile.migraphx` |
 | V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
 | V-11 | `OPENCV_DNN` path + link inspection | | | |
 | V-12 | `git subtree split` + standalone build | | | |
 | V-13 | `ctest -R "engine_shapes|engine_plan"` | Pass | 2026-09-30 | Shape half: `EngineShapes.PerShapeSeamWithoutReload` shapes one loaded graph at `[1,3,4,4]` then `[4,3,4,4]` with no reload; fixture batch-1 output `[1,1000]` asserted while batch 2 correctly fails at the pinned `Reshape`. Plan half: `EnginePlan.PerShapeSeamWithoutReload` plans one loaded two-`Conv` graph at 8×8 (arena 1024) then 16×16 (arena 4096) with no reload. No parser, IR, or kernel change between calls |
-| M-1 | README read-through | | | |
+| M-1 | README read-through | Pass | 2026-10-01 | `engine/README.md` states interpreter design, one-device-per-graph rejection, CPU kernels as correctness oracle and explicitly not a performance target; no spec legend IDs; build/test commands verified against the actual CMake targets |
 | M-2 | fixture node list vs kernel set | | | |
 | M-3 | executor inspection | | | |
 | M-4 | inventory drift walkthrough | | | |
@@ -171,7 +171,15 @@ ctest --test-dir build-parity -R parity --output-on-failure
 
 ## Deviations
 
-- Record here any criterion not fully met, why, and how it is tracked.
+- [V-7] Partial (standing, 2026-10-01): the *shared* `BackendHybridTestBase`
+  template is not instantiated for NATIVE. Instantiating it would require
+  changing the shared template itself — it is compile-only for
+  `MockInferenceInterface` and its `TestEdgeCases` asserts
+  `std::invalid_argument` while the real interface contract throws
+  `InferenceExecutionException`. The NATIVE adapter contract (metadata, typed
+  and raw paths, lifecycle, GPU rejection) is covered by `NativeInferTest`
+  instead. Reworking the shared template is a cross-backend change tracked as a
+  follow-up outside this phase.
 
 ## Definition of Done (integration)
 
