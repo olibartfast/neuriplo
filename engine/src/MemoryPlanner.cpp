@@ -2,13 +2,19 @@
 //
 // The planner is the memory half of the per-shape seam: it reads a loaded
 // Graph and an InferredShapes value and produces a MemoryPlan, mutating
-// neither. Tensors live over the half-open node range [definition, last use):
-// a value is dead once the node that consumes it finishes, so a tensor defined
-// in that same node may reuse its bytes. Graph outputs live to the end of the
-// graph. Buffers are placed by a deterministic linear scan: definitions in
-// ascending node order, names ascending within a node, each taking the lowest
-// 64-byte-aligned offset that avoids every already-placed tensor whose live
-// range intersects its own.
+// neither. A tensor's lifetime is the INCLUSIVE node range [definition, last
+// use]: it stays live through the node that consumes it, so a value read by
+// node j is still live while node j runs. A graph output's last use is
+// nodes.size() - 1. Two lifetimes overlap when their closed intervals
+// intersect (a.begin <= b.end && b.begin <= a.end).
+//
+// This yields the safety invariant the executor relies on: no node output may
+// share bytes with any input of its defining node, so a read-then-write kernel
+// never has its input overwritten by its own output. Buffers are placed by a
+// deterministic linear scan: definitions in ascending node order, names
+// ascending within a node, each taking the lowest 64-byte-aligned offset that
+// avoids every already-placed tensor whose live range overlaps its own.
+// arena_size is the smallest 64-byte multiple covering every assignment.
 
 #include "engine/Plan.hpp"
 
@@ -41,13 +47,13 @@ int64_t dtype_bytes(DataType dtype) {
     return 0;
 }
 
-// A tensor's live range as a half-open node-index interval [begin, end).
+// A tensor's live range as a closed node-index interval [begin, end].
 struct Interval {
     int64_t begin = 0;
     int64_t end = 0;
 };
 
-bool intervals_intersect(const Interval& a, const Interval& b) { return a.begin < b.end && b.begin < a.end; }
+bool intervals_intersect(const Interval& a, const Interval& b) { return a.begin <= b.end && b.begin <= a.end; }
 
 struct ArenaTensor {
     std::string name;
@@ -144,7 +150,7 @@ MemoryPlan PlanMemory(const Graph& graph, const InferredShapes& shapes) {
         int64_t end = 0;
         const auto last_use = last_uses.find(name);
         if (is_output) {
-            end = static_cast<int64_t>(graph.nodes.size());
+            end = static_cast<int64_t>(graph.nodes.size()) - 1;
         } else if (last_use != last_uses.end()) {
             end = last_use->second;
         } else {
