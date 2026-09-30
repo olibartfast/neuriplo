@@ -43,7 +43,12 @@ add_library(neuriplo_engine STATIC
     src/ModelLoader.cpp
     src/ShapeInference.cpp
     src/MemoryPlanner.cpp
-    src/CpuDevice.cpp)
+    src/CpuDevice.cpp
+    src/kernels/CpuKernels.cpp
+    src/kernels/Relu.cpp
+    src/kernels/Add.cpp
+    src/kernels/Reshape.cpp
+    src/kernels/ReduceMean.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC

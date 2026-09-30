@@ -1,7 +1,7 @@
 // The CPU device: the reference implementation of the per-device seam.
 //
 // Host memory is ordinary aligned memory, transfers are memcpy, and the kernel
-// table is owned by the device (empty until the reference kernels land). Only
+// table is owned by the device and delegates to the CPU operator table. Only
 // the C++17 standard library is used.
 
 #include "engine/Device.hpp"
@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <cstring>
 #include <new>
+
+#include "kernels/Kernels.hpp"
 
 namespace engine {
 namespace {
@@ -59,14 +61,12 @@ public:
     }
 };
 
-// The operator lookup for the CPU device. It is empty in this layer; the
-// reference kernels register themselves into it in a later layer, so an unknown
-// op type resolves to null.
+// The operator lookup for the CPU device. It forwards to the kernel table
+// declared in kernels/Kernels.hpp, so an unknown op type resolves to null.
 class CpuKernelTable final : public KernelTable {
 public:
     KernelFn find(const std::string& op_type) const override {
-        (void)op_type;
-        return nullptr;
+        return kernels::FindCpuKernel(op_type);
     }
 };
 
