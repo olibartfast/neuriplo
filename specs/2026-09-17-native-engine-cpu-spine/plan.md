@@ -277,6 +277,10 @@ throughout.
   a YOLO model runs inference on the `NATIVE` backend. This pulls vision-op
   coverage (roadmap Phase N2 scope: SiLU/Sigmoid, Mul, Concat, Split, Resize,
   Softmax, Transpose/Slice/Gather, detection postprocessing, int64
-  intermediates, dynamic shapes) forward onto this branch ahead of N1. Next:
+  intermediates, dynamic shapes)   forward onto this branch ahead of N1. Next:
   scope which YOLO variant/export the coverage targets, then slice new
   implementation packets on this branch.
+- Scoped 2026-10-01 → packet `specs/2026-10-01-yolo26-native/`: YOLO26 nano,
+  NMS-embedded export, raw-output parity bar. Survey: 485 nodes, 22 new ops,
+  int64 Constants + bool/int64 intermediates, static `[1,300,6]` output.
+  Phases Y1 (IR/loader) → Y2/Y3 (kernels) → Y4 (parity + hold lift).
