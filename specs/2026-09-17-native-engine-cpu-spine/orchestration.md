@@ -889,6 +889,77 @@ in `docs/backends.yaml`; no workflow file changes. Spec files (`specs/**`) and
   python3 scripts/gen_backend_docs.py && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
+### Packet Group 7c — full validation run, static half (T-25/V-1/M-2..M-6)
+
+Branch is `feature/native-engine-cpu-spine`, tree is clean at this packet's
+commit — keep it clean. **Write no tracked file.** `specs/**`,
+`CHANGELOG.md`, `engine/README.md`, `docs/**`, all sources, and all build
+configuration are read-only. Scratch under `/tmp/` only. Do NOT commit.
+No build directories are created or modified by this packet.
+
+Obligations (evidence, not prose — report observed output verbatim):
+
+1. [V-1] Run `grep -rn "neuriplo\|InferenceInterface" engine/ --include=*.hpp --include=*.cpp`
+   (expected: no matches) and state how the [T-6] guard is enforced (file and
+   mechanism). If any match names a legitimate use (e.g. a comment), quote it.
+2. [M-2] Dump the node/op list of the actual provisioned fixture
+   (`build-parity/native_parity_fixture/resnet18.onnx`; if absent, provision it
+   with the existing `native_parity_fixture` target — do not hand-write a
+   model) and compare against the eight-op kernel set. List any extra op.
+3. [M-3] Inspect `engine/src/Executor.cpp` (+ `Device.hpp` if needed) and state
+   precisely where device selection happens (expected: once per graph at
+   `Model` construction) and confirm no per-node transfer or device decision
+   exists in the run path. Cite function/line.
+4. [M-4] Walkthrough: `git diff origin/develop --stat -- cmake/BackendRegistry.cmake
+   docs/backends.yaml versions.env` plus a rename-probe — if `NATIVE` were
+   renamed, which files must change together (registry, yaml, `cmake/Native.cmake`,
+   factory registration, docs GEN)? State whether any maintained inventory is
+   left inconsistent by the current tree.
+5. [M-5] Read `specs/mission.md` (Boundaries/Non-Goals) and `specs/tech-stack.md`
+   (native engine section) end to end, time the read, and state whether either
+   contradicts a first-party runtime or exceeds five minutes.
+6. [M-6] Run `git diff origin/develop -- versions.env cmake/ backends/opencv-dnn/`
+   (expected: empty) and `grep -rn "opencv\|OpenCV\|find_package.*[Oo]penCV"
+   engine/ --include=*.hpp --include=*.cpp --include=*.txt -i` (expected: no
+   matches outside comments). Report both outputs.
+
+- **Budget:** 10 turns. **Handback:** `GROUP 7c-STATIC HANDBACK pass|fail`,
+  one line per obligation with the observed evidence, deviations, NO-GO,
+  `git status --short` (must show clean).
+
+### Packet Group 7c — full validation run, builds half (T-25/V-10/V-11/V-12)
+
+Branch is `feature/native-engine-cpu-spine`, tree is clean at this packet's
+commit — keep every tracked file untouched. **Write no tracked file.**
+`specs/**` and all sources/docs are read-only. You may create, configure, and
+rebuild only existing or new `build-*` directories (they are gitignored) and
+scratch under `/tmp/`. Cap every build at `--parallel 6` (a sibling worker
+builds concurrently). Do NOT commit.
+
+Obligations (report observed output verbatim):
+
+1. [V-10] Run `./scripts/quality/run.sh` (record pass/fail per gate) and the
+   engine tests under sanitizers per `scripts/quality/sanitizers.sh` (or the
+   documented `-DSANITIZERS=ON` Debug path): at minimum the `engine_*` and
+   `NativeInfer` cases under ASan+UBSan with no findings. Record exact commands
+   and findings (empty findings = quote the clean tail).
+2. [V-11] Reconfigure `build-native` exactly as validation.md specifies
+   (`-DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON`), rebuild,
+   then (a) `grep -ril opencv build-native/CMakeFiles/*/link.txt` (expected: no
+   matches) and (b) assert over the CMake target graph that `neuriplo_engine`
+   has no OpenCV in `LINK_LIBRARIES`/`INTERFACE_LINK_LIBRARIES` (quote the
+   property values). Note: `CMakeCache.txt` contents prove nothing either way —
+   do not cite them.
+3. [V-12] Run `git subtree split --prefix=engine/` (no `-b`), archive the
+   resulting commit to a fresh `mktemp -d`, and configure+build the extracted
+   tree there standalone. Leave no branch behind (`git branch --show-current`
+   unchanged, no `engine-extract` branch). Record the split commit hash,
+   configure flags used, and build result.
+
+- **Budget:** 15 turns (builds are slow). **Handback:** `GROUP 7c-BUILDS HANDBACK
+  pass|fail`, one line per obligation with observed evidence, deviations,
+  NO-GO, `git status --short` (must show clean apart from gitignored `build-*`).
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
