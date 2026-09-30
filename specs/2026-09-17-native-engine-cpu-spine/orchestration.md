@@ -633,6 +633,55 @@ default, engine ctests 9/9.
   cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_executor|engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 5-rework — inclusive liveness, no alias workaround (attempt 2)
+
+Attempt 1 (ledger row 16) returned a scoreboard pass but is **rejected by the
+orchestrator**. Its executor added a transient heap copy of any arena input
+whose planned range overlaps an output of the same node, because
+`MemoryPlanner.cpp` gives a tensor the half-open lifetime `[definition,
+last_use)` — so a value consumed by node *j* is considered dead before node *j*
+runs and its bytes may be handed to node *j*'s output. That is unsafe for any
+kernel that reads its inputs while writing its output (Conv, ReduceMean produced
+inf/NaN), and it blocks the Phase N1 device path, which cannot do host copies in
+`Run`. The fix belongs in the planner; the executor workaround must go.
+
+- **Writable:** `engine/src/MemoryPlanner.cpp`, `engine/test/MemoryPlannerTest.cpp`,
+  `engine/src/Executor.cpp`, `engine/test/ExecutorTest.cpp` (and
+  `engine/include/engine/Executor.hpp` only if a comment needs correcting).
+  `engine/CMakeLists.txt` / `engine/test/CMakeLists.txt` are already correct —
+  read-only. Never anything else.
+- **Required changes:**
+  1. In `PlanMemory`, lifetimes are INCLUSIVE `[definition, last_use]`: a value
+     stays live through the node that consumes it. Overlap is closed-interval
+     intersection (`a.begin <= b.end && b.begin <= a.end`). A graph output's
+     last use is `nodes.size() - 1`. Update the file comment to state the
+     invariant: **no node output may share bytes with any input of its defining
+     node.**
+  2. Delete the alias workaround from `Executor.cpp` entirely — the
+     `aliased_inputs` vector, the overlap scan, and the `RangesOverlap` helper.
+     `Run` binds each available tensor's view directly; the planner now
+     guarantees safety. Fix the file comment accordingly.
+  3. Rewrite the plan tests that encoded the half-open assumption:
+     - `EnginePlan.DisjointLifetimesShareOffset`: use a graph whose arena
+       lifetimes are genuinely disjoint under inclusive liveness (e.g. two
+       independent `Relu` chains) and assert the intended pair shares an offset
+       while overlapping ones do not.
+     - `EnginePlan.SequentialArenaSmallerThanSum`: same kind of graph; keep the
+       assertion that `arena_size` is strictly below the sum of buffer sizes.
+     Keep the other plan tests passing (the fixture and per-shape tests use
+     `> 0` / `!=`, so they should not need new expectations).
+  4. Add a regression test `EnginePlan.OutputNeverAliasesItsInput`: for a
+     hermetic node that consumes one tensor and produces another (and, if
+     convenient, over the fixture plan), assert no output buffer's byte range
+     overlaps any input buffer's byte range of the same node. This is the
+     invariant the workaround existed to hide.
+  5. Keep the executor tests; ensure the fixture end-to-end run still returns a
+     finite `[1,1000]` output now that no copy happens (it must, because the
+     planner no longer aliases), and keep the `TIMEOUT 1800`.
+- **Budget:** 14 turns. **Handback:** `GROUP 5 HANDBACK pass|fail` (attempt 2),
+  obligation lines, acceptance tail, deviations, NO-GO, `git status --short`.
+- **Acceptance (once, verbatim, final action):** same command as Packet Group 5.
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
@@ -655,6 +704,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 13 | 4a (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests, 77/77 default, docs/format clean) | 0 | Kernel plumbing + `InferenceException` + `Relu`/`Add`/`Reshape`/`ReduceMean` with hand-computed tests; committed with Group 4a |
 | 14 | 4b (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests, 77/77 default, docs/format clean) | 0 | `Gemm` (transposes, alpha/beta, bias) and `MatMul` (batch broadcast, 1-D promotion) with hand-computed tests; committed with Group 4b |
 | 15 | 4c (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests incl. 31 kernel cases, 77/77 default, docs/format clean) | 0 | `Conv` (group/stride/pad/dilation/auto_pad/bias) and `MaxPool` (ceil/pad) complete the [R-5] kernel set; committed with Group 4c |
+| 16 | 5 (implement, attempt 1) | Implementer | Kilo `general` subagent | — | — | Scoreboard pass but **orchestrator-rejected** | 1 (planner wrote corrected rework packet) | Rejected: executor masked a planner defect with a transient heap copy of same-node aliased inputs; the planner's half-open lifetimes `[def, last_use)` are unsafe for read-then-write kernels. Rework fixes inclusive liveness and removes the copy |
 
 ## Open questions
 
