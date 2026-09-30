@@ -574,6 +574,65 @@ Completes the [R-5] kernel set. Baseline 77/77 default, engine ctests 9/9.
   cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 5 — sequential executor (T-16/T-17)
+
+Group 4 complete (all eight kernels, 31 kernel cases green). Baseline 77/77
+default, engine ctests 9/9.
+
+- **Writable:** new `engine/include/engine/Executor.hpp`, new `engine/src/Executor.cpp`,
+  new `engine/test/ExecutorTest.cpp`; edit `engine/CMakeLists.txt` (add the source),
+  `engine/test/CMakeLists.txt` (add `engine_executor_test` and tests `engine_executor`/
+  `engine_executor_negative`, with the fixture env property). Never anything else.
+- **Read-only:** `Graph.hpp`, `Shapes.hpp`, `Plan.hpp`, `Device.hpp`,
+  `ModelLoader.hpp`, the kernels and their tests, `ShapeInference.cpp`,
+  `MemoryPlanner.cpp`; `requirements.md` [R-6], [R-7], [R-12]; `plan.md` T-16/T-17;
+  `validation.md` [V-5], [V-7].
+- **Fixed public interface (exact), `engine/include/engine/Executor.hpp`, namespace
+  `engine`, includes `<map> <string> <vector>` + `"engine/Graph.hpp"` +
+  `"engine/Shapes.hpp"` + `"engine/Plan.hpp"` + `"engine/Device.hpp"`:**
+  - `struct InferenceResult { std::map<std::string, std::vector<float>> outputs; };`
+  - `class Model` with:
+    - `Model(const Graph& graph, const ShapeMap& input_dims, const Device& device);`
+    - non-copyable, non-movable; destructor releases the arena through the device
+    - `const Graph& graph() const;`
+    - `const InferredShapes& shapes() const;`
+    - `const MemoryPlan& plan() const;`
+    - `InferenceResult Run(const std::map<std::string, std::vector<float>>& inputs);`
+- **Required semantics:**
+  - Construction runs `InferShapes` then `PlanMemory` for the given `input_dims`
+    and allocates the arena **once** through `device.allocator()` (release in the
+    destructor). The device is chosen once for the graph ([R-7]).
+  - `Run` allocates no arena memory: it binds each graph input to the caller's
+    vector (size must equal the planned element count; a missing input or wrong
+    size throws `InferenceException` naming the input), binds initializers to
+    their stored values, walks `graph.nodes` in order, builds `TensorView`s from
+    the inferred shapes and arena offsets, looks each op up with
+    `device.kernels().find(node.op_type)`, and calls it (a missing kernel is an
+    `InferenceException` naming the op and node). Graph outputs are copied out of
+    the arena into `InferenceResult::outputs` keyed by output name.
+  - Arena offsets come from `plan.buffers`; an intermediate with no buffer is an
+    error. Alias no output with an input.
+  - Second and later `Run` calls reuse the arena; results are identical.
+- **Required tests:** a hermetic graph (hand-encoded, e.g. an initializer fed
+  through `Add` then `Relu`, or two `Conv`s) run once and checked against
+  hand-computed numbers; a counting `Device` (test-side wrapper around
+  `CpuDevice` with an `Allocator` that counts calls) proves the arena is
+  allocated exactly once across construction plus two `Run`s, and that
+  `plan.arena_size` is below the sum of intermediate sizes ([V-5]a); the fixture
+  end-to-end test loads ResNet-18, constructs a `Model` for `[1,3,224,224]`, runs
+  a fixed input, and asserts the output is `[1,1000]` and all finite ([T-17],
+  fixture via `NEURIPLO_NATIVE_FIXTURE`, missing fixture FAILS never skips).
+  Negative: missing input name, wrong input size, and an op with no kernel each
+  throw `InferenceException`.
+- **Working method:** complete final content per file; read before editing;
+  targeted checks freely (the fixture run may take seconds — set a generous
+  timeout). Budget 14 turns. **Handback:** `GROUP 5 HANDBACK pass|fail`,
+  obligation lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_executor|engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
