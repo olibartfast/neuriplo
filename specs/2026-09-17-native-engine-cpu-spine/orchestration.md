@@ -788,6 +788,58 @@ This packet only adds the public-boundary assertions to the NATIVE adapter tests
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel && ctest --test-dir build-native -R "engine_|NativeInfer" --output-on-failure && cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv --parallel && ctest --test-dir build-ocv --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 7a — fixture provisioning and NATIVE↔ONNX_RUNTIME parity (T-27a, T-22, [V-6])
+
+Group 6 complete; with ONNX_RUNTIME also enabled the engine/adapter suites grow.
+This packet adds deterministic fixture provisioning and the parity harness — the
+payoff proof for the phase: the same file and the same input through `NATIVE`
+and `ONNX_RUNTIME`, compared elementwise.
+
+- **Writable:** new `backends/native/test/provision_parity_fixture.py`, new
+  `backends/native/test/ParityTest.cpp`, edit `backends/native/test/CMakeLists.txt`.
+  Never anything else; `specs/**`, `cmake/**`, `engine/**`, other `backends/**`,
+  `docs/**` are read-only.
+- **Read-only:** `backends/onnx-runtime/test/export_torchvision_classifier.py`
+  (the export to mirror), `backends/onnx-runtime/test/CMakeLists.txt` (ORT test
+  target shape and `ONNX_RUNTIME_LIBRARY` lookup), `backends/src/InferenceInterface.hpp`,
+  `requirements.md` [R-10] and [A-2]; `plan.md` T-27a/T-22; `validation.md` [V-6].
+- **Provisioning (`provision_parity_fixture.py`, [T-27a]):** takes an output
+  directory argv; builds `torchvision.models.resnet18(pretrained=True).eval()` and
+  exports it with `opset_version=18` and fixed `input_names=["input"]` /
+  `output_names=["output"]` to `<dir>/resnet18.onnx`, mirroring the existing
+  export so the emitted graph is the modern opset-18 set (`ReduceMean`, `Reshape`;
+  no `Identity`/`Flatten`/`GlobalAveragePool`). Assert the exporter's torchvision
+  version against a pinned constant (the environment is `0.27.0`; fail with a
+  clear message otherwise), then `onnx.load` the result and assert `opset_import`
+  version 18 and that no unsupported op appears. Print the resolved absolute model
+  path (and node count) on success; exit non-zero on any failure. It must not write
+  to the old hard-coded `/workspace/`.
+- **Provisioning target + parity wiring** in `backends/native/test/CMakeLists.txt`,
+  guarded by `if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)`: a custom target
+  `native_parity_fixture` that runs the script with
+  `-DOUTPUT_DIR=${CMAKE_BINARY_DIR}/native_parity_fixture`, a `native_parity_test`
+  executable from `ParityTest.cpp`, and `add_test(NAME native_parity ...)`. The
+  test target includes `backends/native/src`, `backends/onnx-runtime/src`,
+  `backends/src`, `include`, `${ONNX_RUNTIME_DIR}/include`, glog; links `neuriplo`,
+  `neuriplo_engine`, `${ONNX_RUNTIME_LIBRARY}`, GTest, glog (mirror the ORT test).
+  Set `ENVIRONMENT` `NEURIPLO_PARITY_FIXTURE=${CMAKE_BINARY_DIR}/native_parity_fixture/resnet18.onnx`
+  and a generous `TIMEOUT` (the fixture runs ~30 s per backend).
+- **Parity test (`ParityTest.cpp`, [T-22]/[V-6]):** read `NEURIPLO_PARITY_FIXTURE`;
+  if unset or absent, FAIL — never skip, never substitute a mock. Build `NativeInfer`
+  and `ORTInfer` on the identical path with `use_gpu=false`; feed the identical
+  input (`1*3*224*224` float32 bytes, a deterministic pattern written by the test);
+  run `get_infer_results` on both; assert both return one output of 1000 elements;
+  compare elementwise and compute the **maximum absolute difference**; assert it is
+  within `1e-4` ([A-2]) and print the observed value so it can be recorded in
+  `validation.md`. Fail if either backend produced no output or a differently sized
+  output.
+- **Budget:** 16 turns. **Handback:** `GROUP 7a HANDBACK pass|fail`, obligation
+  lines, the observed max abs diff, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_parity_fixture && cmake --build build-parity --parallel && ctest --test-dir build-parity -R "parity" --output-on-failure
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
