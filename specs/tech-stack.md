@@ -54,7 +54,7 @@ live in `versions.env`; the human-readable backend inventory lives in
 ## First-Party Native Engine
 
 Neuriplo admits one runtime it implements itself, to be exposed as the `NATIVE`
-backend. None of it exists yet — Phase N0 in `specs/roadmap.md` is the work
+backend. It is landing on `feature/native-engine-cpu-spine` — Phase N0 in `specs/roadmap.md` tracks the work,
 that lands it, and the backend inventory above remains the registered set until
 it does. The rules below are binding on that work from the moment it starts;
 they constrain the engine rather than describe the current tree. It is to be a

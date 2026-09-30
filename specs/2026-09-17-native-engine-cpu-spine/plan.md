@@ -252,3 +252,16 @@ throughout.
   [A-2] 1e-4 budget; a missing fixture fails, never skips. Remaining: Group 7b
   (inventory/docs/README/changelog/roadmap and the [V-7] gap) and T-25 (full
   validation run).
+- Group 7b (2026-10-01): T-23/T-24/T-26 docs half landed. `docs/backends.yaml`
+  NATIVE entry now declares `dockerfile: null` (intentional: no external SDK,
+  absent from the CI vendor-image matrix, exercised via
+  `-DDEFAULT_BACKEND=NATIVE`) and `test_exe: NativeInferTest`; `gen_backend_docs.py
+  --check` clean with no GEN diff. New `engine/README.md` (interpreter design,
+  one-device rule, CPU kernels as non-target oracle, boundary, layout,
+  build/test incl. parity). CHANGELOG `[Unreleased]/Added` NATIVE entry.
+  Enumeration for [V-9a]: 15 registry IDs agree with 15 yaml IDs; 13 yaml
+  `dockerfile` paths exist; NATIVE null is intentional; two pre-existing gaps
+  observed and left untouched (DALI entry references missing
+  `docker/Dockerfile.dali`; MIGRAPHX entry spells `Dockerfile.migrachx` while
+  the file is `Dockerfile.migraphx`) — tracked as follow-ups outside this
+  packet. Remaining: T-25 full validation run (Group 7c).

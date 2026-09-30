@@ -26,6 +26,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vector that a concurrent load could reallocate.
 
 ### Added
+- First-party `NATIVE` backend: an ONNX loader with a typed graph IR, static
+  shape inference, a liveness-based arena memory planner, CPU reference
+  kernels (Conv/Gemm/MatMul/Add/Relu/MaxPool/ReduceMean/Reshape), a sequential
+  executor, and the `InferenceInterface` adapter. The adapter is validated
+  elementwise against `ONNX_RUNTIME` on the ResNet-18 fixture (max abs diff
+  3.15e-05, budget 1e-4); a GPU request is rejected in this phase.
 - Consumer C ABI, `include/neuriplo/neuriplo_c.h` (`NEURIPLO_C_API_VERSION`
   1): a stable, versioned entry point that any language or toolchain can use.
   It covers the engine lifecycle, backend listing, metadata views, inference
