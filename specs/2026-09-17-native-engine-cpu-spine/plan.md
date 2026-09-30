@@ -273,3 +273,10 @@ throughout.
   All automated and manual checks now have evidence; [V-7] remains the single
   standing Partial with a recorded deviation. Remaining: merge into `develop`
   per the Definition of Done.
+- Merge hold (2026-10-01, maintainer gate): do NOT merge into `develop` until
+  a YOLO model runs inference on the `NATIVE` backend. This pulls vision-op
+  coverage (roadmap Phase N2 scope: SiLU/Sigmoid, Mul, Concat, Split, Resize,
+  Softmax, Transpose/Slice/Gather, detection postprocessing, int64
+  intermediates, dynamic shapes) forward onto this branch ahead of N1. Next:
+  scope which YOLO variant/export the coverage targets, then slice new
+  implementation packets on this branch.
