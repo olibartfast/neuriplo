@@ -25,11 +25,11 @@ NMS-embedded. Surveyed 2026-10-01 (ultralytics 8.4.113, torch 2.12, onnx 1.22):
 In:
 
 - [R1] Loader: fold `Constant` nodes (float32 + int64) into initializers;
-  admit `Flatten`; allowlist + opset-18 attribute policies for the 22 new ops.
+  admit `Flatten`; allowlist + opset-18 attribute policies for the 23 new ops.
 - [R2] IR: intermediate tensors may be float32, int64, or bool (`Shape`,
   `ConstantOfShape`, `Gather`/`TopK` indices, `Equal` masks). Graph
   inputs/outputs stay float32-only. Arena planner handles multi-dtype buffers.
-- [R3] Kernels: naive CPU reference implementations for the 22 new ops, with
+- [R3] Kernels: naive CPU reference implementations for the 23 new ops, with
   hand-computed unit tests (same bar as [V-4]/[V-4a] of the spine phase).
 - [R4] Static shapes throughout: every node output shape resolves at load for
   the fixed `[1,3,640,640]` input. No dynamic-shape machinery in this packet.

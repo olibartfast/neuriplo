@@ -9,7 +9,7 @@ Thin phases; each ends runnable with its acceptance. Branch stays
   initializers at load; the 64 survey nodes are the oracle.
 - Dtypes: `Bool` joins the IR; intermediate tensors may be float32/int64/bool;
   graph I/O stays float32-only. Planner sizes buffers by dtype.
-- Allowlist + attribute policies for the 22 new ops (opset 18); admit
+- Allowlist + attribute policies for the 23 new ops (opset 18); admit
   `Flatten`. Resolve [Q1]–[Q3] and record the answers as decisions here.
 - Checks: loader tests assert the survey counts (485 nodes incl. 64 folded
   Constants, 204+64 initializers by dtype); negative tests for the new
