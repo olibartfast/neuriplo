@@ -1,15 +1,15 @@
-// First-party inference engine (CPU reference spine) — skeleton source.
+// Engine skeleton.
 //
-// Phase N0 Group 1: intentionally minimal so the standalone configure/build
-// and the abstract integrated build both stay green. Groups 2-5 add the model
-// reader, graph IR, shape inference, planner, kernels, and executor.
+// Intentionally empty for now, so both the standalone build and the integrated
+// build stay green while the runtime is filled in: model reader, graph
+// representation, shape inference, memory planner, CPU kernels, and executor.
 
 #include "engine/Engine.hpp"
 
 namespace engine {
 
-// Anchor definition so the static library is non-empty. Removed once the
-// executor lands in Group 5.
+// Anchor definition so the library is not empty. Goes away once the executor
+// exists.
 void engine_spine_anchor()
 {
 }

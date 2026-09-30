@@ -148,8 +148,8 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | ID | Command/Check | Result | Date | Notes |
 |----|---------------|--------|------|-------|
 | V-1 | `grep` + configure guard | | | |
-| V-2 | `ctest -R engine_loader` | | | |
-| V-3 | `ctest -R engine_loader_negative` | | | |
+| V-2 | `ctest -R engine_loader` | Pass | 2026-09-30 | 8 cases green. Real fixture: 49 nodes, ops histogram matches [A-1]; 44 initializers (42 FLOAT + 2 INT64, [D-9]); IO FLOAT `[1,3,224,224]` → `[1,1000]` |
+| V-3 | `ctest -R engine_loader_negative` | Pass | 2026-09-30 | 6 cases green, each asserting node/op/dtype in the `ModelLoadException` message: unknown op, unsupported attribute, INT64 graph input, FLOAT16 initializer, dynamic dim, missing file |
 | V-4 | `ctest -R engine_kernels` | | | |
 | V-4a | `ctest -R engine_kernels` (attribute cases) | | | |
 | V-5 | `ctest -R engine_plan` | | | |

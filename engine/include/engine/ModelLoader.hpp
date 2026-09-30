@@ -1,10 +1,11 @@
 #pragma once
-// ONE isolating interface between the hand-written protobuf wire reader and
-// the rest of the engine ([D-7], Group 2a). The definition arrives with
-// Group 2b; this header is the contract the rest of the engine depends on.
+// Reads an ONNX model file into the engine's graph.
 //
-// Boundary contract ([R-1]): no backend-layer includes; the only dependency
-// beyond stdlib is nothing — parsing is hand-written ([D-7]).
+// The single entry point for model loading. The protobuf wire decoding is an
+// implementation detail behind this interface, and parsing is hand-written, so
+// the engine pulls in no protobuf or ONNX library.
+//
+// Must not include anything from the backend abstraction layer.
 
 #include <string>
 
@@ -14,11 +15,10 @@ namespace engine {
 
 // Parse the ONNX model at `path` into the Graph IR.
 //
-// Throws ModelLoadException when the file cannot be read, the protobuf
-// wire format is truncated or malformed, or the model is structurally
-// unusable. (Graph-level semantic rejections — unsupported ops, unsupported
-// attribute combinations, unresolvable dynamic dimensions — are raised with
-// the node name and op type embedded in the message, per [V-3].)
+// Throws ModelLoadException when the file cannot be read, the wire format is
+// malformed, or the model is structurally unusable. Semantic rejections
+// (unsupported op, unsupported attribute, unresolvable dynamic shape) name the
+// offending node and op type in the message.
 Graph LoadGraphFromFile(const std::string& path);
 
 } // namespace engine

@@ -22,6 +22,8 @@ exist first.
   `backends/src/`, or `src/`. The dependency arrow points one way only.
 - [R-2] ONNX model loading: graph topology, initializers, declared inputs and
   outputs, and attributes for the op set in [R-5], from a `.onnx` file on disk.
+  Initializers cover float32 weights and the int64 shape constants the graph
+  embeds ([D-9]).
 - [R-3] Static shape inference over the loaded graph. An unsupported op, an
   unsupported attribute combination, or a shape that cannot be resolved
   statically fails at load with the offending node name and op type — never at
@@ -31,7 +33,9 @@ exist first.
   table keyed by op). This phase ships only the CPU device layer, but the seam
   is a requirement of this phase, not a later refactor.
 - [R-5] CPU reference kernels sufficient for ResNet-18: `Conv`, `Gemm`,
-  `MatMul`, `Add`, `Relu`, `MaxPool`, `ReduceMean`, `Reshape`. FP32 only.
+  `MatMul`, `Add`, `Relu`, `MaxPool`, `ReduceMean`, `Reshape`. Compute and
+  activations are FP32; integer (int64) constants are permitted for shape
+  inputs such as `Reshape`'s shape operand ([D-9]) — they are data, not compute.
   The set follows the opset-18 export the fixture is pinned to ([D-8]):
   averaging is `ReduceMean`, flattening is `Reshape`. `MatMul` is specified
   though the fixture does not emit it.
@@ -130,6 +134,19 @@ exist first.
   export to opset 18 deliberately, and Group 2 implements attribute and shape
   semantics against opset 18's schemas. [R-5] follows the opset-18 artifact
   (`ReduceMean`, `Reshape`; no `GlobalAveragePool`, no `Flatten`).
+- [D-9] **Integer constant tensors are allowed in the graph IR alongside float
+  weights** (maintainer decision 2026-09-30, from the Group 2b loader run). A
+  float32 graph legitimately carries int64 constant tensors as shape operands:
+  the pinned ResNet-18 export embeds two int64 initializers (`val_226`,
+  `val_230`, dims `[2]`) feeding `Reshape`. The IR tags every initializer with a
+  dtype and stores int64 shape constants beside float weights; tensor value-info
+  entries may carry `Int64` too, so the value table stays complete. Graph inputs
+  and outputs remain float32-only — the compute interface does not change, and
+  the strict reading (rejecting int64) is impossible for a standard `Reshape`
+  without constant folding. Recorded as a decision because it reinterprets the
+  "non-FP32 tensors rejected" wording of [R-3]/[R-5] into "compute is float32;
+  integer constants are allowed for shape inputs", which [R-2] and [R-5] now
+  state.
 
 ## Constraints
 

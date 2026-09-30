@@ -1,10 +1,12 @@
 #pragma once
-// Minimal hand-written protobuf wire-format reader ([D-7], private to
-// engine/src/). Generic and ONNX-agnostic: no field numbers, no protobuf
-// message names — the caller supplies the tag constants it wants.
+// A small protobuf wire-format reader used by the model loader.
 //
-// Operates on a plain byte buffer and throws engine::ModelLoadException
-// (declared in engine/Graph.hpp) on truncation or malformed encoding.
+// Decodes the low-level protobuf encoding — varints, fixed-width values, and
+// length-delimited fields — and is agnostic to any particular message: the
+// caller supplies the field numbers it cares about. Unknown fields are
+// skipped, and truncated or malformed input raises a load error.
+//
+// Private to the engine implementation; not part of the public headers.
 
 #include <cstdint>
 #include <vector>

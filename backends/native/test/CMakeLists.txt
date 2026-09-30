@@ -1,5 +1,5 @@
-# Empty test-dir stub for the NATIVE backend (Phase N0 Group 1, orchestrator
-# amendment recorded in plan.md Notes). The shared test wiring runs an
-# unguarded add_subdirectory over every enabled backend's TEST_DIR, so the
-# directory must exist for -DDEFAULT_BACKEND=NATIVE to configure with tests
-# on. Group 6 fills it with the real adapter tests.
+# Placeholder test directory for the NATIVE backend.
+#
+# The shared test wiring adds every enabled backend's test directory
+# unconditionally, so this directory must exist for a NATIVE build with tests
+# enabled to configure. The real adapter tests land here later.

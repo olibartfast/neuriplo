@@ -14,7 +14,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
-# --- [T-6] Abstraction-boundary guard ----------------------------------------
+# --- Abstraction-boundary guard ----------------------------------------------
 # Engine translation units must not include backend abstraction headers. The
 # forbidden patterns are named here in CMake (allowed); the C++ sources
 # themselves must stay free of them.
@@ -32,15 +32,25 @@ foreach(engine_tu IN LISTS ENGINE_TUS)
             message(FATAL_ERROR
                 "engine/ boundary violation: ${engine_tu} references "
                 "'${pattern}'. The engine must not depend on the backend "
-                "abstraction layer (see plan.md [T-6]).")
+                "abstraction layer.")
         endif()
     endforeach()
 endforeach()
 
 add_library(neuriplo_engine STATIC
-    src/Engine.cpp)
+    src/Engine.cpp
+    src/WireReader.cpp
+    src/ModelLoader.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
         "$<INSTALL_INTERFACE:include>")
+
+# Engine tests; GoogleTest stays scoped to engine/test/. The engine directory
+# is added during backend selection, before the top-level test setup runs, so
+# testing is enabled here for the tests below to register.
+if(BUILD_INFERENCE_ENGINE_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif()
