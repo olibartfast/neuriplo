@@ -170,6 +170,11 @@ engine::Node relu_node(const std::string& name, const std::string& input, const 
     return node;
 }
 
+// Two planned byte ranges share at least one byte.
+bool ranges_overlap(const engine::BufferAssignment& a, const engine::BufferAssignment& b) {
+    return a.offset < b.offset + b.size && b.offset < a.offset + a.size;
+}
+
 const char* fixture_env_name() { return "NEURIPLO_NATIVE_FIXTURE"; }
 
 } // namespace
@@ -186,27 +191,38 @@ class EnginePlan : public ::testing::Test {
     }
 };
 
-// Three Relu tensors in a chain: each is dead before the next is defined, so
-// all three are assigned the same offset.
+// Two independent Relu chains, x -> a0 -> aout and y -> b0 -> bout, all rank-1
+// width 1x64. Under inclusive liveness a0 is live over [0, 1] while b0 is live
+// over [2, 3]: b0 starts after a0's last use, so their lifetimes are genuinely
+// disjoint and they share offset 0. The chain outputs aout [1, 3] and b0 [2, 3]
+// overlap in time, so those must not share bytes.
 TEST_F(EnginePlan, DisjointLifetimesShareOffset) {
     engine::Graph graph;
     graph.inputs.push_back({"x", f32({1, 64})});
+    graph.inputs.push_back({"y", f32({1, 64})});
     graph.nodes.push_back(relu_node("relu0", "x", "a0"));
-    graph.nodes.push_back(relu_node("relu1", "a0", "a1"));
-    graph.nodes.push_back(relu_node("relu2", "a1", "a2"));
-    graph.outputs.push_back({"a2", f32({1, 64})});
+    graph.nodes.push_back(relu_node("relu1", "a0", "aout"));
+    graph.nodes.push_back(relu_node("relu2", "y", "b0"));
+    graph.nodes.push_back(relu_node("relu3", "b0", "bout"));
+    graph.outputs.push_back({"aout", f32({1, 64})});
+    graph.outputs.push_back({"bout", f32({1, 64})});
 
     engine::InferredShapes shapes;
     shapes.tensors["x"] = f32({1, 64});
+    shapes.tensors["y"] = f32({1, 64});
     shapes.tensors["a0"] = f32({1, 64});
-    shapes.tensors["a1"] = f32({1, 64});
-    shapes.tensors["a2"] = f32({1, 64});
+    shapes.tensors["aout"] = f32({1, 64});
+    shapes.tensors["b0"] = f32({1, 64});
+    shapes.tensors["bout"] = f32({1, 64});
 
     const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
-    ASSERT_EQ(plan.buffers.size(), 3U);
-    EXPECT_EQ(plan.buffers.at("a0").offset, 0);
-    EXPECT_EQ(plan.buffers.at("a1").offset, 0);
-    EXPECT_EQ(plan.buffers.at("a2").offset, 0);
+    ASSERT_EQ(plan.buffers.size(), 4U);
+    EXPECT_EQ(plan.buffers.at("a0").offset, plan.buffers.at("b0").offset)
+        << "disjoint inclusive lifetimes should reuse: a0=" << plan.buffers.at("a0").offset
+        << " b0=" << plan.buffers.at("b0").offset;
+    EXPECT_FALSE(ranges_overlap(plan.buffers.at("aout"), plan.buffers.at("b0")))
+        << "aout=" << plan.buffers.at("aout").offset << "+" << plan.buffers.at("aout").size
+        << " b0=" << plan.buffers.at("b0").offset << "+" << plan.buffers.at("b0").size;
 }
 
 // `a` stays live until Add consumes it at node 2, while `b` is defined at node
@@ -269,8 +285,11 @@ TEST_F(EnginePlan, OffsetsAlignedAndWithinArena) {
     EXPECT_GT(plan.arena_size, 0);
 }
 
-// Sequential lifetimes mean the arena reuses the same bytes: its size is
-// strictly smaller than the sum of the tensors it holds ([V-5] reuse proof).
+// A three-link Relu chain x -> a0 -> a1 -> a2. Under inclusive liveness
+// a0=[0,1], a1=[1,2], a2=[2,2]; consecutive links touch at the boundary so
+// they cannot share, but a0 and a2 are disjoint and reuse the same bytes. The
+// arena is therefore strictly smaller than the sum of its tensors ([V-5] reuse
+// proof).
 TEST_F(EnginePlan, SequentialArenaSmallerThanSum) {
     engine::Graph graph;
     graph.inputs.push_back({"x", f32({1, 64})});
@@ -337,6 +356,65 @@ TEST_F(EnginePlan, GraphOutputHasBuffer) {
     const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
     ASSERT_EQ(plan.buffers.count("y"), 1U);
     EXPECT_GT(plan.buffers.at("y").size, 0);
+}
+
+// The inclusive-liveness safety invariant the executor depends on: no node
+// output may share bytes with any input of its defining node (so a
+// read-then-write kernel never overwrites its own input). Checked on a
+// hermetic node and over every node of the real fixture plan.
+TEST_F(EnginePlan, OutputNeverAliasesItsInput) {
+    // Hermetic: relu1 consumes arena tensor `a` and defines `b`; the planner
+    // must keep their byte ranges disjoint.
+    {
+        engine::Graph graph;
+        graph.inputs.push_back({"x", f32({1, 8})});
+        graph.nodes.push_back(relu_node("relu0", "x", "a"));
+        graph.nodes.push_back(relu_node("relu1", "a", "b"));
+        graph.outputs.push_back({"b", f32({1, 8})});
+
+        engine::InferredShapes shapes;
+        shapes.tensors["x"] = f32({1, 8});
+        shapes.tensors["a"] = f32({1, 8});
+        shapes.tensors["b"] = f32({1, 8});
+
+        const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+        ASSERT_EQ(plan.buffers.count("a"), 1U);
+        ASSERT_EQ(plan.buffers.count("b"), 1U);
+        EXPECT_FALSE(ranges_overlap(plan.buffers.at("a"), plan.buffers.at("b")))
+            << "a=" << plan.buffers.at("a").offset << "+" << plan.buffers.at("a").size
+            << " b=" << plan.buffers.at("b").offset << "+" << plan.buffers.at("b").size;
+    }
+
+    // Real fixture: the same invariant for every node with a buffered input and
+    // a buffered output. A missing fixture FAILS, never skips.
+    const std::string fixture = fixture_path();
+    ASSERT_FALSE(fixture.empty()) << "missing fixture: set " << fixture_env_name()
+                                  << " to the opset-18 ResNet-18 ONNX model; a missing fixture must "
+                                     "fail, never skip";
+    ASSERT_TRUE(std::filesystem::exists(fixture))
+        << "fixture path from " << fixture_env_name() << " does not exist: " << fixture;
+
+    const engine::Graph graph = engine::LoadGraphFromFile(fixture);
+    const engine::InferredShapes shapes = engine::InferShapes(graph, {{"input", {1, 3, 224, 224}}});
+    const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+
+    for (const engine::Node& node : graph.nodes) {
+        for (const std::string& input : node.inputs) {
+            const auto in_buffer = plan.buffers.find(input);
+            if (in_buffer == plan.buffers.end()) {
+                continue; // graph input or initializer: external, no arena buffer
+            }
+            for (const std::string& output : node.outputs) {
+                const auto out_buffer = plan.buffers.find(output);
+                if (out_buffer == plan.buffers.end()) {
+                    continue;
+                }
+                EXPECT_FALSE(ranges_overlap(in_buffer->second, out_buffer->second))
+                    << "node '" << node.name << "' (" << node.op_type << ") output '" << output
+                    << "' aliases input '" << input << "'";
+            }
+        }
+    }
 }
 
 // [V-13] plan half: one loaded graph, two inferred shapes, two plans, no

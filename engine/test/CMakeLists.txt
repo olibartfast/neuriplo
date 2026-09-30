@@ -81,9 +81,26 @@ add_test(NAME engine_kernels
 add_test(NAME engine_kernels_negative
     COMMAND engine_kernels_test --gtest_filter=EngineKernelsNegative.*)
 
+add_executable(engine_executor_test ExecutorTest.cpp)
+target_compile_features(engine_executor_test PRIVATE cxx_std_17)
+target_compile_options(engine_executor_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(engine_executor_test PRIVATE
+    neuriplo_engine
+    GTest::gtest
+    GTest::gtest_main)
+
+add_test(NAME engine_executor
+    COMMAND engine_executor_test --gtest_filter=EngineExecutor.*)
+add_test(NAME engine_executor_negative
+    COMMAND engine_executor_test --gtest_filter=EngineExecutorNegative.*)
+
+# The fixture end-to-end run may take seconds; give it room beyond the default.
+set_tests_properties(engine_executor PROPERTIES TIMEOUT 1800)
+
 if(NEURIPLO_NATIVE_FIXTURE)
     set_tests_properties(engine_loader engine_loader_negative
         engine_shapes engine_shapes_negative
-        engine_plan engine_plan_negative PROPERTIES
+        engine_plan engine_plan_negative
+        engine_executor engine_executor_negative PROPERTIES
         ENVIRONMENT "NEURIPLO_NATIVE_FIXTURE=${NEURIPLO_NATIVE_FIXTURE}")
 endif()

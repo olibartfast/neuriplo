@@ -44,6 +44,7 @@ add_library(neuriplo_engine STATIC
     src/ShapeInference.cpp
     src/MemoryPlanner.cpp
     src/CpuDevice.cpp
+    src/Executor.cpp
     src/kernels/CpuKernels.cpp
     src/kernels/Relu.cpp
     src/kernels/Add.cpp

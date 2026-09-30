@@ -209,3 +209,16 @@ throughout.
   padding) complete the [R-5] reference kernel set; the eight-op table resolves
   through `CpuDevice`. Group 4 is complete; Group 5 (sequential executor,
   T-16/T-17) is next.
+- Group 5 (2026-09-30, attempt 2): T-16/T-17 landed as
+  `engine/include/engine/Executor.hpp` (`Model(graph, input_dims, device)`,
+  `Run(inputs) -> InferenceResult`) and `engine/src/Executor.cpp`. Construction
+  infers shapes, plans memory, and allocates the single arena through the device
+  once; `Run` binds inputs and initializers, walks nodes through the kernel
+  table, and copies graph outputs out, allocating no arena memory. The fixture
+  runs end to end to a finite `[1,1000]` output. Attempt 1 was rejected: it hid
+  a planner defect behind a per-call heap copy. The rework changed
+  `PlanMemory` lifetimes to the inclusive `[definition, last_use]` so a value
+  stays live through its consumer and **no node output shares bytes with an
+  input of its defining node** — the invariant read-then-write kernels need and
+  the reason the executor needs no copy. `EnginePlan.OutputNeverAliasesItsInput`
+  guards it. Group 6 (backend adapter, T-18..T-21) is next.

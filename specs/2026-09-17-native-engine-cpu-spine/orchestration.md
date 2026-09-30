@@ -705,6 +705,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 14 | 4b (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests, 77/77 default, docs/format clean) | 0 | `Gemm` (transposes, alpha/beta, bias) and `MatMul` (batch broadcast, 1-D promotion) with hand-computed tests; committed with Group 4b |
 | 15 | 4c (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests incl. 31 kernel cases, 77/77 default, docs/format clean) | 0 | `Conv` (group/stride/pad/dilation/auto_pad/bias) and `MaxPool` (ceil/pad) complete the [R-5] kernel set; committed with Group 4c |
 | 16 | 5 (implement, attempt 1) | Implementer | Kilo `general` subagent | — | — | Scoreboard pass but **orchestrator-rejected** | 1 (planner wrote corrected rework packet) | Rejected: executor masked a planner defect with a transient heap copy of same-node aliased inputs; the planner's half-open lifetimes `[def, last_use)` are unsafe for read-then-write kernels. Rework fixes inclusive liveness and removes the copy |
+| 17 | 5 (rework, attempt 2) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 11/11 engine ctests, 77/77 default, docs/format clean) | 0 | Inclusive liveness `[def, last_use]` in the planner (no output aliases its defining node's inputs), alias workaround removed, executor end-to-end on the fixture; committed with Group 5 |
 
 ## Open questions
 
