@@ -137,12 +137,14 @@ planner, executor, or adapter.
   scalar/list variant over the [A-1] sets); `Node{name, op_type, inputs,
   outputs, attributes}`; `Graph{nodes, tensors, initializers, inputs,
   outputs}` — document order after verifying the topological property, value
-  table for every named value, initializers as `std::vector<float>`, inputs
-  vs initializers vs intermediates explicitly distinct. Attribute surface is
+  table for every named value, initializers as a dtype-tagged `Initializer`
+  (`Float32` weights + `Int64` shape constants per [D-9]), inputs vs
+  initializers vs intermediates explicitly distinct. Attribute surface is
   exactly [A-1]; `Add`/`Relu`/`MatMul` take no attributes.
 - **Final state (T-10 rejection):** load-time `ModelLoadException` naming node
   name + op type for all four classes (unknown op, unsupported attribute,
-  non-FP32 incl. non-float initializer storage, dynamic dims). Never at
+  unsupported initializer dtype — `FLOAT16` etc.; `FLOAT` and `INT64` constants
+  are accepted per [D-9], graph IO stays FLOAT-only — dynamic dims). Never at
   inference, never by guessing. T-6 holds: no `neuriplo`,
   `InferenceInterface`, or `include/neuriplo` string anywhere under `engine/`.
 - **Checks:** `engine/test/LoaderTest.cpp`, ctest `engine_loader` (positive)
@@ -187,6 +189,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 5 | 2 (implement) | Implementer | GLM-5.3-Flash | budget exhausted in reads | — | n/a (blocked pre-implementation) | 0 | Fail — no files changed; packet too large for worker window; split into 2a/2b below |
 | 6 | 2a (implement) | Implementer | GLM-5.3-Flash | budget exhausted after writing 4 files | — | Self-FAIL (runtime check open); orchestrator closed it: standalone functional test (varint/fixed32/64/tags/LD/skip/truncation/group) ALL PASS under -Wall -Wextra -Werror | 1 (orchestrator functional verification) | Pass → committed as part 1 (no CMake wiring yet; zero build impact) |
 | 7 | 2b (implement) | Implementer | GLM-5.3-Flash | budget exhausted mid-write | — | Fail — partial ModelLoader.cpp (stub decode_node, no LoadGraphFromFile), no tests/wiring/acceptance | 0 | Blocked; findings preserved (field numbers, external-data) in packet notes; split into 2c/2d |
+| 8 | 2c/2d (complete) | Session driver | deepseek-flash | — | — | Pass: `ctest -R engine_loader` 14/14, default `OPENCV_DNN` 77/77, format clean | 1 (maintainer decision [D-9] on int64 shape constants) | Group 2b completed: dtype-tagged initializers, int64 support, test registration + encoder fix |
 
 ## Open questions
 

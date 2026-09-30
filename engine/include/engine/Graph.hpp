@@ -1,13 +1,12 @@
 #pragma once
-// Graph IR for the first-party native engine (Phase N0, Group 2a).
+// The engine's graph representation.
 //
-// Minimal typed intermediate representation covering exactly what the
-// [R-5] op set (opset 18) needs for the ResNet-18 fixture graph. Loaded by
-// LoadGraphFromFile() (see ModelLoader.hpp); the protobuf wire decoding is
-// isolated in the private WireReader under engine/src/.
+// A loaded model becomes a typed graph: nodes in execution order, a table of
+// every tensor's type and shape, the embedded constants, and the declared
+// inputs and outputs. It covers exactly the operators the reference model
+// needs; compute is float32, with int64 constants allowed for shape inputs.
 //
-// Boundary contract ([R-1]): this header must not include or reference the
-// backend abstraction layer.
+// Must not include or reference the backend abstraction layer.
 
 #include <cstdint>
 #include <map>
@@ -19,37 +18,32 @@
 
 namespace engine {
 
-// Raised for any malformed/unreadable model file and for graphs the loader
-// cannot accept ([V-3] asserts the message carries the node name and op type).
+// Raised for any malformed or unreadable model file, and for graphs the loader
+// cannot accept. The message carries the offending node name and op type.
 class ModelLoadException : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
 
-// Tensor element type. Only what [R-3] (static, float32-only) needs today;
-// everything else decodes as Unknown and is rejected later with context.
+// Tensor element type. Compute is float32. Int64 appears only for embedded
+// constant tensors that carry shape indices (Reshape's shape input); anything
+// else decodes as Unknown and is rejected later with context.
 enum class DataType {
     Float32,
+    Int64,
     Unknown,
 };
 
-// Declared tensor metadata from the model's graph I/O / value-info table.
+// The declared type and shape of a tensor, from the model's input, output, and
+// value-info entries.
 struct TensorInfo {
     DataType dtype = DataType::Unknown;
     std::vector<int64_t> dims;
 };
 
-// Attribute values, covering EXACTLY the [A-1] attribute sets:
-//   Conv       : pads, strides, dilations, group, auto_pad
-//   MaxPool    : kernel_shape, pads, strides, dilations, ceil_mode,
-//                storage_order, auto_pad
-//   ReduceMean : keepdims, noop_with_empty_axes
-//   Reshape    : allowzero
-//   Gemm       : alpha, beta, transA, transB
-//
-// Int lists model both int lists (ints) and int64 lists (longs); float
-// scalars/sub-graphs are not named in the loader interface and use their
-// natural protobuf coding (double for singles, strings for text).
+// An operator attribute value. Covers the kinds the supported operators use:
+// integer and float scalars, strings, and integer or float lists. Other kinds
+// are rejected at load.
 struct Attribute {
     std::string name;
     std::variant<
@@ -66,7 +60,8 @@ struct Attribute {
         : name(std::move(n)), value(std::move(v)) {}
 };
 
-// A single graph node: op name, op type, edges, and its decoded attributes.
+// A single graph node: its operator type, the tensors it consumes and
+// produces, and its decoded attributes.
 struct Node {
     std::string name;
     std::string op_type;
@@ -75,13 +70,20 @@ struct Node {
     std::vector<Attribute> attributes;
 };
 
-// Whole-model graph: execution order, value-info table, embedded float
-// initializers, and declared I/O shapes ([V-2] asserts node count, op types,
-// initializer count, and declared input/output shapes from these).
+// An embedded constant tensor. Weights are float32; integer constants carry
+// shape indices. `dtype` selects which alternative of `values` is meaningful.
+struct Initializer {
+    DataType dtype = DataType::Unknown;
+    std::vector<int64_t> dims;
+    std::variant<std::vector<float>, std::vector<int64_t>> values;
+};
+
+// A whole model: nodes in execution order, the type-and-shape table for every
+// named value, the embedded constants, and the declared inputs and outputs.
 struct Graph {
     std::vector<Node> nodes;
-    std::map<std::string, TensorInfo> tensors;              // value table
-    std::map<std::string, std::vector<float>> initializers; // embedded weights
+    std::map<std::string, TensorInfo> tensors;            // value table
+    std::map<std::string, Initializer> initializers;      // embedded constants
     std::vector<std::pair<std::string, TensorInfo>> inputs;
     std::vector<std::pair<std::string, TensorInfo>> outputs;
 };

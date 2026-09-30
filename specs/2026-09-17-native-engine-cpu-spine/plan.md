@@ -57,7 +57,9 @@ throughout.
   initializer storage, and an explicit distinction between graph inputs,
   initializers, and intermediates.
 - [T-10] Reject at load, with node name and op type: unknown ops, unsupported
-  attributes, non-FP32 tensors, unresolvable dynamic dimensions.
+  attributes, unsupported tensor dtypes, unresolvable dynamic dimensions.
+  Compute tensors (graph inputs and outputs) are float32-only; embedded
+  initializers may additionally be int64 shape constants ([D-9]).
   - Checks: unit tests load the fixture and assert node/initializer counts;
     malformed and unsupported-op files produce `ModelLoadException`.
 
@@ -156,3 +158,12 @@ throughout.
   every backend. Also accepted in Group 1: the `version_var: null` NATIVE entry
   renders as a cosmetic `` `None` `` row in the GEN `cmake-version-variables`
   table; the generator is out of scope for this group.
+- Group 2b (2026-09-30, maintainer decision): once the loader tests actually
+  ran, the real fixture exposed two int64 initializers (`val_226`, `val_230`)
+  that `Reshape` consumes. Recorded as [D-9] and folded into Group 2b rather
+  than deferred: the IR now tags initializers with a dtype, `value_info` accepts
+  `Int64`, and graph inputs/outputs stay float32-only. Also fixed in Group 2b:
+  the engine tests were registering no cases (the engine dir is added before the
+  top-level `enable_testing()`), and a hermetic encoder wrote the opset entry
+  unwrapped — both were silent until the tests were made to run. This is the
+  T-10/T-8 completion; [V-2]/[V-3] evidence recorded in `validation.md`.

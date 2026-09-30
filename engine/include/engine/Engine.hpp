@@ -1,18 +1,15 @@
 #pragma once
-// First-party inference engine (CPU reference spine).
+// The first-party inference engine.
 //
-// Phase N0 Group 1: skeleton only. The engine intentionally has no public API
-// surface beyond this stub yet; Groups 2-5 fill in ONNX loading, graph IR,
-// shape inference, kernels, and the executor per plan.md.
-//
-// Boundary contract ([R-1]): this directory must not include or link the
-// backend abstraction layer. The configure-time guard in the CMakeLists.txt
-// enforces this.
+// A self-contained runtime: it reads an ONNX model, builds a typed graph,
+// infers shapes, plans memory, and executes the graph with CPU reference
+// kernels. It stands on its own — nothing here includes or links the backend
+// abstraction layer, and the build enforces that separation.
 
 namespace engine {
 
-// Placeholder translation-unit anchor so the static library is non-empty and
-// the standalone build is linkable. Replaced by the executor in Group 5.
+// Placeholder so the library has a symbol while the runtime is built out.
+// Replaced by the executor once it exists.
 class Engine {
 public:
     Engine() = default;
