@@ -175,6 +175,96 @@ planner, executor, or adapter.
   a stalled mid-file write. 2c = complete `ModelLoader.cpp` single write
   only; 2d = tests + CMake wiring + acceptance.
 
+### Packet Group 3a — static shape inference (T-11, shape half of T-27)
+
+Implementation split of Group 3 (3a shapes, 3b memory planner, 3c device seam),
+following the Group 2 precedent: size each packet for the worker window. Group 2
+landed; baseline default build green 77/77, engine loader 14/14. This packet
+touches no loader, parser, kernels, planner, executor, or adapter code.
+
+- **Writable (nothing beyond these):**
+  - new `engine/include/engine/Shapes.hpp` — the public shape-inference surface,
+    namespace `engine`
+  - new `engine/src/ShapeInference.cpp`
+  - new `engine/test/ShapeInferenceTest.cpp`
+  - edit `engine/CMakeLists.txt` — add `src/ShapeInference.cpp` to the
+    `neuriplo_engine` source list only
+  - edit `engine/test/CMakeLists.txt` — append one `add_executable`
+    (`engine_shapes_test`) and two `add_test` (`engine_shapes`,
+    `engine_shapes_negative`), copying the `engine_loader` wiring shape
+  - Never: `specs/**`, `cmake/**`, `backends/**`, `docs/**`, `versions.env`,
+    Docker, workflows, `src/**`, `include/**`, or any other `engine/` file —
+    `Graph.hpp`, `ModelLoader.*`, `WireReader.*`, `Engine.*` are read-only.
+- **Read-only (read, never modify):**
+  - `engine/include/engine/Graph.hpp` (the IR types the result populates)
+  - `engine/include/engine/ModelLoader.hpp` (exception type, loading contract)
+  - `engine/test/LoaderTest.cpp` and `engine/test/CMakeLists.txt` (test style,
+    hermetic wire encoders, target/test naming)
+  - `specs/2026-09-17-native-engine-cpu-spine/requirements.md` — [R-3], [R-5],
+    [D-9], [A-1], [A-3]; `plan.md` — T-11 and T-27; `validation.md` — [V-5],
+    [V-13]
+- **Fixed interface (exact identifiers):** in `engine/include/engine/Shapes.hpp`,
+  namespace `engine`:
+  - `using ShapeMap = std::map<std::string, std::vector<int64_t>>;`
+  - `struct InferredShapes { std::map<std::string, TensorInfo> tensors; };`
+  - `InferredShapes InferShapes(const Graph& graph, const ShapeMap& input_dims);`
+- **Required final state (T-11):** `InferShapes` computes the concrete
+  `TensorInfo` (dtype + dims) of every tensor reachable from the graph without
+  mutating `graph`, and introduces no new dependency. Seed the value table with
+  the graph inputs (dims from `input_dims`, dtype `Float32`; a name absent from
+  `input_dims` or carrying a non-positive dim is a load error naming that
+  input), then with every initializer (its stored `dtype` and `dims`). Walk
+  `graph.nodes` in order and compute each node's outputs from its input types
+  and attributes; do not trust the optional `value_info` table (`graph.tensors`)
+  for intermediates — inference must derive them. After the walk every node
+  input and every declared output must resolve; otherwise throw
+  `ModelLoadException` whose message contains the offending node name and
+  op type. Compute stays `Float32`; `Int64` appears only for constant shape/axes
+  operands. Ops and opset-18 semantics:
+  - `Add`: NumPy multidirectional broadcast of the two input shapes.
+  - `Relu`: output shape equals input shape.
+  - `MatMul`: ONNX MatMul, including 1-D operand promotion (prepend/append a 1,
+    squeeze it from the result) and batch-dimension broadcasting.
+  - `Gemm`: A and B are rank-2 (Apply transA/transB, both default 0); output is
+    `[A.rows, B.cols]`. `alpha`/`beta` do not affect shape.
+  - `Conv`: NCHW, rank-4 input and rank-4 weight `[M, C/group, kH, kW]`; require
+    `C % group == 0` and `weight[1] == C/group`; output `[N, M, oH, oW]` with
+    `o = floor((in + pad_begin + pad_end - dilation*(k-1) - 1)/stride) + 1`,
+    `auto_pad` in {NOTSET, VALID, SAME_UPPER, SAME_LOWER}; a non-positive output
+    dim is an error. An optional third input (bias) is rank-1 length `M`.
+  - `MaxPool`: NCHW, rank-4; `kernel_shape` required, same output formula with
+    `ceil_mode` (ceil instead of floor) and `auto_pad` as above.
+  - `ReduceMean`: `axes` come from the optional second input (an `Int64`
+    constant; the fixture's `val_226` is `[-1,-2]`); when absent or empty and
+    `noop_with_empty_axes == 0`, reduce every axis; `keepdims` defaults to 1.
+    Axes must be in range and unique.
+  - `Reshape`: target dims come from the second input (an `Int64` constant; the
+    fixture's `val_230` is `[1,512]`). A `0` copies the input dim at that index
+    unless `allowzero == 1`, in which case it is a literal zero; at most one
+    `-1` is inferred from the element count; the target product must equal the
+    input element count. Every other value must be positive.
+- **Required final state (tests, worker output not acceptance):** hermetic
+  hand-encoded graphs cover `Add` broadcast, `Reshape` with `0`/`-1`, `ReduceMean`
+  keepdims on/off, `Conv` stride/pad, `MaxPool` ceil, `Gemm` transposes, and the
+  negative classes (reshape product mismatch, out-of-range axes, missing input
+  dims, unresolved input), each negative asserting the node/op context. Loader
+  tests keep their fixture-provisioning rule: a missing fixture FAILS, never
+  skips. Fixture cases assert the first `Conv` output `[1,64,112,112]`, the final
+  `Gemm` output `[1,1000]`, that every graph tensor resolves, and that a second
+  call with input `[2,3,224,224]` yields output `[2,1000]` from the same loaded
+  graph with no reload ([V-13] shape half).
+- **Working method:** for every writable file write the complete final content;
+  read the real file before changing it; build and run targeted checks
+  (`cmake --build build-native`, the `engine_shapes*` and `engine_loader*` ctests)
+  as often as useful.
+- **Budget:** 14 turns. **Handback:** `GROUP 3a HANDBACK pass|fail`, one line per
+  obligation with evidence, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+  Stop after it, pass or fail, and report. Do not repair and rerun.
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
