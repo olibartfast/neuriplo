@@ -759,6 +759,35 @@ the backend abstraction and the first-party engine meet.
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel && ctest --test-dir build-native -R "engine_|NativeInfer" --output-on-failure && cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv --parallel && ctest --test-dir build-ocv --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 6b — public GPU-request boundary (T-21, [V-8]b)
+
+Closes Group 6. 6a landed the adapter, factory, and wiring (12/12 native ctests).
+This packet only adds the public-boundary assertions to the NATIVE adapter tests.
+
+- **Writable:** `backends/native/test/NativeInferTest.cpp`; edit
+  `backends/native/test/CMakeLists.txt` only if an include dir or source is
+  missing. Never anything else; `src/InferenceBackendSetup.cpp` is READ-ONLY.
+- **Read-only:** `include/InferenceBackendSetup.hpp`, `backends/src/InferenceInterface.hpp`,
+  `requirements.md` [R-9]; `plan.md` T-21; `validation.md` [V-8].
+- **Required tests (append to `NativeInferTest.cpp`):** with the fixture and
+  `NEURIPLO_NATIVE_FIXTURE` handling as in 6a —
+  - `EngineOptions{model_path=fixture, backend_id="NATIVE", use_gpu=true}` passed
+    to `setup_inference_engine` returns `nullptr` (the factory's throw is
+    translated by the public boundary; this is [V-8]b).
+  - the legacy overload `setup_inference_engine(fixture, /*use_gpu=*/true, 1, {})`
+    returns `nullptr`.
+  - a control case with `use_gpu=false` and `backend_id="NATIVE"` returns a
+    non-null backend whose `state()` is Ready, proving the null results come from
+    the GPU request and not a general failure.
+  - no inference runs in the rejected cases (the factory throws before an engine
+    is constructed).
+- **Budget:** 8 turns. **Handback:** `GROUP 6b HANDBACK pass|fail`, obligation
+  lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel && ctest --test-dir build-native -R "engine_|NativeInfer" --output-on-failure && cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv --parallel && ctest --test-dir build-ocv --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
