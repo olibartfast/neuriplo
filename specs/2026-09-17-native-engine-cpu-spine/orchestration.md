@@ -372,6 +372,63 @@ inference, kernels, executor, or adapter code.
   cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 3c — device-layer seam, CPU implementation (T-13)
+
+Final split of Group 3. 3a/3b landed; baseline 77/77 default, engine
+loader/shapes/plan 6/6. This packet fixes the kernel calling convention Group 4
+implements and Group 5 executes, so it lands before either.
+
+- **Writable (nothing beyond these):**
+  - new `engine/include/engine/Device.hpp` — public seam, namespace `engine`
+  - new `engine/src/CpuDevice.cpp`
+  - new `engine/test/DeviceTest.cpp`
+  - edit `engine/CMakeLists.txt` — add `src/CpuDevice.cpp` to `neuriplo_engine` only
+  - edit `engine/test/CMakeLists.txt` — add `engine_device_test` (`DeviceTest.cpp`,
+    `-Wall -Wextra -Wpedantic`, links `neuriplo_engine` + GTest) and one test
+    `engine_device` (`EngineDevice.*`)
+  - Never: `specs/**`, `cmake/**`, `backends/**`, `docs/**`, `versions.env`,
+    Docker, workflows, `src/**`, `include/**`, or any other `engine/` file —
+    `Graph.hpp`, `Shapes.hpp`, `Plan.hpp`, `ModelLoader.*`, `ShapeInference.cpp`,
+    `MemoryPlanner.cpp`, `WireReader.*`, `Engine.*`, and the existing tests are
+    read-only.
+- **Read-only:** `engine/include/engine/Graph.hpp`, `engine/include/engine/Plan.hpp`,
+  `requirements.md` [R-4] and [D-4]; `plan.md` T-13.
+- **Fixed interface (exact identifiers)** in `engine/include/engine/Device.hpp`,
+  namespace `engine`, including `<cstdint> <string> <vector>` + `"engine/Graph.hpp"`:
+  - `struct TensorView { void* data = nullptr; DataType dtype = DataType::Unknown; std::vector<int64_t> dims; };`
+  - `using KernelFn = void (*)(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);`
+  - `class Allocator { public: virtual ~Allocator() = default; virtual void* allocate(int64_t bytes) = 0; virtual void release(void* buffer) = 0; };`
+  - `class Transfer { public: virtual ~Transfer() = default; virtual void host_to_device(void* dst, const void* src, int64_t bytes) = 0; virtual void device_to_host(void* dst, const void* src, int64_t bytes) = 0; };`
+  - `class KernelTable { public: virtual ~KernelTable() = default; virtual KernelFn find(const std::string& op_type) const = 0; };`
+  - `class Device { public: virtual ~Device() = default; virtual const char* name() const = 0; virtual Allocator& allocator() = 0; virtual Transfer& transfer() = 0; virtual const KernelTable& kernels() const = 0; };`
+  - `const Device& CpuDevice();`
+- **Required CPU semantics ([R-4], one implementation):**
+  - `CpuDevice()` returns a reference to one process-lifetime object; `name()`
+    returns exactly `"cpu"`.
+  - `Allocator::allocate` returns 64-byte-aligned storage of at least `bytes`
+    (the planner's offsets assume that alignment) or `nullptr` on failure;
+    `release(nullptr)` is a no-op. No zeroing is required.
+  - `Transfer` copies `bytes` bytes by `memcpy` in both directions; `bytes == 0`
+    is a no-op and the pointers may then be null.
+  - `CpuKernel` table `find` returns `nullptr` for an unknown op type. The table
+    is empty in this packet — Group 4 fills it with the reference kernels. Do not
+    invent a global mutable registry; the device owns its table.
+  - No dependency beyond the C++17 standard library; no backend-abstraction
+    strings (`neuriplo`, `InferenceInterface`, `include/neuriplo`).
+- **Required tests (`EngineDevice.*`):** `CpuDevice()` reference is stable across
+  two calls and `name()` equals `"cpu"`; `allocate(128)` is non-null and
+  64-byte-aligned; the block is writable/readable; `release` accepts it and
+  `release(nullptr)` is safe; `host_to_device` then `device_to_host` round-trips
+  a byte pattern and a zero-byte copy is a no-op; `kernels().find("NoSuchOp")`
+  is `nullptr`. Group 4 adds the "known op resolves" assertion.
+- **Working method:** complete final content per file; read before editing; run
+  targeted checks freely. Budget 10 turns. **Handback:** `GROUP 3c HANDBACK
+  pass|fail`, obligation lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
