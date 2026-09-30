@@ -150,8 +150,8 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-1 | `grep` + configure guard | | | |
 | V-2 | `ctest -R engine_loader` | Pass | 2026-09-30 | 8 cases green. Real fixture: 49 nodes, ops histogram matches [A-1]; 44 initializers (42 FLOAT + 2 INT64, [D-9]); IO FLOAT `[1,3,224,224]` → `[1,1000]` |
 | V-3 | `ctest -R engine_loader_negative` | Pass | 2026-09-30 | 6 cases green, each asserting node/op/dtype in the `ModelLoadException` message: unknown op, unsupported attribute, INT64 graph input, FLOAT16 initializer, dynamic dim, missing file |
-| V-4 | `ctest -R engine_kernels` | | | |
-| V-4a | `ctest -R engine_kernels` (attribute cases) | | | |
+| V-4 | `ctest -R engine_kernels` | Pass | 2026-09-30 | All eight [R-5] kernels have hand-computed unit cases written in the test: Relu, Add, Reshape, ReduceMean, Gemm, MatMul, Conv, MaxPool |
+| V-4a | `ctest -R engine_kernels` (attribute cases) | Pass | 2026-09-30 | Non-default configurations covered: Conv stride/pad/dilation and group, Gemm transA/transB + alpha/beta + bias, MaxPool ceil with padding, Reshape rank change, ReduceMean keepdims 0/1 and Int64 axes |
 | V-5 | `ctest -R engine_plan` | Partial | 2026-09-30 | (b) pass: `EnginePlan.SequentialArenaSmallerThanSum` asserts `arena_size` (256) < sum of intermediate sizes (768), plus disjoint-lifetime sharing and overlapping-lifetime separation. (a) allocation-count-per-inference ≤ 1 is the executor's ([V-7]/Group 5) |
 | V-6 | `ctest -R parity` | | | observed max abs diff: |
 | V-7 | `ctest --test-dir build-native` | | | |

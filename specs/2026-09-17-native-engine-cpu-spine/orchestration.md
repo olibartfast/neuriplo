@@ -595,6 +595,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 12 | 3c (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 7/7 engine ctests, 77/77 default, docs/format clean) | 0 | Device seam (allocator/transfer/kernel table) + CPU implementation, 64-byte aligned; fixes the kernel calling convention for Group 4; committed with Group 3c |
 | 13 | 4a (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests, 77/77 default, docs/format clean) | 0 | Kernel plumbing + `InferenceException` + `Relu`/`Add`/`Reshape`/`ReduceMean` with hand-computed tests; committed with Group 4a |
 | 14 | 4b (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests, 77/77 default, docs/format clean) | 0 | `Gemm` (transposes, alpha/beta, bias) and `MatMul` (batch broadcast, 1-D promotion) with hand-computed tests; committed with Group 4b |
+| 15 | 4c (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 9/9 engine ctests incl. 31 kernel cases, 77/77 default, docs/format clean) | 0 | `Conv` (group/stride/pad/dilation/auto_pad/bias) and `MaxPool` (ceil/pad) complete the [R-5] kernel set; committed with Group 4c |
 
 ## Open questions
 

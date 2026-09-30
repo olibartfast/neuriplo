@@ -50,7 +50,9 @@ add_library(neuriplo_engine STATIC
     src/kernels/Reshape.cpp
     src/kernels/ReduceMean.cpp
     src/kernels/Gemm.cpp
-    src/kernels/MatMul.cpp)
+    src/kernels/MatMul.cpp
+    src/kernels/Conv.cpp
+    src/kernels/MaxPool.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC
