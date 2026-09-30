@@ -235,7 +235,7 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 ### Phase N0 - CPU Reference Spine
 
-- Status: Implemented, pending validation and merge (branch `feature/native-engine-cpu-spine`; Groups 2–6 plus parity green at 3.15e-05, Group 7c validation run remaining)
+- Status: Implemented, merge held until YOLO inference works on NATIVE (maintainer gate 2026-10-01; branch `feature/native-engine-cpu-spine`, validation green, vision-op coverage being pulled forward onto the branch)
 - Outcome: one classification model runs end to end through `NATIVE` on CPU,
   with outputs matching `ONNX_RUNTIME` on the same file within a recorded
   tolerance.
