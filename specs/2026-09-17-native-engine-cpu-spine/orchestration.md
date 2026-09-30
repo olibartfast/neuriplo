@@ -866,6 +866,7 @@ One row per attempt. Metrics the harness did not report are marked `—`
 | 17 | 5 (rework, attempt 2) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 11/11 engine ctests, 77/77 default, docs/format clean) | 0 | Inclusive liveness `[def, last_use]` in the planner (no output aliases its defining node's inputs), alias workaround removed, executor end-to-end on the fixture; committed with Group 5 |
 | 18 | 6a (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 12/12 native ctests incl. 6 NativeInfer cases, 77/77 default, docs/format clean) | 1 (worker noted PIC + engine-link placement deviations, both accepted) | `NativeInfer` + `NativeRuntimeFactory`, CMake/registry wiring, adapter tests (metadata, typed + raw paths, GPU-rejection throw); committed with Group 6a |
 | 19 | 6b (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: 12/12 native ctests, 77/77 default, docs/format clean) | 0 | Public `setup_inference_engine` GPU-request boundary: both overloads return `nullptr`, CPU control returns a Ready backend; committed with Group 6b |
+| 20 | 7a (implement) | Implementer | Kilo `general` subagent | — | — | Pass (orchestrator re-scored: `native_parity` 27.4 s, observed max abs diff 3.14713e-05) | 0 | Deterministic opset-18 fixture provisioning + NATIVE↔ONNX_RUNTIME parity; committed with Group 7a |
 
 ## Open questions
 

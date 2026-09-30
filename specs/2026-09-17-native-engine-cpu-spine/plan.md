@@ -242,3 +242,13 @@ throughout.
   and its `TestEdgeCases` expects `std::invalid_argument` while the real
   interface throws `InferenceExecutionException`; the NATIVE adapter contract
   is covered by `NativeInferTest` instead. Resolve or document in Group 7.
+- Group 7a (2026-09-30): T-27a/T-22 landed. `backends/native/test/provision_parity_fixture.py`
+  deterministically exports the ResNet-18 fixture at opset 18 (torchvision pinned
+  to `0.27.0`) into the build tree, rejecting `/workspace` and the legacy
+  `Identity`/`Flatten`/`GlobalAveragePool` ops; the CMake target
+  `native_parity_fixture` provisions it and `native_parity_test` (`ParityTest.cpp`)
+  runs the same file and input through `NATIVE` and `ONNX_RUNTIME`, comparing
+  elementwise. Observed maximum absolute difference **3.14713e-05**, inside the
+  [A-2] 1e-4 budget; a missing fixture fails, never skips. Remaining: Group 7b
+  (inventory/docs/README/changelog/roadmap and the [V-7] gap) and T-25 (full
+  validation run).
