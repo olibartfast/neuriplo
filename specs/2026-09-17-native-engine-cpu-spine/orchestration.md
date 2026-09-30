@@ -682,6 +682,83 @@ inf/NaN), and it blocks the Phase N1 device path, which cannot do host copies in
   obligation lines, acceptance tail, deviations, NO-GO, `git status --short`.
 - **Acceptance (once, verbatim, final action):** same command as Packet Group 5.
 
+### Packet Group 6a — NATIVE adapter, factory, and registry wiring (T-18..T-21)
+
+Group 5 complete; engine ctests 11/11, default 77/77. This is the only packet
+that touches `backends/**`; the engine side is read-only. The adapter is where
+the backend abstraction and the first-party engine meet.
+
+- **Writable:**
+  - new `backends/native/src/NativeInfer.hpp`, `backends/native/src/NativeInfer.cpp`
+  - new `backends/native/src/NativeRuntimeFactory.hpp`
+  - edit `backends/native/test/CMakeLists.txt` (replace the placeholder with a real target)
+  - new `backends/native/test/NativeInferTest.cpp`
+  - edit `cmake/Native.cmake` (append the adapter source, add `USE_NATIVE`, link the engine)
+  - edit `cmake/LinkBackend.cmake` (add the `NATIVE` branch: include `backends/native/src`, link `neuriplo_engine`)
+  - edit `backends/src/BackendRuntimeRegistry.cpp` (guarded include + registration entry)
+  - Never: `specs/**`, `engine/**`, `docs/**`, `versions.env`, Docker, workflows,
+    other `backends/**`, `include/**`, `src/**`.
+- **Read-only:** `backends/src/InferenceInterface.hpp`, `InferenceMetadata.hpp`,
+  `IAllocator.hpp`, `ITensorConverter.hpp`, `HostTensorConverter.hpp`,
+  `IBackendRuntimeFactory.hpp`, `BackendRuntimeRegistry.hpp`,
+  `backends/onnx-runtime/src/ORTRuntimeFactory.hpp`, `cmake/ONNXRuntime.cmake`,
+  `cmake/BackendRegistry.cmake` (NATIVE entry), `src/InferenceBackendSetup.cpp`
+  (do not edit it); engine headers `ModelLoader.hpp`, `Executor.hpp`, `Shapes.hpp`,
+  `Graph.hpp`; `requirements.md` [R-8], [R-9], [R-10] context; `plan.md`
+  T-18..T-21; `validation.md` [V-7], [V-8].
+- **Adapter contract (fixed):**
+  - `class NativeInfer : public InferenceInterface` in
+    `backends/native/src/NativeInfer.hpp`. Constructor
+    `NativeInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
+    const std::vector<std::vector<int64_t>>& input_sizes = {})`:
+    - if `use_gpu`, throw the GLOBAL `InferenceException` (from `InferenceInterface.hpp`) with a
+      message naming the phase limitation (`NATIVE runs on CPU only in this phase`); no silent CPU.
+    - load the model with `engine::LoadGraphFromFile(model_path)`, translate
+      `engine::ModelLoadException` to the global `ModelLoadException`.
+    - build the input `ShapeMap`: for each declared graph input in order, use
+      `input_sizes[i]` when provided and non-empty, else that input's declared
+      dims; all dims must be positive.
+    - construct `engine::Model` with `engine::CpuDevice()`; set `inference_metadata_`
+      from the graph's declared inputs and outputs (`addInput`/`addOutput` with
+      `TensorDataType::Float32` and `batch_size`; shape from the resolved dims),
+      and set `state_ = BackendState::Ready`.
+  - `get_infer_results`: `validate_input`; map input `i` (positional) to the i-th
+    graph input, require its byte size to equal `elements * sizeof(float)`,
+    `memcpy` into a `std::vector<float>`, call `Model::Run`, and return the outputs
+    in graph-output order as `std::vector<TensorElement>` floats plus their shapes.
+    Translate `engine::InferenceException` to the global `InferenceExecutionException`.
+  - `get_infer_results_raw`: same input path, but fill `RawOutputTensor`
+    (`dtype = TensorDtype::FP32`, `bytes` = the float bytes, `shape` = the output dims)
+    by copying the engine output buffers, without building `TensorElement`s.
+  - `engine` failures must never escape as `engine::`-typed exceptions across the
+    adapter boundary; translate both engine exception types.
+  - `class NativeRuntimeFactory : public IBackendRuntimeFactory` in
+    `NativeRuntimeFactory.hpp`: `create_backend` throws the global `InferenceException`
+    when `use_gpu` (and otherwise returns `std::make_unique<NativeInfer>(...)`),
+    `create_allocator` returns `HostAllocator`, `create_converter` returns
+    `HostTensorConverter`, `name()` returns `"NativeRuntimeFactory"`.
+- **Build/registry wiring:** mirror `cmake/ONNXRuntime.cmake` for source append,
+  `add_compile_definitions(USE_NATIVE)`, and the engine link; add the `NATIVE`
+  branch to `neuriplo_link_backend_to`; register
+  `{"NATIVE", "Native Engine", &make_factory<NativeRuntimeFactory>, false}` under
+  `#ifdef USE_NATIVE` in `BackendRuntimeRegistry.cpp`.
+- **Required tests (`backends/native/test/NativeInferTest.cpp`, executable wired by
+  the test `CMakeLists.txt` like `ONNXRuntimeInferTest`; fixture resolved via the
+  `NEURIPLO_NATIVE_FIXTURE` env var or cache var with the same `/tmp/opencode/...`
+  fallback, and a missing fixture FAILS never skips):** metadata reports one input
+  and one output (`[1,1000]`); `get_infer_results` on `1*3*224*224` floats returns
+  one output of 1000 floats; `get_infer_results_raw` returns `dtype == FP32`, shape
+  `{1,1000}`, `bytes.size() == 4000`; the raw and typed paths agree elementwise;
+  `NativeRuntimeFactory::create_backend(path, true, ...)` throws the global
+  `InferenceException` whose message names the CPU-only limitation; a missing model
+  path throws the global `ModelLoadException`.
+- **Budget:** 16 turns. **Handback:** `GROUP 6a HANDBACK pass|fail`, obligation
+  lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel && ctest --test-dir build-native -R "engine_|NativeInfer" --output-on-failure && cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv --parallel && ctest --test-dir build-ocv --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
