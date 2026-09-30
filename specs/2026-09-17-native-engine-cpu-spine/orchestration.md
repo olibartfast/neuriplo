@@ -307,6 +307,71 @@ session); prompts are advisory, so the review below is the enforcement.
   `git status --short`.
 - **Acceptance (once, verbatim, final action):** same command as Packet Group 3a.
 
+### Packet Group 3b — liveness and arena memory plan (T-12, plan half of T-27)
+
+Second split of Group 3. Group 3a landed (`InferShapes`); baseline 77/77
+default, engine_shapes/loader 6/6. This packet touches no loader, parser,
+inference, kernels, executor, or adapter code.
+
+- **Writable (nothing beyond these):**
+  - new `engine/include/engine/Plan.hpp` — public planner surface, namespace `engine`
+  - new `engine/src/MemoryPlanner.cpp`
+  - new `engine/test/MemoryPlannerTest.cpp`
+  - edit `engine/CMakeLists.txt` — add `src/MemoryPlanner.cpp` to `neuriplo_engine` only
+  - edit `engine/test/CMakeLists.txt` — add `engine_plan_test` (`MemoryPlannerTest.cpp`,
+    `-Wall -Wextra -Wpedantic`, links `neuriplo_engine` + GTest) and two tests
+    `engine_plan` (`EnginePlan.*`) and `engine_plan_negative`
+    (`EnginePlanNegative.*`), and include them in the fixture env-var property so
+    fixture cases get `NEURIPLO_NATIVE_FIXTURE`
+  - Never: `specs/**`, `cmake/**`, `backends/**`, `docs/**`, `versions.env`,
+    Docker, workflows, `src/**`, `include/**`, or any other `engine/` file — all
+    of `Graph.hpp`, `Shapes.hpp`, `ModelLoader.*`, `ShapeInference.cpp`,
+    `WireReader.*`, `Engine.*` and the existing tests are read-only.
+- **Read-only:** `engine/include/engine/Graph.hpp`, `engine/include/engine/Shapes.hpp`,
+  `engine/test/ShapeInferenceTest.cpp` (hermetic encoders and style),
+  `requirements.md` [R-6], [R-12], [D-4]; `plan.md` T-12 and T-27;
+  `validation.md` [V-5], [V-13].
+- **Fixed interface (exact identifiers)** in `engine/include/engine/Plan.hpp`,
+  namespace `engine`:
+  - `struct BufferAssignment { int64_t offset = 0; int64_t size = 0; };`
+  - `struct MemoryPlan { std::map<std::string, BufferAssignment> buffers; int64_t arena_size = 0; };`
+  - `MemoryPlan PlanMemory(const Graph& graph, const InferredShapes& shapes);`
+- **Required semantics:**
+  - Arena-allocated tensors are the node outputs that are neither graph inputs
+    nor initializers (graph outputs included: they must live to the end).
+    Inputs, initializers, and int64 constants are external and appear in no
+    buffer. Each buffer `size` = element count from `shapes` × dtype byte size
+    (Float32 4, Int64 8).
+  - Liveness interval per arena tensor: first definition = index of the
+    producing node; last use = the greatest index of a later node consuming it,
+    or `nodes.size()` when it is a graph output. A tensor that is never consumed
+    and is not an output has an empty lifetime and gets no buffer.
+  - Assign each buffer the lowest 64-byte-aligned offset that does not overlap
+    any tensor whose lifetime interval intersects its own. Process tensors in a
+    deterministic order: first definition ascending, then name ascending.
+    `arena_size` = the smallest 64-byte multiple that covers every assignment.
+  - Throw `ModelLoadException` if a node output has no inferred shape, if an
+    inferred size is non-positive, or if the graph is empty. Do not mutate
+    `graph` or `shapes`.
+- **Required tests (worker output, not acceptance):** assert (a) two tensors
+  with disjoint lifetimes share the same offset (reuse) and two with overlapping
+  lifetimes do not overlap; (b) offsets are 64-byte aligned and within
+  `[0, arena_size)`; (c) `arena_size` is strictly less than the sum of all
+  arena-tensor sizes for a graph with sequential lifetimes — the [V-5] reuse
+  proof; (d) an input/initializer name is absent from `buffers`; (e) a graph
+  output has a buffer; (f) the [V-13] plan half: the same loaded graph + two
+  different `InferredShapes` (hermetic graph, e.g. two `Conv` nodes, planned at
+  two spatial sizes) produce two correct plans with no reload, and a fixture
+  plan is non-empty with `arena_size > 0`. Negative: a node output missing from
+  `shapes` names the tensor; an empty graph is rejected.
+- **Working method:** complete final content per file; read before editing; run
+  targeted checks freely. Budget 12 turns. **Handback:** `GROUP 3b HANDBACK
+  pass|fail`, obligation lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
