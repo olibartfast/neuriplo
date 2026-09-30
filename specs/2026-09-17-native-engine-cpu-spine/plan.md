@@ -263,5 +263,13 @@ throughout.
   `dockerfile` paths exist; NATIVE null is intentional; two pre-existing gaps
   observed and left untouched (DALI entry references missing
   `docker/Dockerfile.dali`; MIGRAPHX entry spells `Dockerfile.migrachx` while
-  the file is `Dockerfile.migraphx`) — tracked as follow-ups outside this
+  the file is   `Dockerfile.migraphx`) — tracked as follow-ups outside this
   packet. Remaining: T-25 full validation run (Group 7c).
+- Group 7c (2026-10-01): T-25 executed via two parallel validation workers
+  (static half V-1/M-2..M-6; builds half V-10/V-11/V-12) plus one repair.
+  Static half passed clean. Builds half failed exactly one gate (includes
+  check lacked `engine/include`); V-11/V-12 passed and ASan+UBSan 12/12 was
+  clean. Repair added the one-line `INCLUDE_ROOTS` entry, full `run.sh` green.
+  All automated and manual checks now have evidence; [V-7] remains the single
+  standing Partial with a recorded deviation. Remaining: merge into `develop`
+  per the Definition of Done.

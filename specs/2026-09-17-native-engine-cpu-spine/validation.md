@@ -147,7 +147,7 @@ ctest --test-dir build-parity -R parity --output-on-failure
 
 | ID | Command/Check | Result | Date | Notes |
 |----|---------------|--------|------|-------|
-| V-1 | `grep` + configure guard | | | |
+| V-1 | `grep` + configure guard | Pass | 2026-10-01 | No TU under `engine/` includes the abstraction (grep clean); guard is `engine/CMakeLists.txt:17-38` (`ENGINE_FORBIDDEN_PATTERNS`, `FATAL_ERROR` at configure) |
 | V-2 | `ctest -R engine_loader` | Pass | 2026-09-30 | 8 cases green. Real fixture: 49 nodes, ops histogram matches [A-1]; 44 initializers (42 FLOAT + 2 INT64, [D-9]); IO FLOAT `[1,3,224,224]` → `[1,1000]` |
 | V-3 | `ctest -R engine_loader_negative` | Pass | 2026-09-30 | 6 cases green, each asserting node/op/dtype in the `ModelLoadException` message: unknown op, unsupported attribute, INT64 graph input, FLOAT16 initializer, dynamic dim, missing file |
 | V-4 | `ctest -R engine_kernels` | Pass | 2026-09-30 | All eight [R-5] kernels have hand-computed unit cases written in the test: Relu, Add, Reshape, ReduceMean, Gemm, MatMul, Conv, MaxPool |
@@ -158,16 +158,16 @@ ctest --test-dir build-parity -R parity --output-on-failure
 | V-8 | `ctest -R NativeInfer` | Pass | 2026-09-30 | (a) factory `create_backend(path, use_gpu=true)` throws `InferenceException` naming the CPU-only limitation. (b) `setup_inference_engine(EngineOptions{backend_id="NATIVE", use_gpu=true})` and the legacy `setup_inference_engine(path, true, 1, {})` both return `nullptr`; a `use_gpu=false` control returns a Ready backend. No inference runs in either rejected path |
 | V-9 | `gen_backend_docs.py --check` | Pass | 2026-10-01 | Clean after Group 7b (`dockerfile: null` + `test_exe: NativeInferTest` on NATIVE produce no GEN diff); 15 registry IDs agree with 15 yaml IDs |
 | V-9a | Docker + CI inventory enumeration | Pass | 2026-10-01 | 13/15 yaml `dockerfile` paths exist; NATIVE `null` intentional (no SDK, exercised via `-DDEFAULT_BACKEND=NATIVE`); CI matrix (10 backends) is a vendor-image subset, NATIVE/CACTUS/LLAMACPP/EXECUTORCH/DALI absent by construction; `windows-build.yml`/`cache-prune.yml` carry no backend identifiers. Two pre-existing gaps noted, untouched: DALI references missing `docker/Dockerfile.dali`, MIGRAPHX entry spells `Dockerfile.migrachx` vs file `Dockerfile.migraphx` |
-| V-10 | `scripts/quality/run.sh`, ASan/UBSan | | | |
-| V-11 | `OPENCV_DNN` path + link inspection | | | |
-| V-12 | `git subtree split` + standalone build | | | |
+| V-10 | `scripts/quality/run.sh`, ASan/UBSan | Pass | 2026-10-01 | `run.sh` green (format 105 files, includes 113 files, cppcheck 49 files) after adding `engine/include` to `check_includes.py INCLUDE_ROOTS` (the one failing gate; tool-config gap, not a code defect). Engine + `NativeInfer` 12/12 clean under ASan+UBSan (`-DSANITIZERS=ON` Debug) |
+| V-11 | `OPENCV_DNN` path + link inspection | Pass | 2026-10-01 | `grep -ril opencv build-native/CMakeFiles/*/link.txt` clean; `neuriplo_engine` codemodel `linkLibraries: null`, zero OpenCV occurrences; `libneuriplo_engine.a` archives 16 engine objects only |
+| V-12 | `git subtree split` + standalone build | Pass | 2026-10-01 | Split commit `c8e05c6`; extracted tree (`CMakeLists`, `include`, `README`, `src`, `test`) configures+builds standalone, `ctest` 11/11; no branch left behind |
 | V-13 | `ctest -R "engine_shapes|engine_plan"` | Pass | 2026-09-30 | Shape half: `EngineShapes.PerShapeSeamWithoutReload` shapes one loaded graph at `[1,3,4,4]` then `[4,3,4,4]` with no reload; fixture batch-1 output `[1,1000]` asserted while batch 2 correctly fails at the pinned `Reshape`. Plan half: `EnginePlan.PerShapeSeamWithoutReload` plans one loaded two-`Conv` graph at 8×8 (arena 1024) then 16×16 (arena 4096) with no reload. No parser, IR, or kernel change between calls |
 | M-1 | README read-through | Pass | 2026-10-01 | `engine/README.md` states interpreter design, one-device-per-graph rejection, CPU kernels as correctness oracle and explicitly not a performance target; no spec legend IDs; build/test commands verified against the actual CMake targets |
-| M-2 | fixture node list vs kernel set | | | |
-| M-3 | executor inspection | | | |
-| M-4 | inventory drift walkthrough | | | |
-| M-5 | constitution review | | | |
-| M-6 | OpenCV containment check | | | |
+| M-2 | fixture node list vs kernel set | Pass | 2026-10-01 | Provisioned fixture: opset 18, 49 nodes (Add 8, Conv 20, Gemm 1, MaxPool 1, ReduceMean 1, Relu 17, Reshape 1) — all ⊆ 8-op kernel set, zero extra ops; MatMul unexercised by fixture |
+| M-3 | executor inspection | Pass | 2026-10-01 | Device chosen once per graph (`Executor.cpp:44-54`); `Run` (:62-166) has no transfer call and no device decision — only kernel-table lookup (:111) and dispatch (:147) |
+| M-4 | inventory drift walkthrough | Pass | 2026-10-01 | Rename probe: NATIVE co-occurs in registry, `Native.cmake`, yaml, factory registration; `gen_backend_docs.py --check` clean; no maintained inventory inconsistent |
+| M-5 | constitution review | Pass | 2026-10-01 | `mission.md` (108 lines) admits one first-party runtime; `tech-stack.md` (188 lines) binds the engine rules; both read in under five minutes, no contradictions |
+| M-6 | OpenCV containment check | Pass | 2026-10-01 | `versions.env` and `backends/opencv-dnn/` diffs empty; `cmake/` diff is exactly the landed NATIVE wiring (new `Native.cmake`, registry + versions branches); no OpenCV include/link/`find_package` under `engine/` |
 
 ## Deviations
 
