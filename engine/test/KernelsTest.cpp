@@ -175,6 +175,147 @@ TEST(EngineKernels, ReduceMeanAllAxes) {
     EXPECT_EQ(out, (std::vector<float>{2.5f}));
 }
 
+// Gemm computes the plain matrix product without transposes or scaling.
+TEST(EngineKernels, GemmPlainProduct) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gemm");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("gemm0", "Gemm");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {3, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{58.0f, 64.0f, 139.0f, 154.0f}));
+}
+
+// Gemm transA transposes a [K,M] lhs, leaving the same product as the plain case.
+TEST(EngineKernels, GemmTransA) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gemm");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("gemm_transA", "Gemm");
+    node.attributes.emplace_back("transA", int64_t{1});
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3, 2}), FloatView(b, {3, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{89.0f, 98.0f, 116.0f, 128.0f}));
+}
+
+// Gemm transB transposes a [N,K] rhs, matching the plain product.
+TEST(EngineKernels, GemmTransB) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gemm");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {7.0f, 9.0f, 11.0f, 8.0f, 10.0f, 12.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("gemm_transB", "Gemm");
+    node.attributes.emplace_back("transB", int64_t{1});
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {2, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{58.0f, 64.0f, 139.0f, 154.0f}));
+}
+
+// Gemm scales by alpha, adds beta times a rank-1 [N] bias, and broadcasts it.
+TEST(EngineKernels, GemmAlphaBetaRankOneBias) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gemm");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> b = {5.0f, 6.0f, 7.0f, 8.0f};
+    std::vector<float> c = {10.0f, 20.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("gemm_scale", "Gemm");
+    node.attributes.emplace_back("alpha", 2.0f);
+    node.attributes.emplace_back("beta", 0.5f);
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 2}), FloatView(b, {2, 2}), FloatView(c, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{43.0f, 54.0f, 91.0f, 110.0f}));
+}
+
+// MatMul on two rank-2 operands contracts the shared inner dimension.
+TEST(EngineKernels, MatMulTwoDimensional) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MatMul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("matmul0", "MatMul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {3, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{58.0f, 64.0f, 139.0f, 154.0f}));
+}
+
+// MatMul on rank-3 operands multiplies each batch independently.
+TEST(EngineKernels, MatMulBatchedThreeDimensional) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MatMul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f};
+    std::vector<float> b = {1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 2.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f};
+    std::vector<float> out(8, 0.0f);
+    engine::Node node = MakeNode("matmul_batch", "MatMul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 2, 3}), FloatView(b, {2, 3, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{4.0f, 5.0f, 10.0f, 11.0f, 2.0f, 0.0f, 0.0f, 2.0f}));
+}
+
+// MatMul promotes a 1-D lhs to [1,K] and drops the promoted axis.
+TEST(EngineKernels, MatMulPromotesOneDimensionalLhs) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MatMul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f};
+    std::vector<float> b = {1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("matmul_lhs1d", "MatMul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3}), FloatView(b, {3, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{4.0f, 5.0f}));
+}
+
+// MatMul promotes a 1-D rhs to [K,1] and drops the promoted axis.
+TEST(EngineKernels, MatMulPromotesOneDimensionalRhs) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MatMul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {1.0f, 0.0f, 1.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("matmul_rhs1d", "MatMul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{4.0f, 10.0f}));
+}
+
 // The op-type table resolves the implemented kernels and rejects unknown ops.
 TEST(EngineKernels, TableResolvesKnownOpsAndRejectsUnknown) {
     const engine::KernelTable& table = engine::CpuDevice().kernels();
@@ -182,6 +323,8 @@ TEST(EngineKernels, TableResolvesKnownOpsAndRejectsUnknown) {
     EXPECT_NE(table.find("Add"), nullptr);
     EXPECT_NE(table.find("Reshape"), nullptr);
     EXPECT_NE(table.find("ReduceMean"), nullptr);
+    EXPECT_NE(table.find("Gemm"), nullptr);
+    EXPECT_NE(table.find("MatMul"), nullptr);
     EXPECT_EQ(table.find("NoSuchOp"), nullptr);
 }
 
@@ -239,5 +382,45 @@ TEST(EngineKernelsNegative, ReshapeRejectsSizeMismatch) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("Reshape"), std::string::npos) << error.what();
+    }
+}
+
+// Gemm rejects a contraction-dimension mismatch, naming the op.
+TEST(EngineKernelsNegative, GemmRejectsInnerDimMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gemm");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("gemm_bad", "Gemm");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Gemm"), std::string::npos) << error.what();
+    }
+}
+
+// MatMul rejects a contraction-dimension mismatch, naming the op.
+TEST(EngineKernelsNegative, MatMulRejectsInnerDimMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MatMul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("matmul_bad", "MatMul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("MatMul"), std::string::npos) << error.what();
     }
 }
