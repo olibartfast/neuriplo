@@ -157,6 +157,28 @@ std::string encode_attribute_float(const std::string& name, float value)
     return a;
 }
 
+std::string encode_attribute_string(const std::string& name,
+    const std::string& value)
+{
+    std::string a;
+    put_length_delimited(a, 1, name);
+    put_length_delimited(a, 4, value);
+    put_varint_field(a, 20, 3); // STRING
+    return a;
+}
+
+std::string encode_attribute_ints(const std::string& name,
+    const std::vector<int64_t>& values)
+{
+    std::string a;
+    put_length_delimited(a, 1, name);
+    for (const int64_t value : values) {
+        put_varint_field(a, 8, static_cast<uint64_t>(value));
+    }
+    put_varint_field(a, 20, 7); // INTS
+    return a;
+}
+
 std::string encode_attribute_name_only(const std::string& name)
 {
     std::string a;
@@ -593,6 +615,251 @@ TEST_F(EngineLoader, HermeticBoolValueInfoAccepted)
     EXPECT_EQ(graph.tensors.at("act").dtype, engine::DataType::Float32);
 }
 
+// Hermetic positive: the no-attribute elementwise ops (Mul/Div/Sub/Sigmoid)
+// chain without attributes.
+TEST_F(EngineLoader, HermeticNewElementwiseLoads)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("sig0", "Sigmoid", {"x"}, {"s"}, {}));
+    put_sub(body, 1, encode_node("mul0", "Mul", {"x", "s"}, {"m"}, {}));
+    put_sub(body, 1, encode_node("div0", "Div", {"m", "x"}, {"d"}, {}));
+    put_sub(body, 1, encode_node("sub0", "Sub", {"d", "m"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 4, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 3, 4, 4}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("new_elem.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 4U);
+    EXPECT_EQ(graph.nodes[0].op_type, "Sigmoid");
+    EXPECT_EQ(graph.nodes[1].op_type, "Mul");
+    EXPECT_EQ(graph.nodes[2].op_type, "Div");
+    EXPECT_EQ(graph.nodes[3].op_type, "Sub");
+    for (const engine::Node& node : graph.nodes) {
+        EXPECT_TRUE(node.attributes.empty()) << node.op_type;
+    }
+}
+
+// Hermetic positive: Split carries axis plus a split-sizes input, Concat
+// carries axis over two inputs.
+TEST_F(EngineLoader, HermeticConcatSplitLoads)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("split", {2}, {16, 16}));
+    put_sub(body, 1, encode_node("split0", "Split", {"x", "split"}, {"a", "b"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 1, encode_node("concat0", "Concat", {"a", "b"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 32, 4, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 32, 4, 4}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("concat_split.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(graph.nodes[0].op_type, "Split");
+    ASSERT_EQ(graph.nodes[0].attributes.size(), 1U);
+    EXPECT_EQ(
+        std::get<std::int64_t>(graph.nodes[0].attributes.front().value), 1);
+    EXPECT_EQ(graph.nodes[1].op_type, "Concat");
+    ASSERT_EQ(graph.nodes[1].attributes.size(), 1U);
+    EXPECT_EQ(
+        std::get<std::int64_t>(graph.nodes[1].attributes.front().value), 1);
+}
+
+// Hermetic positive: Unsqueeze/Expand take no attributes; their axes/shape
+// tables arrive as inputs.
+TEST_F(EngineLoader, HermeticUnsqueezeExpandLoads)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {-1}));
+    put_sub(body, 5, encode_initializer_int64("eshape", {3}, {1, 2, 2}));
+    put_sub(body, 1, encode_node("unsq0", "Unsqueeze", {"x", "axes"}, {"u"},
+                      {}));
+    put_sub(body, 1, encode_node("exp0", "Expand", {"u", "eshape"}, {"y"},
+                      {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 2, 2}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("unsq_expand.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(graph.nodes[0].op_type, "Unsqueeze");
+    EXPECT_TRUE(graph.nodes[0].attributes.empty());
+    EXPECT_EQ(graph.nodes[1].op_type, "Expand");
+    EXPECT_TRUE(graph.nodes[1].attributes.empty());
+}
+
+// Hermetic positive: Transpose carries perm; Gather/GatherElements carry axis
+// with indices as inputs.
+TEST_F(EngineLoader, HermeticTransposeGatherLoads)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("idx", {2}, {0, 1}));
+    put_sub(body, 1, encode_node("tr0", "Transpose", {"x"}, {"t"},
+                      {encode_attribute_ints("perm", {0, 2, 1})}));
+    put_sub(body, 1, encode_node("g0", "Gather", {"t", "idx"}, {"g"},
+                      {encode_attribute_int("axis", 0)}));
+    put_sub(body, 1, encode_node("ge0", "GatherElements", {"t", "idx"}, {"h"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("h", 1, {2, 3, 4}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("tr_gather.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 3U);
+    EXPECT_EQ(graph.nodes[0].op_type, "Transpose");
+    EXPECT_EQ(std::get<std::vector<std::int64_t>>(
+                  graph.nodes[0].attributes.front().value),
+        (std::vector<std::int64_t>{0, 2, 1}));
+    EXPECT_EQ(graph.nodes[1].op_type, "Gather");
+    EXPECT_EQ(graph.nodes[2].op_type, "GatherElements");
+}
+
+// Hermetic positive: Cast pins `to` to FLOAT (1) and INT64 (7).
+TEST_F(EngineLoader, HermeticCastLoads)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("cast0", "Cast", {"x"}, {"c"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("cast1", "Cast", {"c"}, {"y"},
+                      {encode_attribute_int("to", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {4}));
+    put_sub(body, 12, encode_value_info("y", 1, {4}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("cast.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(std::get<std::int64_t>(graph.nodes[0].attributes.front().value),
+        7);
+    EXPECT_EQ(std::get<std::int64_t>(graph.nodes[1].attributes.front().value),
+        1);
+}
+
+// Hermetic positive: Softmax carries axis; Resize carries the surveyed nearest
+// policy (mode/asymmetric/floor/-0.75) with scales as third input.
+TEST_F(EngineLoader, HermeticSoftmaxResizeLoads)
+{
+    std::string body;
+    put_sub(body, 5,
+        encode_initializer("scales", {4}, {1.0F, 1.0F, 2.0F, 2.0F}));
+    put_sub(body, 1, encode_node("sm0", "Softmax", {"x"}, {"s"},
+                      {encode_attribute_int("axis", -1)}));
+    put_sub(body, 1, encode_node("rs0", "Resize", {"x", "", "scales"}, {"y"},
+                      {encode_attribute_string("mode", "nearest"),
+                          encode_attribute_string(
+                              "coordinate_transformation_mode", "asymmetric"),
+                          encode_attribute_string("nearest_mode", "floor"),
+                          encode_attribute_float("cubic_coeff_a", -0.75F)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 1, 4, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 1, 8, 8}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("sm_resize.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(graph.nodes[0].op_type, "Softmax");
+    EXPECT_EQ(graph.nodes[1].op_type, "Resize");
+    EXPECT_EQ(graph.nodes[1].inputs,
+        (std::vector<std::string>{"x", "", "scales"}));
+    ASSERT_EQ(graph.nodes[1].attributes.size(), 4U);
+}
+
+// Hermetic positive: Slice takes no attributes (starts/ends/axes as inputs);
+// TopK takes axis/largest/sorted with K as an Int64 constant input.
+TEST_F(EngineLoader, HermeticSliceTopKLoads)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {0}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1}, {5}));
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {1}));
+    put_sub(body, 5, encode_initializer_int64("k", {1}, {3}));
+    put_sub(body, 1, encode_node("sl0", "Slice",
+                      {"x", "starts", "ends", "axes"}, {"s"}, {}));
+    put_sub(body, 1, encode_node("tk0", "TopK", {"s", "k"}, {"v", "i"},
+                      {encode_attribute_int("axis", -1),
+                          encode_attribute_int("largest", 1),
+                          encode_attribute_int("sorted", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 10}));
+    put_sub(body, 12, encode_value_info("v", 1, {1, 3}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("slice_topk.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(graph.nodes[0].op_type, "Slice");
+    EXPECT_TRUE(graph.nodes[0].attributes.empty());
+    EXPECT_EQ(graph.nodes[1].op_type, "TopK");
+    ASSERT_EQ(graph.nodes[1].attributes.size(), 3U);
+}
+
+// Hermetic positive: ConstantOfShape carries an INT64 tensor `value`; Shape,
+// Equal, and Where take no attributes.
+TEST_F(EngineLoader, HermeticConstantOfShapeEqualWhereShapeLoads)
+{
+    const std::vector<int64_t> fill{1};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {3}));
+    put_sub(body, 1, encode_node("cos0", "ConstantOfShape", {"cshape"},
+                      {"fill"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(7 /*INT64*/, {1},
+                              raw_bytes_int64(fill)))}));
+    put_sub(body, 1, encode_node("sh0", "Shape", {"x"}, {"r"}, {}));
+    put_sub(body, 1, encode_node("eq0", "Equal", {"x", "y"}, {"e"}, {}));
+    put_sub(body, 1, encode_node("w0", "Where", {"e", "x", "y"}, {"z"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 11, encode_value_info("y", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("z", 1, {2, 3}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("cos_eq_where.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 4U);
+    EXPECT_EQ(graph.nodes[0].op_type, "ConstantOfShape");
+    ASSERT_EQ(graph.nodes[0].attributes.size(), 1U);
+    EXPECT_EQ(std::get<std::int64_t>(graph.nodes[0].attributes.front().value),
+        1);
+    EXPECT_EQ(graph.nodes[1].op_type, "Shape");
+    EXPECT_EQ(graph.nodes[2].op_type, "Equal");
+    EXPECT_EQ(graph.nodes[3].op_type, "Where");
+}
+
+// Hermetic positive: ReduceMax carries keepdims with axes as input; Mod
+// carries fmod=0.
+TEST_F(EngineLoader, HermeticReduceMaxModLoads)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {-1}));
+    put_sub(body, 1, encode_node("rm0", "ReduceMax", {"x", "axes"}, {"r"},
+                      {encode_attribute_int("keepdims", 0)}));
+    put_sub(body, 1, encode_node("mod0", "Mod", {"x", "x"}, {"y"},
+                      {encode_attribute_int("fmod", 0)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 3}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("rm_mod.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(graph.nodes[0].op_type, "ReduceMax");
+    EXPECT_EQ(graph.nodes[1].op_type, "Mod");
+}
+
+// Hermetic positive: Conv admits kernel_shape (carried by the detection
+// fixture on every Conv); shape inference derives dims from the weight.
+TEST_F(EngineLoader, HermeticConvKernelShapeAdmitted)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer("w", {4, 3, 3, 3},
+                       std::vector<float>(4 * 3 * 3 * 3, 0.0F)));
+    put_sub(body, 1, encode_node("conv0", "Conv", {"x", "w"}, {"y"},
+                      {encode_attribute_ints("kernel_shape", {3, 3}),
+                          encode_attribute_ints("strides", {1, 1}),
+                          encode_attribute_ints("pads", {1, 1, 1, 1})}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 8, 8}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 4, 8, 8}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("conv_ks.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 1U);
+    EXPECT_EQ(graph.nodes.front().op_type, "Conv");
+}
+
 // ===========================================================================
 // EngineLoaderNegative.* — rejections whose messages must name the node and
 // op type.
@@ -773,4 +1040,181 @@ TEST_F(EngineLoaderNegative, MissingModelFileNamesPath)
     }
     EXPECT_FALSE(message.empty()) << "missing model file did not throw";
     EXPECT_NE(message.find(path), std::string::npos) << "message: " << message;
+}
+
+// Cast `to` outside {FLOAT, INT64} rejects with node + op context.
+
+TEST_F(EngineLoaderNegative, CastToOutsidePolicyRejected)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("cast_bad", "Cast", {"x"}, {"y"},
+        {encode_attribute_int("to", 6)})); // INT32
+    put_sub(body, 11, encode_value_info("x", 1, {4}));
+    put_sub(body, 12, encode_value_info("y", 1, {4}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "cast_to.onnx");
+    EXPECT_NE(message.find("cast_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Cast"), std::string::npos) << "message: " << message;
+    EXPECT_NE(message.find("to"), std::string::npos) << "message: " << message;
+}
+
+// Resize outside the surveyed nearest policy rejects with node + op context.
+
+TEST_F(EngineLoaderNegative, ResizeModeOutsidePolicyRejected)
+{
+    for (const auto& [file, attr] :
+        {std::tuple<std::string, std::string>{"rs_mode.onnx",
+             encode_attribute_string("mode", "linear")},
+            std::tuple<std::string, std::string>{"rs_nm.onnx",
+                encode_attribute_string("nearest_mode", "round_prefer_floor")},
+            std::tuple<std::string, std::string>{"rs_ctm.onnx",
+                encode_attribute_string(
+                    "coordinate_transformation_mode", "half_pixel")}}) {
+        std::string body;
+        put_sub(body, 5,
+            encode_initializer("scales", {4}, {1.0F, 1.0F, 2.0F, 2.0F}));
+        put_sub(body, 1, encode_node("rs_bad", "Resize", {"x", "", "scales"},
+                          {"y"}, {attr}));
+        put_sub(body, 11, encode_value_info("x", 1, {1, 1, 4, 4}));
+        put_sub(body, 12, encode_value_info("y", 1, {1, 1, 8, 8}));
+
+        const std::string message =
+            load_error_message(encode_model(body), file);
+        EXPECT_NE(message.find("rs_bad"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find("Resize"), std::string::npos)
+            << "message: " << message;
+    }
+}
+
+// Mod with fmod=1 (float remainder) rejects; the fixture pins fmod=0.
+
+TEST_F(EngineLoaderNegative, ModFmodOutsidePolicyRejected)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("mod_bad", "Mod", {"x", "x"}, {"y"},
+        {encode_attribute_int("fmod", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {4}));
+    put_sub(body, 12, encode_value_info("y", 1, {4}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "mod_fmod.onnx");
+    EXPECT_NE(message.find("mod_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Mod"), std::string::npos) << "message: " << message;
+    EXPECT_NE(message.find("fmod"), std::string::npos) << "message: " << message;
+}
+
+// TopK outside largest=1/sorted=1 rejects with node + op context.
+
+TEST_F(EngineLoaderNegative, TopKPolicyOutsidePolicyRejected)
+{
+    const std::vector<std::string> largest_zero{encode_attribute_int("axis", -1),
+        encode_attribute_int("largest", 0), encode_attribute_int("sorted", 1)};
+    const std::vector<std::string> sorted_zero{encode_attribute_int("axis", -1),
+        encode_attribute_int("largest", 1), encode_attribute_int("sorted", 0)};
+    for (const auto& [file, attrs] :
+        {std::tuple<std::string, std::vector<std::string>>{
+             "tk_l.onnx", largest_zero},
+            std::tuple<std::string, std::vector<std::string>>{
+                "tk_s.onnx", sorted_zero}}) {
+        std::string body;
+        put_sub(body, 5, encode_initializer_int64("k", {1}, {2}));
+        put_sub(body, 1,
+            encode_node("tk_bad", "TopK", {"x", "k"}, {"v", "i"}, attrs));
+        put_sub(body, 11, encode_value_info("x", 1, {2, 5}));
+        put_sub(body, 12, encode_value_info("v", 1, {2, 2}));
+
+        const std::string message =
+            load_error_message(encode_model(body), file);
+        EXPECT_NE(message.find("tk_bad"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find("TopK"), std::string::npos)
+            << "message: " << message;
+    }
+}
+
+// TopK whose K is not an Int64 constant is a load rejection, never a dynamic
+// shape: here K is a graph input, so no initializer provides it.
+
+TEST_F(EngineLoaderNegative, TopKNonConstantKRejectedAtLoad)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("tk_dyn", "TopK", {"x", "k"}, {"v", "i"},
+                      {encode_attribute_int("axis", -1),
+                          encode_attribute_int("largest", 1),
+                          encode_attribute_int("sorted", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 5}));
+    put_sub(body, 11, encode_value_info("k", 1, {1}));
+    put_sub(body, 12, encode_value_info("v", 1, {2, 2}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "topk_dyn_k.onnx");
+    EXPECT_NE(message.find("tk_dyn"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("TopK"), std::string::npos) << "message: " << message;
+}
+
+// ConstantOfShape whose `value` is not an INT64 tensor rejects.
+
+TEST_F(EngineLoaderNegative, ConstantOfShapeFloatValueRejected)
+{
+    const std::vector<float> fill{0.0F};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {3}));
+    put_sub(body, 1, encode_node("cos_bad", "ConstantOfShape", {"cshape"},
+                      {"fill"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(1 /*FLOAT*/, {1},
+                              raw_bytes_float(fill)))}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "cos_float.onnx");
+    EXPECT_NE(message.find("cos_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("ConstantOfShape"), std::string::npos)
+        << "message: " << message;
+}
+
+// Slice takes no attributes at opset 18 (starts/ends/axes/steps are inputs).
+
+TEST_F(EngineLoaderNegative, SliceAttributeRejected)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {0}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1}, {5}));
+    put_sub(body, 1, encode_node("sl_bad", "Slice", {"x", "starts", "ends"},
+                      {"y"}, {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 10}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 5}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "slice_attr.onnx");
+    EXPECT_NE(message.find("sl_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Slice"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("axis"), std::string::npos) << "message: " << message;
+}
+
+// A no-attribute new op (Mul) still rejects any attribute with full context.
+
+TEST_F(EngineLoaderNegative, UnsupportedAttributeOnNewOp)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("mul_foo", "Mul", {"x", "x"}, {"y"},
+        {encode_attribute_name_only("alpha")}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "mul_attr.onnx");
+    EXPECT_NE(message.find("mul_foo"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Mul"), std::string::npos) << "message: " << message;
+    EXPECT_NE(message.find("alpha"), std::string::npos) << "message: " << message;
 }

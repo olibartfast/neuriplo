@@ -443,7 +443,7 @@ Initializer materialize_initializer(const TensorPatch& t,
 // Allowed attributes per operator; an empty set means the op takes none.
 // ---------------------------------------------------------------------------
 
-enum class AttrSlot { Int, Float, Str, IntList };
+enum class AttrSlot { Int, Float, Str, IntList, TensorInt };
 
 const std::unordered_map<std::string, AttrSlot>& conv_attrs()
 {
@@ -453,6 +453,10 @@ const std::unordered_map<std::string, AttrSlot>& conv_attrs()
         { "dilations", AttrSlot::IntList },
         { "group", AttrSlot::Int },
         { "auto_pad", AttrSlot::Str },
+        // The loader never needs kernel_shape (spatial dims come from the
+        // weight), but the detection fixture carries it on every Conv, so it
+        // is admitted and ignored by shape inference.
+        { "kernel_shape", AttrSlot::IntList },
     };
     return k;
 }
@@ -507,6 +511,107 @@ const std::unordered_map<std::string, AttrSlot>& flatten_attrs()
     return k;
 }
 
+const std::unordered_map<std::string, AttrSlot>& cast_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "to", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& concat_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& constantofshape_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "value", AttrSlot::TensorInt },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& gather_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& gatherelements_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& mod_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "fmod", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& reducemax_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "keepdims", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& resize_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "coordinate_transformation_mode", AttrSlot::Str },
+        { "cubic_coeff_a", AttrSlot::Float },
+        { "mode", AttrSlot::Str },
+        { "nearest_mode", AttrSlot::Str },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& softmax_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& split_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& topk_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+        { "largest", AttrSlot::Int },
+        { "sorted", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& transpose_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "perm", AttrSlot::IntList },
+    };
+    return k;
+}
+
 static const std::unordered_map<std::string, AttrSlot> kNoAttrs;
 
 const std::unordered_map<std::string,
@@ -525,6 +630,28 @@ allowed_attributes()
             { "Add", &kNoAttrs },
             { "Relu", &kNoAttrs },
             { "MatMul", &kNoAttrs },
+            { "Mul", &kNoAttrs },
+            { "Div", &kNoAttrs },
+            { "Sub", &kNoAttrs },
+            { "Sigmoid", &kNoAttrs },
+            { "Shape", &kNoAttrs },
+            { "Equal", &kNoAttrs },
+            { "Where", &kNoAttrs },
+            { "Slice", &kNoAttrs },
+            { "Unsqueeze", &kNoAttrs },
+            { "Expand", &kNoAttrs },
+            { "Cast", &cast_attrs() },
+            { "Concat", &concat_attrs() },
+            { "ConstantOfShape", &constantofshape_attrs() },
+            { "Gather", &gather_attrs() },
+            { "GatherElements", &gatherelements_attrs() },
+            { "Mod", &mod_attrs() },
+            { "ReduceMax", &reducemax_attrs() },
+            { "Resize", &resize_attrs() },
+            { "Softmax", &softmax_attrs() },
+            { "Split", &split_attrs() },
+            { "TopK", &topk_attrs() },
+            { "Transpose", &transpose_attrs() },
         };
     return kOps;
 }
@@ -541,6 +668,8 @@ struct AttrPatch {
     std::string s;
     std::vector<float> floats;
     std::vector<int64_t> ints;
+    std::string tensor_bytes; // raw TensorProto payload for TENSOR attributes
+    bool has_tensor = false;
 };
 
 AttrPatch decode_attr(const std::string& bytes)
@@ -570,6 +699,13 @@ AttrPatch decode_attr(const std::string& bytes)
             break;
         case kField_Attr_Ints:
             read_repeated_int64(reader, f.wire_type, a.ints);
+            break;
+        case kField_Attr_T:
+            if (f.wire_type != WireType::LengthDelimited) {
+                throw ModelLoadException("malformed tensor attribute payload");
+            }
+            a.tensor_bytes = ld_string(reader);
+            a.has_tensor = true;
             break;
         case kField_Attr_Type:
             a.type = static_cast<int64_t>(reader.read_varint());
@@ -626,6 +762,37 @@ Attribute map_attribute(const AttrPatch& a, AttrSlot slot,
             reject(" must carry exactly one float here");
         }
         return Attribute(a.name, a.floats.front());
+    case kAttrType_Tensor: {
+        if (slot != AttrSlot::TensorInt) {
+            reject(" does not take a tensor here");
+        }
+        if (!a.has_tensor || a.tensor_bytes.empty()) {
+            reject(" carries no tensor payload");
+        }
+        const TensorPatch t = decode_tensor(
+            reinterpret_cast<const uint8_t*>(a.tensor_bytes.data()),
+            a.tensor_bytes.size());
+        if (t.data_type != kElemType_OnnxInt64) {
+            reject(std::string(" must be an INT64 tensor here (found ") +
+                elem_type_name(t.data_type) + ")");
+        }
+        if (tensor_elem_count(t.dims) != 1) {
+            reject(" must carry exactly one element here");
+        }
+        if (!t.int64_data.empty()) {
+            return Attribute(a.name, t.int64_data.front());
+        }
+        if (t.raw_data.size() == sizeof(int64_t)) {
+            int64_t value = 0;
+            std::memcpy(&value, t.raw_data.data(), sizeof(value));
+            return Attribute(a.name, value);
+        }
+        if (t.external) {
+            reject(" refers to external data, which attributes cannot use");
+        }
+        reject(" carries no data");
+        break;
+    }
     case kAttrType_Undefined:
     default:
         // Sub-message and byte-list kinds the supported operators do not use.
@@ -699,6 +866,113 @@ NodeRaw read_node_raw(const uint8_t* data, size_t size)
 
 } // namespace
 
+// Opset-18 value policies pinned to the surveyed detection surface. Attribute
+// names are already restricted by allowed_attributes(); here values outside
+// the fixture's surface reject with node + op context.
+void validate_attr_policy(Node& node)
+{
+    const std::string prefix = attr_msg_prefix(node.name, node.op_type);
+    auto lookup = [&node](const std::string& name) -> const Attribute* {
+        for (const Attribute& a : node.attributes) {
+            if (a.name == name) {
+                return &a;
+            }
+        }
+        return nullptr;
+    };
+    auto need_int = [&prefix](const Attribute* a) -> int64_t {
+        const int64_t* v = std::get_if<int64_t>(&a->value);
+        if (v == nullptr) {
+            throw ModelLoadException(prefix + ": attribute " + quote(a->name) +
+                " is not an int here");
+        }
+        return *v;
+    };
+
+    if (node.op_type == "Cast") {
+        const Attribute* to = lookup("to");
+        if (to == nullptr) {
+            throw ModelLoadException(
+                prefix + ": Cast requires a 'to' attribute");
+        }
+        const int64_t v = need_int(to);
+        if (v != kElemType_OnnxFloat && v != kElemType_OnnxInt64) {
+            throw ModelLoadException(prefix +
+                ": attribute 'to' must be 1 (FLOAT) or 7 (INT64) here (found " +
+                std::to_string(v) + ")");
+        }
+        return;
+    }
+    if (node.op_type == "Resize") {
+        // Surveyed fixture: nearest upsampling only.
+        const Attribute* mode = lookup("mode");
+        if (mode != nullptr) {
+            const std::string* v = std::get_if<std::string>(&mode->value);
+            if (v == nullptr || *v != "nearest") {
+                throw ModelLoadException(prefix +
+                    ": Resize 'mode' must be 'nearest' here");
+            }
+        }
+        const Attribute* ctm = lookup("coordinate_transformation_mode");
+        if (ctm != nullptr) {
+            const std::string* v = std::get_if<std::string>(&ctm->value);
+            if (v == nullptr || *v != "asymmetric") {
+                throw ModelLoadException(prefix +
+                    ": Resize 'coordinate_transformation_mode' must be "
+                    "'asymmetric' here");
+            }
+        }
+        const Attribute* nm = lookup("nearest_mode");
+        if (nm != nullptr) {
+            const std::string* v = std::get_if<std::string>(&nm->value);
+            if (v == nullptr || *v != "floor") {
+                throw ModelLoadException(prefix +
+                    ": Resize 'nearest_mode' must be 'floor' here");
+            }
+        }
+        const Attribute* cca = lookup("cubic_coeff_a");
+        if (cca != nullptr) {
+            const float* v = std::get_if<float>(&cca->value);
+            if (v == nullptr || *v != -0.75F) {
+                throw ModelLoadException(prefix +
+                    ": Resize 'cubic_coeff_a' must be -0.75 here");
+            }
+        }
+        return;
+    }
+    if (node.op_type == "Mod") {
+        // Surveyed fixture: integer remainder (fmod=0, trunc-based, result
+        // takes the dividend's sign), never float fmod.
+        const Attribute* fmod = lookup("fmod");
+        if (fmod != nullptr && need_int(fmod) != 0) {
+            throw ModelLoadException(
+                prefix + ": Mod 'fmod' must be 0 here (integer remainder)");
+        }
+        return;
+    }
+    if (node.op_type == "TopK") {
+        // Surveyed fixture: descending, sorted, axis-last selection only.
+        const Attribute* largest = lookup("largest");
+        if (largest != nullptr && need_int(largest) != 1) {
+            throw ModelLoadException(
+                prefix + ": TopK 'largest' must be 1 here");
+        }
+        const Attribute* sorted = lookup("sorted");
+        if (sorted != nullptr && need_int(sorted) != 1) {
+            throw ModelLoadException(
+                prefix + ": TopK 'sorted' must be 1 here");
+        }
+        return;
+    }
+    if (node.op_type == "ConstantOfShape") {
+        if (lookup("value") == nullptr) {
+            throw ModelLoadException(
+                prefix + ": ConstantOfShape requires a 'value' attribute");
+        }
+        return;
+    }
+}
+
 Node decode_node(const uint8_t* data, size_t size)
 {
     const NodeRaw raw = read_node_raw(data, size);
@@ -716,7 +990,10 @@ Node decode_node(const uint8_t* data, size_t size)
             " on node " +
             (raw.name.empty() ? std::string("<unnamed>") : quote(raw.name)) +
             " (engine accepts Conv/Gemm/MatMul/Add/Relu/MaxPool/ReduceMean/"
-            "Reshape/Flatten only)");
+            "Reshape/Flatten/Mul/Div/Sub/Sigmoid/Shape/Equal/Where/Slice/"
+            "Unsqueeze/Expand/Cast/Concat/ConstantOfShape/Gather/"
+            "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose "
+            "only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;
@@ -751,6 +1028,7 @@ Node decode_node(const uint8_t* data, size_t size)
         node.attributes.push_back(
             map_attribute(a, slot_it->second, node.name, node.op_type));
     }
+    validate_attr_policy(node);
     return node;
 }
 
@@ -1164,6 +1442,27 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
                 " folded from " + who);
         }
         graph.initializers[name] = std::move(folded_constants[i].second);
+    }
+    // TopK's K input is a shape constant: it must resolve to an Int64
+    // initializer at load. A non-constant K is a load rejection here, never
+    // a dynamic shape downstream.
+    for (const Node& node : graph.nodes) {
+        if (node.op_type != "TopK") {
+            continue;
+        }
+        const std::string who = "node " +
+            (node.name.empty() ? std::string("<unnamed>") : quote(node.name)) +
+            " op_type 'TopK'";
+        if (node.inputs.size() < 2 || node.inputs[1].empty()) {
+            throw ModelLoadException(
+                who + ": TopK requires a K input (constant Int64 scalar)");
+        }
+        const auto init_it = graph.initializers.find(node.inputs[1]);
+        if (init_it == graph.initializers.end() ||
+            init_it->second.dtype != DataType::Int64) {
+            throw ModelLoadException(who + ": TopK K input " +
+                quote(node.inputs[1]) + " must be an Int64 constant");
+        }
     }
     return graph;
 }

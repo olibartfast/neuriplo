@@ -38,7 +38,7 @@ ctest --test-dir build-parity -R yolo_parity --output-on-failure
 
 | ID | Command/Check | Result | Date | Notes |
 |----|---------------|--------|------|-------|
-| YV-1 | `ctest -R engine_loader` | | | |
+| YV-1 | `ctest -R engine_loader` | Pass | 2026-10-01 | 64 Constants fold by dtype (53 i64 + 11 f32); scratch full-file load: 421 nodes / 268 initializers; Flatten loads; out-of-policy attrs reject with node+op |
 | YV-2 | `ctest -R "engine_plan\|engine_executor"` | | | |
 | YV-3 | `ctest -R engine_kernels` | | | |
 | YV-4 | fixture end-to-end | | | |

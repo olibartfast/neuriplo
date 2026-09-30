@@ -10,6 +10,7 @@
 #include "engine/Shapes.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <set>
 #include <string>
@@ -345,6 +346,37 @@ std::vector<int64_t> int64_constant(const Graph& graph, const Node& node,
     return *values;
 }
 
+// Read a Float32 constant operand (Resize scales). Anything else cannot be
+// resolved statically.
+std::vector<float> float32_constant(const Graph& graph, const Node& node,
+    const std::string& name)
+{
+    const auto it = graph.initializers.find(name);
+    if (it == graph.initializers.end() ||
+        it->second.dtype != DataType::Float32) {
+        fail(node, "input " + quote(name) + " must be a Float32 constant");
+    }
+    const std::vector<float>* values =
+        std::get_if<std::vector<float>>(&it->second.values);
+    if (values == nullptr) {
+        fail(node, "input " + quote(name) + " is not a Float32 constant");
+    }
+    return *values;
+}
+
+// Normalize an axis in [-rank, rank) to [0, rank).
+int64_t normalize_axis(const Node& node, int64_t axis, int64_t rank,
+    const char* what)
+{
+    if (axis < 0) {
+        axis += rank;
+    }
+    if (axis < 0 || axis >= rank) {
+        fail(node, std::string(what) + " axis is out of range");
+    }
+    return axis;
+}
+
 TensorInfo reducemean_shape(const Graph& graph, const Node& node,
     const std::vector<const TensorInfo*>& inputs)
 {
@@ -454,6 +486,492 @@ TensorInfo reshape_shape(const Graph& graph, const Node& node,
     return TensorInfo{DataType::Float32, out};
 }
 
+TensorInfo flatten_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Flatten requires an input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    int64_t axis = attr_int(node, "axis", 1);
+    if (axis < 0) {
+        axis += rank + 1;
+    }
+    if (axis < 0 || axis > rank) {
+        fail(node, "Flatten axis is out of range");
+    }
+    int64_t first = 1;
+    int64_t second = 1;
+    for (int64_t i = 0; i < axis; ++i) {
+        first *= in[static_cast<size_t>(i)];
+    }
+    for (size_t i = static_cast<size_t>(axis); i < in.size(); ++i) {
+        second *= in[i];
+    }
+    return TensorInfo{DataType::Float32, {first, second}};
+}
+
+TensorInfo concat_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (node.outputs.size() != 1) {
+        fail(node, "Concat must produce exactly one output");
+    }
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Concat requires at least one input");
+    }
+    const int64_t rank = static_cast<int64_t>(inputs[0]->dims.size());
+    const int64_t axis =
+        normalize_axis(node, attr_int(node, "axis", 1), rank, "Concat");
+    std::vector<int64_t> out = inputs[0]->dims;
+    for (size_t i = 1; i < inputs.size(); ++i) {
+        if (inputs[i] == nullptr) {
+            fail(node, "Concat requires all inputs");
+        }
+        const std::vector<int64_t>& dims = inputs[i]->dims;
+        if (static_cast<int64_t>(dims.size()) != rank) {
+            fail(node, "Concat inputs must share rank");
+        }
+        for (int64_t j = 0; j < rank; ++j) {
+            if (j == axis) {
+                continue;
+            }
+            if (dims[static_cast<size_t>(j)] != out[static_cast<size_t>(j)]) {
+                fail(node, "Concat inputs differ off the concat axis");
+            }
+        }
+        out[static_cast<size_t>(axis)] += dims[static_cast<size_t>(axis)];
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+std::vector<TensorInfo> split_shapes(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Split requires an input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    const int64_t axis =
+        normalize_axis(node, attr_int(node, "axis", 0), rank, "Split");
+    const size_t count = node.outputs.size();
+    if (count == 0) {
+        fail(node, "Split must produce at least one output");
+    }
+    std::vector<int64_t> parts;
+    if (node.inputs.size() > 1 && !node.inputs[1].empty()) {
+        parts = int64_constant(graph, node, node.inputs[1]);
+        if (parts.size() != count) {
+            fail(node, "Split split sizes must match the output count");
+        }
+        int64_t sum = 0;
+        for (const int64_t v : parts) {
+            if (v < 0) {
+                fail(node, "Split split sizes must be non-negative");
+            }
+            sum += v;
+        }
+        if (sum != in[static_cast<size_t>(axis)]) {
+            fail(node, "Split split sizes must sum to the axis dim");
+        }
+    } else {
+        if (in[static_cast<size_t>(axis)] % static_cast<int64_t>(count) != 0) {
+            fail(node,
+                "Split axis dim is not divisible by the output count");
+        }
+        parts.assign(count,
+            in[static_cast<size_t>(axis)] / static_cast<int64_t>(count));
+    }
+    std::vector<TensorInfo> outputs;
+    outputs.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        std::vector<int64_t> dims = in;
+        dims[static_cast<size_t>(axis)] = parts[i];
+        outputs.push_back(TensorInfo{DataType::Float32, dims});
+    }
+    return outputs;
+}
+
+TensorInfo unsqueeze_shape(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Unsqueeze requires an input");
+    }
+    if (node.inputs.size() < 2 || node.inputs[1].empty()) {
+        fail(node, "Unsqueeze requires an axes input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    std::vector<int64_t> axes = int64_constant(graph, node, node.inputs[1]);
+    const int64_t rank_out =
+        static_cast<int64_t>(in.size() + axes.size());
+    std::set<int64_t> seen;
+    for (int64_t& axis : axes) {
+        if (axis < 0) {
+            axis += rank_out;
+        }
+        if (axis < 0 || axis >= rank_out) {
+            fail(node, "Unsqueeze axis is out of range");
+        }
+        if (!seen.insert(axis).second) {
+            fail(node, "Unsqueeze axes must be unique");
+        }
+    }
+    std::vector<int64_t> out(static_cast<size_t>(rank_out), 0);
+    size_t data_pos = 0;
+    for (int64_t i = 0; i < rank_out; ++i) {
+        if (seen.count(i) != 0) {
+            out[static_cast<size_t>(i)] = 1;
+        } else {
+            out[static_cast<size_t>(i)] = in[data_pos++];
+        }
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+TensorInfo expand_shape(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Expand requires an input");
+    }
+    if (node.inputs.size() < 2 || node.inputs[1].empty()) {
+        fail(node, "Expand requires a shape input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const std::vector<int64_t> target =
+        int64_constant(graph, node, node.inputs[1]);
+    const size_t rank = std::max(in.size(), target.size());
+    std::vector<int64_t> out(rank, 1);
+    for (size_t i = 0; i < rank; ++i) {
+        const int64_t di =
+            static_cast<int64_t>(in.size()) - static_cast<int64_t>(rank) +
+            static_cast<int64_t>(i);
+        const int64_t si = static_cast<int64_t>(target.size()) -
+            static_cast<int64_t>(rank) + static_cast<int64_t>(i);
+        const int64_t d = di < 0 ? 1 : in[static_cast<size_t>(di)];
+        if (si < 0) {
+            out[i] = d;
+            continue;
+        }
+        const int64_t s = target[static_cast<size_t>(si)];
+        if (s < 1) {
+            fail(node, "Expand target shape must be positive");
+        }
+        if (d == s || di < 0) {
+            out[i] = s;
+        } else if (d == 1) {
+            out[i] = s;
+        } else {
+            fail(node, "Expand input is not broadcastable to the target shape");
+        }
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+TensorInfo transpose_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Transpose requires an input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    std::vector<int64_t> perm = attr_ints(node, "perm");
+    if (perm.empty()) {
+        std::vector<int64_t> out(in.rbegin(), in.rend());
+        return TensorInfo{DataType::Float32, out};
+    }
+    if (static_cast<int64_t>(perm.size()) != rank) {
+        fail(node, "Transpose perm rank must match the input rank");
+    }
+    std::vector<int64_t> sorted = perm;
+    std::sort(sorted.begin(), sorted.end());
+    for (int64_t i = 0; i < rank; ++i) {
+        if (sorted[static_cast<size_t>(i)] != i) {
+            fail(node, "Transpose perm must be a permutation");
+        }
+    }
+    std::vector<int64_t> out(static_cast<size_t>(rank), 0);
+    for (int64_t i = 0; i < rank; ++i) {
+        out[static_cast<size_t>(i)] = in[static_cast<size_t>(perm[i])];
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+TensorInfo gatherelements_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || inputs[1] == nullptr) {
+        fail(node, "GatherElements requires data and indices inputs");
+    }
+    const int64_t rank = static_cast<int64_t>(inputs[0]->dims.size());
+    (void)normalize_axis(node, attr_int(node, "axis", 1), rank,
+        "GatherElements");
+    if (static_cast<int64_t>(inputs[1]->dims.size()) != rank) {
+        fail(node, "GatherElements data and indices must share rank");
+    }
+    return TensorInfo{DataType::Float32, inputs[1]->dims};
+}
+
+TensorInfo gather_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || inputs[1] == nullptr) {
+        fail(node, "Gather requires data and indices inputs");
+    }
+    const std::vector<int64_t>& data = inputs[0]->dims;
+    const std::vector<int64_t>& indices = inputs[1]->dims;
+    const int64_t rank = static_cast<int64_t>(data.size());
+    const int64_t axis =
+        normalize_axis(node, attr_int(node, "axis", 0), rank, "Gather");
+    std::vector<int64_t> out;
+    for (int64_t i = 0; i < axis; ++i) {
+        out.push_back(data[static_cast<size_t>(i)]);
+    }
+    out.insert(out.end(), indices.begin(), indices.end());
+    for (size_t i = static_cast<size_t>(axis) + 1; i < data.size(); ++i) {
+        out.push_back(data[i]);
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+TensorInfo cast_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Cast requires an input");
+    }
+    const int64_t to = attr_int(node, "to", 1);
+    if (to == 1) {
+        return TensorInfo{DataType::Float32, inputs[0]->dims};
+    }
+    if (to == 7) {
+        return TensorInfo{DataType::Int64, inputs[0]->dims};
+    }
+    fail(node, "Cast 'to' names an unsupported element type");
+}
+
+TensorInfo resize_shape(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Resize requires an input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    const bool has_scales = node.inputs.size() > 2 && !node.inputs[2].empty();
+    const bool has_sizes = node.inputs.size() > 3 && !node.inputs[3].empty();
+    if (has_scales && has_sizes) {
+        fail(node, "Resize takes scales or sizes, not both");
+    }
+    if (has_sizes) {
+        const std::vector<int64_t> sizes =
+            int64_constant(graph, node, node.inputs[3]);
+        if (static_cast<int64_t>(sizes.size()) != rank) {
+            fail(node, "Resize sizes rank must match the input rank");
+        }
+        for (const int64_t v : sizes) {
+            if (v <= 0) {
+                fail(node, "Resize sizes must be positive");
+            }
+        }
+        return TensorInfo{DataType::Float32, sizes};
+    }
+    if (has_scales) {
+        const std::vector<float> scales =
+            float32_constant(graph, node, node.inputs[2]);
+        if (static_cast<int64_t>(scales.size()) != rank) {
+            fail(node, "Resize scales rank must match the input rank");
+        }
+        std::vector<int64_t> out(static_cast<size_t>(rank), 0);
+        for (int64_t i = 0; i < rank; ++i) {
+            const int64_t dim = static_cast<int64_t>(std::floor(
+                static_cast<double>(in[static_cast<size_t>(i)]) *
+                static_cast<double>(scales[static_cast<size_t>(i)])));
+            if (dim <= 0) {
+                fail(node, "Resize produces a non-positive output dim");
+            }
+            out[static_cast<size_t>(i)] = dim;
+        }
+        return TensorInfo{DataType::Float32, out};
+    }
+    fail(node, "Resize requires a scales or sizes input");
+}
+
+TensorInfo slice_shape(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Slice requires a data input");
+    }
+    if (node.inputs.size() < 3 || node.inputs[1].empty() ||
+        node.inputs[2].empty()) {
+        fail(node, "Slice requires data, starts, and ends inputs");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    const std::vector<int64_t> starts =
+        int64_constant(graph, node, node.inputs[1]);
+    const std::vector<int64_t> ends =
+        int64_constant(graph, node, node.inputs[2]);
+    if (starts.size() != ends.size()) {
+        fail(node, "Slice starts and ends must have the same length");
+    }
+    const size_t count = starts.size();
+    std::vector<int64_t> axes(count, 0);
+    for (size_t i = 0; i < count; ++i) {
+        axes[i] = static_cast<int64_t>(i);
+    }
+    if (node.inputs.size() > 3 && !node.inputs[3].empty()) {
+        axes = int64_constant(graph, node, node.inputs[3]);
+        if (axes.size() != count) {
+            fail(node, "Slice axes must match starts in length");
+        }
+    }
+    std::vector<int64_t> steps(count, 1);
+    if (node.inputs.size() > 4 && !node.inputs[4].empty()) {
+        steps = int64_constant(graph, node, node.inputs[4]);
+        if (steps.size() != count) {
+            fail(node, "Slice steps must match starts in length");
+        }
+    }
+    std::vector<int64_t> out = in;
+    for (size_t i = 0; i < count; ++i) {
+        if (steps[i] <= 0) {
+            fail(node, "Slice steps must be positive");
+        }
+        const int64_t axis = normalize_axis(node, axes[i], rank, "Slice");
+        const int64_t dim = in[static_cast<size_t>(axis)];
+        int64_t begin = starts[i];
+        int64_t end = ends[i];
+        if (begin < 0) {
+            begin += dim;
+        }
+        if (end < 0) {
+            end += dim;
+        }
+        begin = std::max<int64_t>(0, std::min(begin, dim));
+        end = std::max<int64_t>(0, std::min(end, dim));
+        out[static_cast<size_t>(axis)] =
+            end > begin ? (end - begin + steps[i] - 1) / steps[i] : 0;
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+std::vector<TensorInfo> topk_shapes(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "TopK requires an input");
+    }
+    if (node.outputs.size() != 2) {
+        fail(node, "TopK must produce values and indices");
+    }
+    if (node.inputs.size() < 2 || node.inputs[1].empty()) {
+        fail(node, "TopK requires a K input");
+    }
+    const std::vector<int64_t> k_vals =
+        int64_constant(graph, node, node.inputs[1]);
+    if (k_vals.size() != 1) {
+        fail(node, "TopK K input must be a scalar Int64 constant");
+    }
+    const int64_t k = k_vals.front();
+    if (k <= 0) {
+        fail(node, "TopK K must be positive");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t axis = normalize_axis(node, attr_int(node, "axis", -1),
+        static_cast<int64_t>(in.size()), "TopK");
+    if (k > in[static_cast<size_t>(axis)]) {
+        fail(node, "TopK K exceeds the axis dim");
+    }
+    std::vector<int64_t> out = in;
+    out[static_cast<size_t>(axis)] = k;
+    return {TensorInfo{DataType::Float32, out},
+        TensorInfo{DataType::Float32, out}};
+}
+
+TensorInfo constantofshape_shape(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr || node.inputs[0].empty()) {
+        fail(node, "ConstantOfShape requires a shape input");
+    }
+    if (inputs[0]->dims.size() != 1) {
+        fail(node, "ConstantOfShape shape input must be rank 1");
+    }
+    const std::vector<int64_t> shape =
+        int64_constant(graph, node, node.inputs[0]);
+    for (const int64_t v : shape) {
+        if (v < 0) {
+            fail(node, "ConstantOfShape shape values must be non-negative");
+        }
+    }
+    return TensorInfo{DataType::Int64, shape};
+}
+
+TensorInfo shape_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Shape requires an input");
+    }
+    return TensorInfo{DataType::Int64,
+        {static_cast<int64_t>(inputs[0]->dims.size())}};
+}
+
+TensorInfo reducemax_shape(const Graph& graph, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "ReduceMax requires an input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    const bool keepdims = attr_int(node, "keepdims", 1) != 0;
+
+    std::vector<int64_t> axes;
+    const bool axes_supplied =
+        node.inputs.size() > 1 && !node.inputs[1].empty();
+    if (axes_supplied) {
+        axes = int64_constant(graph, node, node.inputs[1]);
+    }
+
+    std::set<int64_t> seen;
+    for (int64_t& axis : axes) {
+        if (axis < 0) {
+            axis += rank;
+        }
+        if (axis < 0 || axis >= rank) {
+            fail(node, "ReduceMax axis is out of range");
+        }
+        if (!seen.insert(axis).second) {
+            fail(node, "ReduceMax axes must be unique");
+        }
+    }
+
+    std::vector<int64_t> out = in;
+    if (axes.empty()) {
+        for (int64_t i = 0; i < rank; ++i) {
+            axes.push_back(i);
+        }
+    }
+    std::sort(axes.begin(), axes.end());
+    if (keepdims) {
+        for (const int64_t axis : axes) {
+            out[static_cast<size_t>(axis)] = 1;
+        }
+    } else {
+        for (auto it = axes.rbegin(); it != axes.rend(); ++it) {
+            out.erase(out.begin() + *it);
+        }
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
 std::vector<TensorInfo> compute_outputs(const Graph& graph, const Node& node,
     const std::vector<const TensorInfo*>& inputs)
 {
@@ -465,11 +983,12 @@ std::vector<TensorInfo> compute_outputs(const Graph& graph, const Node& node,
         return *inputs[index];
     };
 
-    if (op == "Add") {
+    if (op == "Add" || op == "Mul" || op == "Div" || op == "Sub" ||
+        op == "Mod") {
         return {TensorInfo{DataType::Float32,
             broadcast_shape(need(0).dims, need(1).dims, node)}};
     }
-    if (op == "Relu") {
+    if (op == "Relu" || op == "Sigmoid" || op == "Softmax") {
         return {TensorInfo{DataType::Float32, need(0).dims}};
     }
     if (op == "MatMul") {
@@ -490,6 +1009,65 @@ std::vector<TensorInfo> compute_outputs(const Graph& graph, const Node& node,
     }
     if (op == "Reshape") {
         return {reshape_shape(graph, node, inputs)};
+    }
+    if (op == "Flatten") {
+        return {flatten_shape(node, inputs)};
+    }
+    if (op == "Concat") {
+        return {concat_shape(node, inputs)};
+    }
+    if (op == "Split") {
+        return split_shapes(graph, node, inputs);
+    }
+    if (op == "Unsqueeze") {
+        return {unsqueeze_shape(graph, node, inputs)};
+    }
+    if (op == "Expand") {
+        return {expand_shape(graph, node, inputs)};
+    }
+    if (op == "Transpose") {
+        return {transpose_shape(node, inputs)};
+    }
+    if (op == "GatherElements") {
+        return {gatherelements_shape(node, inputs)};
+    }
+    if (op == "Gather") {
+        return {gather_shape(node, inputs)};
+    }
+    if (op == "Cast") {
+        return {cast_shape(node, inputs)};
+    }
+    if (op == "Resize") {
+        return {resize_shape(graph, node, inputs)};
+    }
+    if (op == "Slice") {
+        return {slice_shape(graph, node, inputs)};
+    }
+    if (op == "TopK") {
+        return topk_shapes(graph, node, inputs);
+    }
+    if (op == "ConstantOfShape") {
+        return {constantofshape_shape(graph, node, inputs)};
+    }
+    if (op == "Equal") {
+        return {TensorInfo{DataType::Bool,
+            broadcast_shape(need(0).dims, need(1).dims, node)}};
+    }
+    if (op == "Where") {
+        if (inputs.size() < 3 || inputs[0] == nullptr ||
+            inputs[1] == nullptr || inputs[2] == nullptr) {
+            fail(node, "Where requires condition, X, and Y inputs");
+        }
+        return {TensorInfo{DataType::Float32,
+            broadcast_shape(broadcast_shape(inputs[0]->dims, inputs[1]->dims,
+                                node),
+                inputs[2]->dims, node)}};
+    }
+    if (op == "Shape") {
+        return {shape_shape(node, inputs)};
+    }
+    if (op == "ReduceMax") {
+        return {reducemax_shape(graph, node, inputs)};
     }
     fail(node, "unsupported op_type");
 }

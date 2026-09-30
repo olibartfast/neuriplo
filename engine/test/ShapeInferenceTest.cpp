@@ -129,6 +129,23 @@ std::string encode_attribute_int(const std::string& name, int64_t value)
     return a;
 }
 
+void put_fixed32_field(std::string& out, int field_number, uint32_t bits)
+{
+    put_tag(out, field_number, 5);
+    for (int i = 0; i < 4; ++i) {
+        out.push_back(static_cast<char>((bits >> (8 * i)) & 0xFFU));
+    }
+}
+
+std::string encode_attribute_float(const std::string& name, float value)
+{
+    std::string a;
+    put_length_delimited(a, 1, name);
+    put_fixed32_field(a, 2, *reinterpret_cast<const uint32_t*>(&value));
+    put_varint_field(a, 20, 1); // FLOAT
+    return a;
+}
+
 std::string encode_attribute_string(const std::string& name,
     const std::string& value)
 {
@@ -179,6 +196,36 @@ std::string encode_initializer_int64(const std::string& name,
         values.size() * sizeof(int64_t));
     put_length_delimited(t, 9, raw);
     return t;
+}
+
+// Embedded TensorProto payload for a ConstantOfShape 'value' attribute.
+std::string encode_constant_tensor(int64_t elem_type,
+    const std::vector<int64_t>& dims, const std::string& raw)
+{
+    std::string t;
+    for (const int64_t dim : dims) {
+        put_varint_field(t, 1, static_cast<uint64_t>(dim));
+    }
+    put_varint_field(t, 2, static_cast<uint64_t>(elem_type));
+    put_length_delimited(t, 9, raw);
+    return t;
+}
+
+std::string raw_bytes_int64(const std::vector<int64_t>& values)
+{
+    return std::string(reinterpret_cast<const char*>(values.data()),
+        values.size() * sizeof(int64_t));
+}
+
+// A Tensor-typed node attribute (AttributeProto type TENSOR = 4, tensor = 5).
+std::string encode_attribute_tensor(const std::string& name,
+    const std::string& tensor_bytes)
+{
+    std::string a;
+    put_length_delimited(a, 1, name);
+    put_sub(a, 5, tensor_bytes);
+    put_varint_field(a, 20, 4); // TENSOR
+    return a;
 }
 
 std::string encode_model(const std::string& graph_body)
@@ -514,6 +561,415 @@ TEST_F(EngineShapes, GemmDefaults)
     EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 4}));
 }
 
+// Mul/Div/Sub/Mod: NumPy multidirectional broadcast of [1,3,4,4] and [3,1,1].
+
+TEST_F(EngineShapes, NewElementwiseBroadcast)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("mul0", "Mul", {"x", "y"}, {"m"}, {}));
+    put_sub(body, 1, encode_node("div0", "Div", {"m", "y"}, {"d"}, {}));
+    put_sub(body, 1, encode_node("sub0", "Sub", {"d", "m"}, {"s"}, {}));
+    put_sub(body, 1, encode_node("mod0", "Mod", {"s", "y"}, {"z"},
+                      {encode_attribute_int("fmod", 0)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 4, 4}));
+    put_sub(body, 11, encode_value_info("y", 1, {3, 1, 1}));
+    put_sub(body, 12, encode_value_info("z", 1, {1, 3, 4, 4}));
+
+    const engine::Graph graph =
+        load_graph("new_elem.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 4, 4}}, {"y", {3, 1, 1}}});
+    for (const std::string& name : {"m", "d", "s", "z"}) {
+        ASSERT_EQ(shapes.tensors.count(name), 1U) << name;
+        EXPECT_EQ(shapes.tensors.at(name).dims,
+            (std::vector<int64_t>{1, 3, 4, 4}))
+            << name;
+        EXPECT_EQ(shapes.tensors.at(name).dtype, engine::DataType::Float32)
+            << name;
+    }
+}
+
+// Sigmoid/Softmax: output shape equals input shape.
+
+TEST_F(EngineShapes, SigmoidSoftmaxCopyInputShape)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("sm0", "Softmax", {"x"}, {"s"},
+                      {encode_attribute_int("axis", -1)}));
+    put_sub(body, 1, encode_node("sig0", "Sigmoid", {"s"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 5}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 5}));
+
+    const engine::Graph graph =
+        load_graph("sig_sm.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 5}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 5}));
+    EXPECT_EQ(shapes.tensors.at("s").dims, (std::vector<int64_t>{2, 5}));
+}
+
+// Concat: dims sum along axis, including a negative axis.
+
+TEST_F(EngineShapes, ConcatAxis)
+{
+    {
+        std::string body;
+        put_sub(body, 1, encode_node("c0", "Concat", {"a", "b"}, {"y"},
+                          {encode_attribute_int("axis", 1)}));
+        put_sub(body, 11, encode_value_info("a", 1, {1, 2, 4}));
+        put_sub(body, 11, encode_value_info("b", 1, {1, 3, 4}));
+        put_sub(body, 12, encode_value_info("y", 1, {1, 5, 4}));
+        const engine::Graph graph =
+            load_graph("concat1.onnx", encode_model(body));
+        const engine::InferredShapes shapes = engine::InferShapes(graph,
+            {{"a", {1, 2, 4}}, {"b", {1, 3, 4}}});
+        ASSERT_EQ(shapes.tensors.count("y"), 1U);
+        EXPECT_EQ(shapes.tensors.at("y").dims,
+            (std::vector<int64_t>{1, 5, 4}));
+    }
+    {
+        std::string body;
+        put_sub(body, 1, encode_node("c1", "Concat", {"a", "b"}, {"y"},
+                          {encode_attribute_int("axis", -1)}));
+        put_sub(body, 11, encode_value_info("a", 1, {2, 3}));
+        put_sub(body, 11, encode_value_info("b", 1, {2, 5}));
+        put_sub(body, 12, encode_value_info("y", 1, {2, 8}));
+        const engine::Graph graph =
+            load_graph("concat_neg.onnx", encode_model(body));
+        const engine::InferredShapes shapes =
+            engine::InferShapes(graph, {{"a", {2, 3}}, {"b", {2, 5}}});
+        ASSERT_EQ(shapes.tensors.count("y"), 1U);
+        EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 8}));
+    }
+}
+
+// Split: explicit sizes from an Int64 constant, or an even split without one.
+
+TEST_F(EngineShapes, SplitSizedAndEqual)
+{
+    {
+        std::string body;
+        put_sub(body, 5, encode_initializer_int64("split", {2}, {2, 3}));
+        put_sub(body, 1, encode_node("sp0", "Split", {"x", "split"},
+                          {"a", "b"}, {encode_attribute_int("axis", 1)}));
+        put_sub(body, 11, encode_value_info("x", 1, {1, 5}));
+        put_sub(body, 12, encode_value_info("a", 1, {1, 2}));
+        const engine::Graph graph =
+            load_graph("split_sized.onnx", encode_model(body));
+        const engine::InferredShapes shapes =
+            engine::InferShapes(graph, {{"x", {1, 5}}});
+        ASSERT_EQ(shapes.tensors.count("a"), 1U);
+        EXPECT_EQ(shapes.tensors.at("a").dims, (std::vector<int64_t>{1, 2}));
+        ASSERT_EQ(shapes.tensors.count("b"), 1U);
+        EXPECT_EQ(shapes.tensors.at("b").dims, (std::vector<int64_t>{1, 3}));
+    }
+    {
+        std::string body;
+        put_sub(body, 1, encode_node("sp1", "Split", {"x"}, {"a", "b"},
+                          {encode_attribute_int("axis", 1)}));
+        put_sub(body, 11, encode_value_info("x", 1, {1, 6}));
+        put_sub(body, 12, encode_value_info("a", 1, {1, 3}));
+        const engine::Graph graph =
+            load_graph("split_equal.onnx", encode_model(body));
+        const engine::InferredShapes shapes =
+            engine::InferShapes(graph, {{"x", {1, 6}}});
+        EXPECT_EQ(shapes.tensors.at("a").dims, (std::vector<int64_t>{1, 3}));
+        EXPECT_EQ(shapes.tensors.at("b").dims, (std::vector<int64_t>{1, 3}));
+    }
+}
+
+// Unsqueeze: ones inserted at the axes positions ([2,3] + [0,-1] -> [1,2,3,1]).
+
+TEST_F(EngineShapes, UnsqueezeInsertsOnes)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("axes", {2}, {0, -1}));
+    put_sub(body, 1, encode_node("u0", "Unsqueeze", {"x", "axes"}, {"y"},
+                      {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 2, 3, 1}));
+
+    const engine::Graph graph =
+        load_graph("unsqueeze.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims,
+        (std::vector<int64_t>{1, 2, 3, 1}));
+}
+
+// Expand: [3,1] broadcasts to the [2,3,4] target shape.
+
+TEST_F(EngineShapes, ExpandBroadcastsToShape)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("eshape", {3}, {2, 3, 4}));
+    put_sub(body, 1, encode_node("e0", "Expand", {"x", "eshape"}, {"y"},
+                      {}));
+    put_sub(body, 11, encode_value_info("x", 1, {3, 1}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 3, 4}));
+
+    const engine::Graph graph = load_graph("expand.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {3, 1}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 3, 4}));
+}
+
+// Transpose: perm [0,2,1] maps [2,3,4] to [2,4,3].
+
+TEST_F(EngineShapes, TransposePermutes)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("t0", "Transpose", {"x"}, {"y"},
+                      {encode_attribute_ints("perm", {0, 2, 1})}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 4, 3}));
+
+    const engine::Graph graph =
+        load_graph("transpose.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 4, 3}));
+}
+
+// GatherElements: output shape equals the indices shape.
+
+TEST_F(EngineShapes, GatherElementsMatchesIndices)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("ge0", "GatherElements", {"x", "idx"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 11, encode_value_info("idx", 1, {2, 1, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 1, 4}));
+
+    const engine::Graph graph =
+        load_graph("gelem.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}, {"idx", {2, 1, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 1, 4}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Float32);
+}
+
+// Gather: [4,5,6] along axis 1 with [2] indices -> [4,2,6].
+
+TEST_F(EngineShapes, GatherInsertsIndices)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("idx", {1}, {1}));
+    put_sub(body, 1, encode_node("g0", "Gather", {"x", "idx"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {4, 5, 6}));
+    put_sub(body, 12, encode_value_info("y", 1, {4, 1, 6}));
+
+    const engine::Graph graph = load_graph("gather.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {4, 5, 6}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{4, 1, 6}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Float32);
+}
+
+// Cast: same dims, dtype follows `to` (7 -> int64).
+
+TEST_F(EngineShapes, CastChangesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"y"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 3}));
+
+    const engine::Graph graph = load_graph("cast.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 3}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+// Resize (nearest): [1,3,8,8] with scales [1,1,2,2] -> [1,3,16,16].
+
+TEST_F(EngineShapes, ResizeScalesNearest)
+{
+    std::string body;
+    put_sub(body, 5,
+        encode_initializer("scales", {4}, {1.0F, 1.0F, 2.0F, 2.0F}));
+    put_sub(body, 1, encode_node("rs0", "Resize", {"x", "", "scales"}, {"y"},
+                      {encode_attribute_string("mode", "nearest")}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 8, 8}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 3, 16, 16}));
+
+    const engine::Graph graph = load_graph("resize.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 8, 8}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims,
+        (std::vector<int64_t>{1, 3, 16, 16}));
+}
+
+// Slice: [1,10] with starts [2], ends [7], axes [1] -> [1,5].
+
+TEST_F(EngineShapes, SliceExtractsWindow)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {2}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1}, {7}));
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {1}));
+    put_sub(body, 1, encode_node("sl0", "Slice",
+                      {"x", "starts", "ends", "axes"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 10}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 5}));
+
+    const engine::Graph graph = load_graph("slice.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 10}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 5}));
+}
+
+// TopK: constant scalar K replaces the axis dim on both outputs.
+
+TEST_F(EngineShapes, TopKSelectsK)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("k", {1}, {2}));
+    put_sub(body, 1, encode_node("tk0", "TopK", {"x", "k"}, {"v", "i"},
+                      {encode_attribute_int("axis", -1),
+                          encode_attribute_int("largest", 1),
+                          encode_attribute_int("sorted", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 5}));
+    put_sub(body, 12, encode_value_info("v", 1, {2, 2}));
+
+    const engine::Graph graph = load_graph("topk.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 5}}});
+    ASSERT_EQ(shapes.tensors.count("v"), 1U);
+    EXPECT_EQ(shapes.tensors.at("v").dims, (std::vector<int64_t>{2, 2}));
+    ASSERT_EQ(shapes.tensors.count("i"), 1U);
+    EXPECT_EQ(shapes.tensors.at("i").dims, (std::vector<int64_t>{2, 2}));
+}
+
+// ConstantOfShape: the shape input's values become the int64 output dims.
+
+TEST_F(EngineShapes, ConstantOfShapeUsesShapeInput)
+{
+    const std::vector<int64_t> fill{1};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {3}));
+    put_sub(body, 1, encode_node("cos0", "ConstantOfShape", {"cshape"},
+                      {"o"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(7 /*INT64*/, {1},
+                              raw_bytes_int64(fill)))}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("o", 1, {3}));
+
+    const engine::Graph graph = load_graph("cos.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2}}});
+    ASSERT_EQ(shapes.tensors.count("o"), 1U);
+    EXPECT_EQ(shapes.tensors.at("o").dims, (std::vector<int64_t>{3}));
+    EXPECT_EQ(shapes.tensors.at("o").dtype, engine::DataType::Int64);
+}
+
+// Equal: broadcast inputs, bool output.
+
+TEST_F(EngineShapes, EqualBroadcastsToBool)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("eq0", "Equal", {"x", "y"}, {"e"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 4, 4}));
+    put_sub(body, 11, encode_value_info("y", 1, {3, 1, 1}));
+    put_sub(body, 12, encode_value_info("e", 1, {1, 3, 4, 4}));
+
+    const engine::Graph graph = load_graph("equal.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 4, 4}}, {"y", {3, 1, 1}}});
+    ASSERT_EQ(shapes.tensors.count("e"), 1U);
+    EXPECT_EQ(shapes.tensors.at("e").dims,
+        (std::vector<int64_t>{1, 3, 4, 4}));
+    EXPECT_EQ(shapes.tensors.at("e").dtype, engine::DataType::Bool);
+}
+
+// Where: three-way broadcast of condition, X, and Y.
+
+TEST_F(EngineShapes, WhereBroadcastsThree)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("w0", "Where", {"c", "x", "y"}, {"z"},
+                      {}));
+    put_sub(body, 11, encode_value_info("c", 1, {1, 3, 1}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 1, 4}));
+    put_sub(body, 11, encode_value_info("y", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("z", 1, {2, 3, 4}));
+
+    const engine::Graph graph = load_graph("where.onnx", encode_model(body));
+    const engine::InferredShapes shapes = engine::InferShapes(graph,
+        {{"c", {1, 3, 1}}, {"x", {2, 1, 4}}, {"y", {2, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("z"), 1U);
+    EXPECT_EQ(shapes.tensors.at("z").dims, (std::vector<int64_t>{2, 3, 4}));
+    EXPECT_EQ(shapes.tensors.at("z").dtype, engine::DataType::Float32);
+}
+
+// Shape: a rank-3 input yields int64 [3].
+
+TEST_F(EngineShapes, ShapeOutputsRank)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("sh0", "Shape", {"x"}, {"r"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("r", 1, {3}));
+
+    const engine::Graph graph = load_graph("shape.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("r"), 1U);
+    EXPECT_EQ(shapes.tensors.at("r").dims, (std::vector<int64_t>{3}));
+    EXPECT_EQ(shapes.tensors.at("r").dtype, engine::DataType::Int64);
+}
+
+// ReduceMax: keepdims=0 drops axis 1 ([2,3,4] -> [2,4]).
+
+TEST_F(EngineShapes, ReduceMaxDropsAxes)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {1}));
+    put_sub(body, 1, encode_node("rm0", "ReduceMax", {"x", "axes"}, {"y"},
+                      {encode_attribute_int("keepdims", 0)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 4}));
+
+    const engine::Graph graph =
+        load_graph("rmax.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 4}));
+}
+
+// Flatten: axis=2 folds [2,3,4,5] into [6,20].
+
+TEST_F(EngineShapes, FlattenAxis)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("fl0", "Flatten", {"x"}, {"y"},
+                      {encode_attribute_int("axis", 2)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4, 5}));
+    put_sub(body, 12, encode_value_info("y", 1, {6, 20}));
+
+    const engine::Graph graph =
+        load_graph("flatten.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4, 5}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{6, 20}));
+}
+
 // --- Fixture cases ---------------------------------------------------------
 
 TEST_F(EngineShapes, FixtureInferShapes)
@@ -777,5 +1233,156 @@ TEST_F(EngineShapesNegative, UnknownOpNamesNodeAndOpType)
     EXPECT_NE(message.find("weird_node"), std::string::npos)
         << "message: " << message;
     EXPECT_NE(message.find("Fancy"), std::string::npos)
+        << "message: " << message;
+}
+
+// TopK with a non-constant K input: the loader already rejects this, so the
+// graph is assembled directly to reach the shape walk's own check.
+
+TEST_F(EngineShapesNegative, TopKNonConstantKNamesNode)
+{
+    engine::Graph graph;
+    engine::Node add;
+    add.name = "k_src";
+    add.op_type = "Add";
+    add.inputs = {"x", "x"};
+    add.outputs = {"k"};
+    engine::Node topk;
+    topk.name = "tk_bad";
+    topk.op_type = "TopK";
+    topk.inputs = {"x", "k"};
+    topk.outputs = {"v", "i"};
+    topk.attributes.push_back(engine::Attribute("axis", int64_t(-1)));
+    topk.attributes.push_back(engine::Attribute("largest", int64_t(1)));
+    topk.attributes.push_back(engine::Attribute("sorted", int64_t(1)));
+    graph.nodes.push_back(add);
+    graph.nodes.push_back(topk);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 5}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 5}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "non-constant TopK K did not throw";
+    EXPECT_NE(message.find("tk_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("TopK"), std::string::npos)
+        << "message: " << message;
+}
+
+// Slice with a computed (non-constant) starts input names the node.
+
+TEST_F(EngineShapesNegative, SliceDynamicStartsNamesNode)
+{
+    engine::Graph graph;
+    engine::Node add;
+    add.name = "starts_src";
+    add.op_type = "Add";
+    add.inputs = {"x", "x"};
+    add.outputs = {"starts"};
+    engine::Node slice;
+    slice.name = "sl_bad";
+    slice.op_type = "Slice";
+    slice.inputs = {"x", "starts", "ends"};
+    slice.outputs = {"y"};
+    graph.nodes.push_back(add);
+    graph.nodes.push_back(slice);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 10}}});
+    engine::Initializer ends;
+    ends.dtype = engine::DataType::Int64;
+    ends.dims = {1};
+    ends.values = std::vector<int64_t>{5};
+    graph.initializers["ends"] = ends;
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 10}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "dynamic Slice starts did not throw";
+    EXPECT_NE(message.find("sl_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Slice"), std::string::npos)
+        << "message: " << message;
+}
+
+// Split sizes that do not sum to the axis dim name the node.
+
+TEST_F(EngineShapesNegative, SplitSizeMismatchNamesNode)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("split", {2}, {2, 2}));
+    put_sub(body, 1, encode_node("sp_bad", "Split", {"x", "split"},
+                      {"a", "b"}, {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 5}));
+    put_sub(body, 12, encode_value_info("a", 1, {1, 2}));
+
+    const engine::Graph graph =
+        load_graph("split_mismatch.onnx", encode_model(body));
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 5}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "split size mismatch did not throw";
+    EXPECT_NE(message.find("sp_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Split"), std::string::npos)
+        << "message: " << message;
+}
+
+// Resize with neither scales nor sizes names the node.
+
+TEST_F(EngineShapesNegative, ResizeMissingInputsNamesNode)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("rs_bad", "Resize", {"x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 8, 8}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 3, 16, 16}));
+
+    const engine::Graph graph =
+        load_graph("resize_noscale.onnx", encode_model(body));
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 3, 8, 8}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "scaleless Resize did not throw";
+    EXPECT_NE(message.find("rs_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Resize"), std::string::npos)
+        << "message: " << message;
+}
+
+// Concat inputs that differ off the concat axis name the node.
+
+TEST_F(EngineShapesNegative, ConcatRankMismatchNamesNode)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c_bad", "Concat", {"a", "b"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("a", 1, {1, 2, 4}));
+    put_sub(body, 11, encode_value_info("b", 1, {1, 3, 5}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 5, 4}));
+
+    const engine::Graph graph =
+        load_graph("concat_mismatch.onnx", encode_model(body));
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"a", {1, 2, 4}}, {"b", {1, 3, 5}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "concat mismatch did not throw";
+    EXPECT_NE(message.find("c_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Concat"), std::string::npos)
         << "message: " << message;
 }
