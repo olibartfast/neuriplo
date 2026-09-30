@@ -230,5 +230,15 @@ throughout.
   `cmake/Native.cmake` compiles the adapter into `neuriplo` with `USE_NATIVE`
   (and marks `neuriplo_engine` PIC), `cmake/LinkBackend.cmake` links the engine,
   and `BackendRuntimeRegistry.cpp` registers `"NATIVE"`. The adapter tests run
-  the fixture through both output paths and assert the GPU-request throw. Group
-  6b adds the public `setup_inference_engine` boundary assertions.
+  the fixture through both output paths and assert the GPU-request throw.
+- Group 6b (2026-09-30): the public boundary is asserted too. With
+  `backend_id="NATIVE"`, `setup_inference_engine(EngineOptions{use_gpu=true})`
+  and the legacy `setup_inference_engine(path, true, 1, {})` both return
+  `nullptr` (the factory's throw translated by the existing catch-and-log), and
+  a `use_gpu=false` control returns a Ready backend. Group 6 is complete; Group
+  7 (parity, inventory, docs) is next. Open point carried into Group 7: [V-7]
+  asks for the *shared* `BackendHybridTestBase` contract to run against NATIVE,
+  but that template is currently instantiated only for `MockInferenceInterface`
+  and its `TestEdgeCases` expects `std::invalid_argument` while the real
+  interface throws `InferenceExecutionException`; the NATIVE adapter contract
+  is covered by `NativeInferTest` instead. Resolve or document in Group 7.
