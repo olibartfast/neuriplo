@@ -429,6 +429,77 @@ implements and Group 5 executes, so it lands before either.
   cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
   ```
 
+### Packet Group 4a — kernel plumbing and elementwise/reduction kernels (T-14, part 1)
+
+Group 4 is split by worker window: 4a plumbing + `Relu`/`Add`/`Reshape`/
+`ReduceMean`; 4b `Gemm`/`MatMul`; 4c `Conv`/`MaxPool`. Group 3 landed; baseline
+77/77 default, engine loader/shapes/plan/device 7/7. This packet touches no
+loader, parser, inference, planner, executor, or adapter code.
+
+- **Writable (nothing beyond these):**
+  - new `engine/src/kernels/Kernels.hpp` — private kernel declarations
+  - new `engine/src/kernels/CpuKernels.cpp` — the CPU operator table
+  - new `engine/src/kernels/Relu.cpp`, `Add.cpp`, `Reshape.cpp`, `ReduceMean.cpp`
+  - new `engine/test/KernelsTest.cpp`
+  - edit `engine/src/CpuDevice.cpp` — `CpuKernelTable::find` delegates to the new table
+  - edit `engine/include/engine/Graph.hpp` — append `InferenceException` only
+  - edit `engine/CMakeLists.txt` — add the new `src/kernels/*.cpp` to `neuriplo_engine`
+  - edit `engine/test/CMakeLists.txt` — add `engine_kernels_test` and tests
+    `engine_kernels`/`engine_kernels_negative`
+  - Never: `specs/**`, `cmake/**`, `backends/**`, `docs/**`, `versions.env`,
+    Docker, workflows, `src/**`, `include/**`, or any other `engine/` file;
+    `Device.hpp`, `Shapes.hpp`, `Plan.hpp`, `ModelLoader.*`, the existing
+    `src/*.cpp` and tests are read-only.
+- **Read-only:** `engine/include/engine/Device.hpp`, `Shapes.hpp`, `Plan.hpp`,
+  `Graph.hpp` (except the one append), `requirements.md` [R-5], [D-4], [A-1];
+  `plan.md` T-14/T-15; `validation.md` [V-4]/[V-4a].
+- **Fixed interface:**
+  - In `Graph.hpp`, namespace `engine`, appended beside `ModelLoadException`:
+    `class InferenceException : public std::runtime_error { public: using std::runtime_error::runtime_error; };`
+    with a one-line comment. Kernels raise it for inference-time failures.
+  - In `engine/src/kernels/Kernels.hpp`, namespace `engine::kernels`, each
+    matching `KernelFn` exactly:
+    `void Relu(const Node&, const std::vector<TensorView>&, const std::vector<TensorView>&);`
+    and the same for `Add`, `Reshape`, `ReduceMean` (4a), with `Gemm`, `MatMul`
+    (4b) and `Conv`, `MaxPool` (4c) added by later packets. Plus
+    `KernelFn FindCpuKernel(const std::string& op_type);`
+- **Required semantics (naive, readable, single-threaded, no SIMD — [D-4]):**
+  - Shared: read shapes from the `TensorView`s; compute element counts from
+    `dims`; treat every buffer as `float32` except a shape/axes operand
+    (`DataType::Int64`). On any inconsistency — wrong arity, wrong dtype, size
+    mismatch, non-positive dim — throw `InferenceException` naming the op type
+    and node name.
+  - `Relu`: elementwise `max(0, x)` over the output element count.
+  - `Add`: NumPy multidirectional broadcast of the two input `dims` into the
+    output `dims`; each output element sums the broadcast-mapped inputs.
+  - `Reshape`: copy input elements to output in order (identity over the flat
+    buffer); read the `Int64` shape operand when present and verify its product
+    equals the input element count.
+  - `ReduceMean`: axes from the optional second input (`Int64`); when absent, or
+    present-but-empty with `noop_with_empty_axes == 0`, reduce every axis;
+    `noop_with_empty_axes == 1` with empty axes is an identity copy; `keepdims`
+    defaults to 1. Validate axes in range and unique. Average over the reduced
+    set with float32 accumulation.
+  - `CpuKernels.cpp` builds one static lookup from the exact op-type strings to
+    the functions (`"Relu"`, `"Add"`, `"Reshape"`, `"ReduceMean"`); unknown
+    returns `nullptr`. `CpuDevice.cpp`'s `find` forwards to it. No global mutable
+    registry; the table is a function-local static.
+- **Required tests (worker output):** hand-computed small cases, values written
+  in the test, not captured from another runtime — `Relu` on a mixed-sign
+  vector; `Add` with broadcasting (`[2,3]` + `[3]`, and `[2,1]` + `[1,3]`);
+  `Reshape` reorder and rank change; `ReduceMean` over one axis, over all axes,
+  with `keepdims` 0 and 1, and with an `Int64` axes operand. A table check
+  asserts `find("Relu")`/`find("Add")`/`find("Reshape")`/`find("ReduceMean")`
+  are non-null and `find("NoSuchOp")` is null. Negative suite: dtype mismatch,
+  wrong arity, and a size mismatch each throw `InferenceException` naming the op.
+- **Working method:** complete final content per file; read before editing;
+  targeted checks freely. Budget 12 turns. **Handback:** `GROUP 4a HANDBACK
+  pass|fail`, obligation lines, acceptance tail, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-ocv && ctest --test-dir build-ocv --output-on-failure && cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native && ctest --test-dir build-native -R "engine_kernels|engine_device|engine_plan|engine_shapes|engine_loader" --output-on-failure && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check
+  ```
+
 ## Run ledger
 
 One row per attempt. Metrics the harness did not report are marked `—`
