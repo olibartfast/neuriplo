@@ -54,6 +54,7 @@ constexpr int kField_Attr_Name = 1;
 constexpr int kField_Attr_F = 2;
 constexpr int kField_Attr_I = 3;
 constexpr int kField_Attr_S = 4;
+constexpr int kField_Attr_T = 5;
 constexpr int kField_Attr_Floats = 7;
 constexpr int kField_Attr_Ints = 8;
 constexpr int kField_Attr_Type = 20;
@@ -63,6 +64,7 @@ constexpr int64_t kAttrType_Undefined = 0;
 constexpr int64_t kAttrType_Float = 1;
 constexpr int64_t kAttrType_Int = 2;
 constexpr int64_t kAttrType_String = 3;
+constexpr int64_t kAttrType_Tensor = 4;
 constexpr int64_t kAttrType_Floats = 6;
 constexpr int64_t kAttrType_Ints = 7;
 
@@ -90,10 +92,13 @@ constexpr int kField_Shape_Dim = 1;
 constexpr int kField_Dim_Value = 1;
 constexpr int kField_Dim_Param = 2;
 
-// ONNX element types. Compute tensors are float32; int64 is accepted only for
-// embedded constants that carry shape indices.
+// ONNX element types. Compute tensors are float32; int64 is accepted for
+// embedded constants that carry shape indices and for int64 intermediate
+// value-info entries; bool is accepted for boolean intermediate value-info
+// entries. Graph inputs and outputs stay float32-only.
 constexpr int64_t kElemType_OnnxFloat = 1;
 constexpr int64_t kElemType_OnnxInt64 = 7;
+constexpr int64_t kElemType_OnnxBool = 9;
 
 // The opset version this loader targets.
 constexpr int64_t kRequiredOpsetVersion = 18;
@@ -494,6 +499,14 @@ const std::unordered_map<std::string, AttrSlot>& gemm_attrs()
     return k;
 }
 
+const std::unordered_map<std::string, AttrSlot>& flatten_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+    };
+    return k;
+}
+
 static const std::unordered_map<std::string, AttrSlot> kNoAttrs;
 
 const std::unordered_map<std::string,
@@ -508,6 +521,7 @@ allowed_attributes()
             { "ReduceMean", &reducemean_attrs() },
             { "Reshape", &reshape_attrs() },
             { "Gemm", &gemm_attrs() },
+            { "Flatten", &flatten_attrs() },
             { "Add", &kNoAttrs },
             { "Relu", &kNoAttrs },
             { "MatMul", &kNoAttrs },
@@ -702,7 +716,7 @@ Node decode_node(const uint8_t* data, size_t size)
             " on node " +
             (raw.name.empty() ? std::string("<unnamed>") : quote(raw.name)) +
             " (engine accepts Conv/Gemm/MatMul/Add/Relu/MaxPool/ReduceMean/"
-            "Reshape only)");
+            "Reshape/Flatten only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;
@@ -740,12 +754,101 @@ Node decode_node(const uint8_t* data, size_t size)
     return node;
 }
 
+// Folds one Constant node into an initializer entry. The node's single output
+// name becomes the initializer key, so consumers already naming that tensor
+// rewire to the embedded constant with no edge rewrite. Only float32 and
+// int64 payloads fold; any other dtype is a load rejection with node context.
+std::pair<std::string, Initializer> fold_constant_node(
+    const NodeRaw& raw, const std::string& model_dir)
+{
+    const std::string who = "node " +
+        (raw.name.empty() ? std::string("<unnamed>") : quote(raw.name)) +
+        " op_type 'Constant'";
+    if (!raw.inputs.empty()) {
+        throw ModelLoadException(who + ": Constant must have no inputs");
+    }
+    if (raw.outputs.size() != 1 || raw.outputs[0].empty()) {
+        throw ModelLoadException(
+            who + ": Constant must produce exactly one named output");
+    }
+    if (raw.attr_bytes.size() != 1) {
+        throw ModelLoadException(who +
+            ": Constant must carry exactly one 'value' attribute");
+    }
+    const std::string& bytes = raw.attr_bytes.front();
+    std::string attr_name;
+    int64_t attr_type = kAttrType_Undefined;
+    bool has_type = false;
+    std::string tensor_bytes;
+    bool has_tensor = false;
+    WireReader reader(
+        reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size());
+    while (!reader.at_end()) {
+        const Field f = reader.read_tag();
+        switch (f.field_number) {
+        case kField_Attr_Name:
+            attr_name = ld_string(reader);
+            break;
+        case kField_Attr_Type:
+            attr_type = static_cast<int64_t>(reader.read_varint());
+            has_type = true;
+            break;
+        case kField_Attr_T:
+            if (f.wire_type != WireType::LengthDelimited) {
+                throw ModelLoadException(
+                    who + ": attribute 'value' carries a malformed tensor");
+            }
+            tensor_bytes = ld_string(reader);
+            has_tensor = true;
+            break;
+        default:
+            reader.skip_field(f.wire_type);
+            break;
+        }
+    }
+    if (attr_name != "value") {
+        throw ModelLoadException(who + ": Constant carries unsupported attribute " +
+            quote(attr_name) + " (engine folds 'value' only)");
+    }
+    if (!has_type || attr_type != kAttrType_Tensor) {
+        throw ModelLoadException(who +
+            ": attribute 'value' must be a tensor (found attribute type " +
+            std::to_string(attr_type) + ")");
+    }
+    if (!has_tensor || tensor_bytes.empty()) {
+        throw ModelLoadException(
+            who + ": attribute 'value' carries no tensor payload");
+    }
+    TensorPatch t = decode_tensor(
+        reinterpret_cast<const uint8_t*>(tensor_bytes.data()),
+        tensor_bytes.size());
+    if (t.data_type != kElemType_OnnxFloat &&
+        t.data_type != kElemType_OnnxInt64) {
+        throw ModelLoadException("unsupported Constant value data type " +
+            quote(elem_type_name(t.data_type)) + " on " + who +
+            " (engine folds FLOAT and INT64 Constants only)");
+    }
+    t.name = raw.outputs[0];
+    const int64_t count = tensor_elem_count(t.dims);
+    Initializer init;
+    init.dims = t.dims;
+    if (t.data_type == kElemType_OnnxFloat) {
+        init.dtype = DataType::Float32;
+        init.values = float_initializer_values(t, model_dir, count);
+    } else {
+        init.dtype = DataType::Int64;
+        init.values = int64_initializer_values(t, model_dir, count);
+    }
+    return {raw.outputs[0], std::move(init)};
+}
+
 // ---------------------------------------------------------------------------
 // ValueInfoProto subset (graph inputs / outputs / value_info table).
 // ---------------------------------------------------------------------------
 
 std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
-    size_t size, const char* kind, bool allow_integer = false)
+    size_t size, const char* kind, bool allow_integer = false,
+    bool allow_bool = false)
 {
     std::string name;
     std::string element; // payload bytes of the (nested) type sub-messages
@@ -827,12 +930,14 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
         dtype = DataType::Float32;
     } else if (allow_integer && elem_type == kElemType_OnnxInt64) {
         dtype = DataType::Int64;
+    } else if (allow_bool && elem_type == kElemType_OnnxBool) {
+        dtype = DataType::Bool;
     } else {
         reject(std::string("carries unsupported element type ") +
             quote(elem_type_name(elem_type)) +
-            (allow_integer
-                    ? " (engine accepts FLOAT compute tensors and INT64 "
-                      "constants only)"
+            ((allow_integer || allow_bool)
+                    ? " (engine accepts FLOAT compute tensors, INT64 "
+                      "constants, and BOOL intermediates only)"
                     : " (engine accepts FLOAT only)"));
     }
 
@@ -967,6 +1072,8 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
     }
 
     Graph graph;
+    std::vector<std::pair<std::string, Initializer>> folded_constants;
+    std::vector<std::string> folded_node_names;
     WireReader graph_reader(
         reinterpret_cast<const uint8_t*>(graph_bytes.data()),
         graph_bytes.size());
@@ -979,8 +1086,17 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             }
             {
                 const auto payload = graph_reader.read_length_delimited();
-                graph.nodes.push_back(
-                    decode_node(payload.first, payload.second));
+                const NodeRaw raw =
+                    read_node_raw(payload.first, payload.second);
+                if (raw.op_type == "Constant") {
+                    auto folded =
+                        fold_constant_node(raw, model_dir);
+                    folded_node_names.push_back(raw.name);
+                    folded_constants.push_back(std::move(folded));
+                } else {
+                    graph.nodes.push_back(
+                        decode_node(payload.first, payload.second));
+                }
             }
             break;
         case kField_Graph_Initializer: {
@@ -1023,7 +1139,7 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             }
             const auto payload = graph_reader.read_length_delimited();
             const auto entry = decode_value_info(payload.first, payload.second,
-                "value_info", /*allow_integer=*/true);
+                "value_info", /*allow_integer=*/true, /*allow_bool=*/true);
             if (graph.tensors.count(entry.first) != 0) {
                 throw ModelLoadException(
                     "duplicate value-info entry " + quote(entry.first));
@@ -1035,6 +1151,19 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             graph_reader.skip_field(f.wire_type);
             break;
         }
+    }
+    for (size_t i = 0; i < folded_constants.size(); ++i) {
+        const std::string& name = folded_constants[i].first;
+        const std::string& node_name = folded_node_names[i];
+        const std::string who = "node " +
+            (node_name.empty() ? std::string("<unnamed>")
+                               : quote(node_name)) +
+            " op_type 'Constant'";
+        if (graph.initializers.count(name) != 0) {
+            throw ModelLoadException("duplicate initializer " + quote(name) +
+                " folded from " + who);
+        }
+        graph.initializers[name] = std::move(folded_constants[i].second);
     }
     return graph;
 }

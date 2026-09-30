@@ -4,7 +4,9 @@
 // A loaded model becomes a typed graph: nodes in execution order, a table of
 // every tensor's type and shape, the embedded constants, and the declared
 // inputs and outputs. It covers exactly the operators the reference model
-// needs; compute is float32, with int64 constants allowed for shape inputs.
+// needs; compute is float32, with int64 constants allowed for shape inputs
+// and bool allowed for boolean intermediate tensors; graph inputs and outputs
+// stay float32-only.
 //
 // Must not include or reference the backend abstraction layer.
 
@@ -31,12 +33,16 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// Tensor element type. Compute is float32. Int64 appears only for embedded
-// constant tensors that carry shape indices (Reshape's shape input); anything
-// else decodes as Unknown and is rejected later with context.
+// Tensor element type. Compute is float32. Int64 appears for embedded
+// constant tensors that carry shape indices (Reshape's shape input) and for
+// int64 intermediate value-info entries; Bool appears for boolean intermediate
+// value-info entries (comparison outputs). Anything else decodes as Unknown
+// and is rejected later with context. Graph inputs and outputs stay
+// float32-only.
 enum class DataType {
     Float32,
     Int64,
+    Bool,
     Unknown,
 };
 
@@ -78,6 +84,8 @@ struct Node {
 
 // An embedded constant tensor. Weights are float32; integer constants carry
 // shape indices. `dtype` selects which alternative of `values` is meaningful.
+// Bool never appears here: Constant folding accepts float32 and int64 only,
+// and any other Constant dtype is a load rejection.
 struct Initializer {
     DataType dtype = DataType::Unknown;
     std::vector<int64_t> dims;
