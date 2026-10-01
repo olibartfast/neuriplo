@@ -10,6 +10,11 @@ if (backend STREQUAL "OPENCV_DNN")
     target_include_directories(${target} SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/opencv-dnn/src)
     target_link_libraries(${target} PRIVATE ${OpenCV_LIBS})
+elseif (backend STREQUAL "NATIVE")
+    # The first-party engine adapter lives beside the InferenceInterface
+    # implementation and links the standalone engine static library.
+    target_include_directories(${target} PRIVATE ${INFER_ROOT}/native/src)
+    target_link_libraries(${target} PRIVATE neuriplo_engine)
 elseif (backend STREQUAL "ONNX_RUNTIME")
     target_include_directories(${target} SYSTEM PRIVATE ${ONNX_RUNTIME_DIR}/include)
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/onnx-runtime/src)

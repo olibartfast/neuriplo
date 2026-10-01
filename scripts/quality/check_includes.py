@@ -46,6 +46,7 @@ SOURCE_SUFFIXES = (".cpp", ".cc", ".cxx", ".hpp", ".hh", ".h")
 # present. So an include that resolves to nothing is itself an error.
 INCLUDE_ROOTS = [
     "include",
+    "engine/include",
     "backends/src",
     "backends/src/plugin",
     "src",

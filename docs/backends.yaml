@@ -216,3 +216,18 @@ backends:
     model_source: "serialized offline by `export/dali/generate_yolo_pipeline.py`"
     arch: [x86_64]
     gpu: true
+
+  # NATIVE has no external SDK and no vendor Docker image, so it is intentionally absent from the CI per-backend Docker matrix; it is exercised via -DDEFAULT_BACKEND=NATIVE.
+  - id: NATIVE
+    name: Native Engine
+    version_var: null
+    setup_script: null
+    setup_note: "first-party engine — built with the project, no external SDK to install"
+    dir_var: null
+    dir_default: null
+    dockerfile: null
+    test_exe: NativeInferTest
+    model_format: ONNX
+    model_source: "fixture exported by the ResNet-18 provisioning step (plan.md [T-27a])"
+    arch: [x86_64, arm64]
+    gpu: false
