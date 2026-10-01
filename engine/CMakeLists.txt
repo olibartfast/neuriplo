@@ -63,7 +63,20 @@ add_library(neuriplo_engine STATIC
     src/kernels/ReduceMax.cpp
     src/kernels/Mod.cpp
     src/kernels/Equal.cpp
-    src/kernels/Where.cpp)
+    src/kernels/Where.cpp
+    src/kernels/Concat.cpp
+    src/kernels/Split.cpp
+    src/kernels/Unsqueeze.cpp
+    src/kernels/Expand.cpp
+    src/kernels/Transpose.cpp
+    src/kernels/Slice.cpp
+    src/kernels/Gather.cpp
+    src/kernels/GatherElements.cpp
+    src/kernels/Resize.cpp
+    src/kernels/Flatten.cpp
+    src/kernels/Shape.cpp
+    src/kernels/ConstantOfShape.cpp
+    src/kernels/TopK.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC

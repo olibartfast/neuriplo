@@ -12,6 +12,9 @@ Packet index:
 - Y2 (below) — elementwise / unary / reduction kernels
 - Y2-repair (below) — Mod shape dtype follows input (int64)
 - Y3 (below) — data-movement / shape / selection kernels
+- Y3-repair (below) — rule/kernel dtype alignment (Resize sizes, TopK indices)
+
+### Packet Y3-repair — rule/kernel dtype alignment
 
 ### Packet Y2-repair — Mod shape dtype follows input
 
@@ -79,6 +82,31 @@ Conventions (read the cited files before writing): one file per op in
 - **Acceptance (once, verbatim, final action):**
   ```bash
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R engine_kernels --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y3-repair — rule/kernel dtype alignment
+
+Orchestrator re-score of Y3 found two rule/kernel mismatches in
+`engine/src/ShapeInference.cpp` (kernels follow the Y3 packet; the rules must
+be aligned to them):
+
+1. `resize_shape` accepts a sizes-only input, but the Y3 `Resize` kernel (per
+   its packet order) rejects a sizes input. Align the rule to the kernel:
+   a present sizes input is a load rejection with node context (scales-only
+   stays the single admitted form).
+2. `topk_shapes` types the indices output as float32, but the Y3 `TopK`
+   kernel writes int64 indices (and the fixture feeds them to `Gather`,
+   which requires int64). Align the rule: indices output is int64.
+
+- **Writable:** `engine/src/ShapeInference.cpp` (the two arms only),
+  `engine/test/ShapeInferenceTest.cpp` (extend in place: sizes-rejection
+  case, TopK int64-indices case). Never: `specs/**`, kernels, loader,
+  `Graph.hpp`, anything else.
+- **Budget:** 5 turns. **Handback:** `GROUP Y3-REPAIR HANDBACK pass|fail`,
+  evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_shapes|engine_kernels" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
 ### Packet Y3 — data-movement / shape / selection kernels
@@ -235,3 +263,4 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 2 | Y1b (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 4 files in scope, `engine_*` 11/11 green, no ResNet regression) | 0 | 23-op allowlist + policies, static shape rules, Q1–Q3 answered; deviation accepted: `kernel_shape` admitted+ignored on Conv (spatial dims come from weights); full-file scratch load 421 nodes / 268 initializers |
 | 3 | Y2 (implement) | Implementer | opencode `general` subagent | — | — | Pass with 1 finding (orchestrator re-score: scope exact, `engine_kernels` 2/2 green; Mod shape/kernel dtype mismatch) | 0 | 10 kernels (Mul/Div/Sub/Sigmoid/Cast/Softmax/ReduceMax/Mod/Equal/Where) with hand-computed + off-default tests; table + CMake wired; finding repaired in Y2-repair |
 | 4 | Y2-repair (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, shapes+kernels 4/4 green) | 0 | Mod output dtype follows input with mismatch rejection; int64 propagation + negative tests |
+| 5 | Y3 (implement) | Implementer | opencode `general` subagent | — | — | Pass with 2 findings (orchestrator re-score: scope exact, 119 kernel tests green) | 0 | 13 kernels (Concat/Split/Unsqueeze/Expand/Transpose/Slice/Gather/GatherElements/Resize/Flatten/Shape/ConstantOfShape/TopK), 26+23 tests; findings (Resize sizes + TopK indices dtype) repaired in Y3-repair |
