@@ -11,6 +11,7 @@ Packet index:
 - Y1b (below) — allowlist + attribute policies + shape rules for the 23 ops, [Q1]–[Q3]
 - Y2 (below) — elementwise / unary / reduction kernels
 - Y2-repair (below) — Mod shape dtype follows input (int64)
+- Y3 (below) — data-movement / shape / selection kernels
 
 ### Packet Y2-repair — Mod shape dtype follows input
 
@@ -74,6 +75,63 @@ Conventions (read the cited files before writing): one file per op in
      least one hand-computed test plus one off-default test where a config
      exists (axis ≠ default, broadcast case, Cast pair).
 - **Budget:** 15 turns. **Handback:** `GROUP Y2 HANDBACK pass|fail`, one line
+  per obligation with evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R engine_kernels --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y3 — data-movement / shape / selection kernels
+
+Y2 landed (10 elementwise kernels). This packet implements the 13 kernels that
+move, reshape, or select data: `Concat`, `Split`, `Unsqueeze`, `Expand`,
+`Transpose`, `Slice`, `Gather`, `GatherElements`, `Resize`, `Flatten`,
+`Shape`, `ConstantOfShape`, `TopK`. No loader/shape changes (Y1b rules are the
+contract — match them exactly, including every rejection); no executor changes.
+
+Read-before-write (mandatory): the Y1b shape-rule functions in
+`engine/src/ShapeInference.cpp` (`concat_shape`, `split_shapes`,
+`unsqueeze_shape`, `expand_shape`, `transpose_shape`, `gather_shape`,
+`gatherelements_shape`, `resize_shape`, `slice_shape`, `topk_shapes`,
+`constantofshape_shape`, `shape_shape`, `flatten_shape`, `cast_shape`) plus
+`engine/src/kernels/Reshape.cpp` (shape-operand handling precedent).
+Kernel behavior must agree with its shape rule on dims, dtype, and every
+rejection case — a kernel that accepts what its rule rejects (or vice versa)
+fails this packet.
+
+Conventions (as Y2): one file per op, declare in `Kernels.hpp`, register in
+`CpuKernels.cpp`, list in `engine/CMakeLists.txt`, hand-computed tests in
+`engine/test/KernelsTest.cpp`.
+
+- **Writable:** new `engine/src/kernels/{Concat,Split,Unsqueeze,Expand,Transpose,Slice,Gather,GatherElements,Resize,Flatten,Shape,ConstantOfShape,TopK}.cpp`,
+  `engine/src/kernels/Kernels.hpp`, `engine/src/kernels/CpuKernels.cpp`,
+  `engine/CMakeLists.txt` (source list only), `engine/test/KernelsTest.cpp`.
+  Never: `specs/**`, `backends/**`, `ModelLoader.cpp`, `ShapeInference.cpp`,
+  `Graph.hpp`, Device/Executor/Planner sources, `scripts/**`, `cmake/**`
+  (except the `engine/CMakeLists.txt` source list).
+- **Required final state:**
+  1. `Concat` (any axis incl. negative), `Split` (axis + sizes input, unequal
+     parts), `Unsqueeze`/`Expand` (axes/shape inputs), `Transpose` (perm),
+     `Flatten` (axis) — exact copies/reordering, float32 and int64 data.
+  2. `Slice`: opset-18 input form (data/starts/ends/axes, steps omitted);
+     negative-index normalization + clamping exactly as the shape rule does.
+  3. `Gather`/`GatherElements` (axis incl. negative, int64 indices, negative
+     index wrap); out-of-range index throws with node context.
+  4. `Resize` nearest per Y1b [Q1] (asymmetric, floor, scales input; sizes
+     absent in fixture — reject sizes input if present, matching the rule).
+  5. `Shape` (→int64 shape tensor), `ConstantOfShape` (value attr + int64
+     input shape → filled output).
+  6. `TopK` (axis=-1, largest=1, sorted=1, scalar int64 K input): values +
+     int64 indices outputs, descending; K > dim clamps or rejects exactly as
+     the shape rule does — verify, do not assume.
+  7. Dynamic parameters (Slice starts/ends, Split sizes, Expand/Unsqueeze
+     axes-shape, TopK K, ConstantOfShape input, Resize scales) are read from
+     the input TensorViews as int64/float data and validated; mismatch with
+     the inferred contract throws `InferenceException` with node context.
+  8. Every kernel has a hand-computed test plus an off-default case (negative
+     axis, clamping Slice, unequal Split, permuted Transpose, K < dim TopK);
+     every documented rejection has a negative test.
+- **Budget:** 15 turns. **Handback:** `GROUP Y3 HANDBACK pass|fail`, one line
   per obligation with evidence, deviations, NO-GO, `git status`.
 - **Acceptance (once, verbatim, final action):**
   ```bash
