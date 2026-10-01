@@ -589,6 +589,29 @@ TEST_F(EngineShapes, NewElementwiseBroadcast)
     }
 }
 
+// Mod: int64 inputs propagate int64 to the output (Y2-repair: dtype follows
+// the first input; the Mod kernel is int64-only).
+
+TEST_F(EngineShapes, ModInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 5, encode_initializer_int64("k", {3}, {2, 3, 4}));
+    put_sub(body, 1, encode_node("mod0", "Mod", {"a", "k"}, {"z"},
+                      {encode_attribute_int("fmod", 0)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("z", 1, {2, 3}));
+
+    const engine::Graph graph =
+        load_graph("mod_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    ASSERT_EQ(shapes.tensors.count("z"), 1U);
+    EXPECT_EQ(shapes.tensors.at("z").dims, (std::vector<int64_t>{2, 3}));
+    EXPECT_EQ(shapes.tensors.at("z").dtype, engine::DataType::Int64);
+}
+
 // Sigmoid/Softmax: output shape equals input shape.
 
 TEST_F(EngineShapes, SigmoidSoftmaxCopyInputShape)
@@ -1384,5 +1407,41 @@ TEST_F(EngineShapesNegative, ConcatRankMismatchNamesNode)
     EXPECT_NE(message.find("c_bad"), std::string::npos)
         << "message: " << message;
     EXPECT_NE(message.find("Concat"), std::string::npos)
+        << "message: " << message;
+}
+
+// Mod inputs that disagree on dtype name the node (loader pins no dtype
+// agreement, so the shape walk enforces it).
+
+TEST_F(EngineShapesNegative, ModDtypeMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node mod;
+    mod.name = "mod_bad";
+    mod.op_type = "Mod";
+    mod.inputs = {"a", "x"};
+    mod.outputs = {"z"};
+    mod.attributes.push_back(engine::Attribute("fmod", int64_t(0)));
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(mod);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Mod dtype mismatch did not throw";
+    EXPECT_NE(message.find("mod_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Mod"), std::string::npos)
         << "message: " << message;
 }
