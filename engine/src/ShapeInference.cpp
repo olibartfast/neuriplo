@@ -764,21 +764,8 @@ TensorInfo resize_shape(const Graph& graph, const Node& node,
     const int64_t rank = static_cast<int64_t>(in.size());
     const bool has_scales = node.inputs.size() > 2 && !node.inputs[2].empty();
     const bool has_sizes = node.inputs.size() > 3 && !node.inputs[3].empty();
-    if (has_scales && has_sizes) {
-        fail(node, "Resize takes scales or sizes, not both");
-    }
     if (has_sizes) {
-        const std::vector<int64_t> sizes =
-            int64_constant(graph, node, node.inputs[3]);
-        if (static_cast<int64_t>(sizes.size()) != rank) {
-            fail(node, "Resize sizes rank must match the input rank");
-        }
-        for (const int64_t v : sizes) {
-            if (v <= 0) {
-                fail(node, "Resize sizes must be positive");
-            }
-        }
-        return TensorInfo{DataType::Float32, sizes};
+        fail(node, "Resize takes scales, not sizes, here");
     }
     if (has_scales) {
         const std::vector<float> scales =
@@ -798,7 +785,7 @@ TensorInfo resize_shape(const Graph& graph, const Node& node,
         }
         return TensorInfo{DataType::Float32, out};
     }
-    fail(node, "Resize requires a scales or sizes input");
+    fail(node, "Resize requires a scales input");
 }
 
 TensorInfo slice_shape(const Graph& graph, const Node& node,
@@ -891,7 +878,7 @@ std::vector<TensorInfo> topk_shapes(const Graph& graph, const Node& node,
     std::vector<int64_t> out = in;
     out[static_cast<size_t>(axis)] = k;
     return {TensorInfo{DataType::Float32, out},
-        TensorInfo{DataType::Float32, out}};
+        TensorInfo{DataType::Int64, out}};
 }
 
 TensorInfo constantofshape_shape(const Graph& graph, const Node& node,

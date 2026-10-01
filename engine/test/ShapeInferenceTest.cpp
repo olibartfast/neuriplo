@@ -873,8 +873,10 @@ TEST_F(EngineShapes, TopKSelectsK)
         engine::InferShapes(graph, {{"x", {2, 5}}});
     ASSERT_EQ(shapes.tensors.count("v"), 1U);
     EXPECT_EQ(shapes.tensors.at("v").dims, (std::vector<int64_t>{2, 2}));
+    EXPECT_EQ(shapes.tensors.at("v").dtype, engine::DataType::Float32);
     ASSERT_EQ(shapes.tensors.count("i"), 1U);
     EXPECT_EQ(shapes.tensors.at("i").dims, (std::vector<int64_t>{2, 2}));
+    EXPECT_EQ(shapes.tensors.at("i").dtype, engine::DataType::Int64);
 }
 
 // ConstantOfShape: the shape input's values become the int64 output dims.
@@ -1379,6 +1381,32 @@ TEST_F(EngineShapesNegative, ResizeMissingInputsNamesNode)
     }
     EXPECT_FALSE(message.empty()) << "scaleless Resize did not throw";
     EXPECT_NE(message.find("rs_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Resize"), std::string::npos)
+        << "message: " << message;
+}
+
+// Resize with a sizes input is rejected: scales-only is the admitted form.
+
+TEST_F(EngineShapesNegative, ResizeSizesInputNamesNode)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("sizes", {4}, {1, 3, 16, 16}));
+    put_sub(body, 1, encode_node("rs_sizes", "Resize", {"x", "", "", "sizes"},
+                      {"y"}, {encode_attribute_string("mode", "nearest")}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 8, 8}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 3, 16, 16}));
+
+    const engine::Graph graph =
+        load_graph("resize_sizes.onnx", encode_model(body));
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 3, 8, 8}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "sizes Resize did not throw";
+    EXPECT_NE(message.find("rs_sizes"), std::string::npos)
         << "message: " << message;
     EXPECT_NE(message.find("Resize"), std::string::npos)
         << "message: " << message;
