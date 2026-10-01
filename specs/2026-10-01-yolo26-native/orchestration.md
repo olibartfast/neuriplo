@@ -10,6 +10,30 @@ Packet index:
 - Y1a (below) — IR dtypes + Constant folding + Flatten admission
 - Y1b (below) — allowlist + attribute policies + shape rules for the 23 ops, [Q1]–[Q3]
 - Y2 (below) — elementwise / unary / reduction kernels
+- Y2-repair (below) — Mod shape dtype follows input (int64)
+
+### Packet Y2-repair — Mod shape dtype follows input
+
+Orchestrator re-score of Y2 found a cross-packet contract bug: `compute_outputs`
+in `engine/src/ShapeInference.cpp` types `Mod` output as float32, but the
+fixture's `Mod` is int64 (Y1b [Q2]: fmod=0, int64 inputs) and the Y2 `Mod`
+kernel is int64-only. End-to-end inference would infer f32 for a tensor the
+kernel reads as int64. One-rule fix, nothing else.
+
+- **Writable:** `engine/src/ShapeInference.cpp` (the `Mod` arm only),
+  `engine/test/ShapeInferenceTest.cpp` (extend in place: int64 propagation
+  case + keep the existing float32-behavior coverage untouched).
+  Never: `specs/**`, kernels, loader, `Graph.hpp`, anything else.
+- **Required final state:** `Mod` output dtype = first input dtype (both
+  inputs must already agree per the loader; reject a mismatch with node
+  context if not already enforced — verify, do not assume). Committed tests
+  assert int64 in → int64 out.
+- **Budget:** 5 turns. **Handback:** `GROUP Y2-REPAIR HANDBACK pass|fail`,
+  evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_shapes|engine_kernels" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y2 — elementwise / unary / reduction kernels
 
