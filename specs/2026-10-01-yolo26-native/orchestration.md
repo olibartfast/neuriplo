@@ -56,7 +56,6 @@ Conventions (read the cited files before writing): one file per op in
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R engine_kernels --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
-### Packet Y1a — IR dtypes, Constant folding, Flatten admission
 ### Packet Y1b — allowlist, attribute policies, shape rules, Q1–Q3
 
 Y1a landed (Bool IR, Constant folding, Flatten). This packet teaches the loader
