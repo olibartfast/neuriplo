@@ -14,8 +14,6 @@ Packet index:
 - Y3 (below) — data-movement / shape / selection kernels
 - Y3-repair (below) — rule/kernel dtype alignment (Resize sizes, TopK indices)
 
-### Packet Y3-repair — rule/kernel dtype alignment
-
 ### Packet Y2-repair — Mod shape dtype follows input
 
 Orchestrator re-score of Y2 found a cross-packet contract bug: `compute_outputs`
