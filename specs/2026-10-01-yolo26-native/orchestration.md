@@ -7,9 +7,56 @@ orchestrator-owned; workers get bounded writable paths per packet.
 
 Packet index:
 
-- Y1a below — IR dtypes + Constant folding + Flatten (no new-op policies yet)
+- Y1a (below) — IR dtypes + Constant folding + Flatten admission
 - Y1b (below) — allowlist + attribute policies + shape rules for the 23 ops, [Q1]–[Q3]
+- Y2 (below) — elementwise / unary / reduction kernels
 
+### Packet Y2 — elementwise / unary / reduction kernels
+
+Y1b landed (allowlist, policies, shape rules). This packet implements the 10
+kernels with no data-movement semantics: `Mul`, `Div`, `Sub`, `Sigmoid`,
+`Cast`, `Softmax`, `ReduceMax`, `Mod`, `Equal`, `Where`. No loader/shape
+changes (policies pinned in Y1b); no executor changes.
+
+Conventions (read the cited files before writing): one file per op in
+`engine/src/kernels/` following `Add.cpp` (broadcast helpers) / `Relu.cpp`
+(unary loop); declare in `engine/src/kernels/Kernels.hpp`; register in the
+`FindCpuKernel` table in `CpuKernels.cpp`; list each new `.cpp` in
+`engine/CMakeLists.txt:48-56` (explicit source list, no glob); tests in
+`engine/test/KernelsTest.cpp` with hand-computed expected values.
+
+- **Writable:** new `engine/src/kernels/{Mul,Div,Sub,Sigmoid,Cast,Softmax,ReduceMax,Mod,Equal,Where}.cpp`,
+  `engine/src/kernels/Kernels.hpp`, `engine/src/kernels/CpuKernels.cpp`,
+  `engine/CMakeLists.txt` (source list only), `engine/test/KernelsTest.cpp`.
+  Never: `specs/**`, `backends/**`, `ModelLoader.cpp`, `ShapeInference.cpp`,
+  `Graph.hpp`, Device/Executor/Planner sources, `scripts/**`, `cmake/**`
+  (except the `engine/CMakeLists.txt` source list).
+- **Required final state:**
+  1. `Mul`/`Div`/`Sub`: NumPy multidirectional broadcast like `Add` (float32).
+     `Div` by zero follows IEEE float (`inf`/`nan`), never throws.
+  2. `Sigmoid`: `1/(1+exp(-x))` float32, computed against hand values
+     (0→0.5, large→1, large-negative→0), not captured from another runtime.
+  3. `Cast`: float32↔int64↔bool conversions per the `to` attr (integral
+     truncation toward zero; nonzero→true); reject unsupported `to` with node
+     context.
+  4. `Softmax`: stable (subtract max) over `axis` (negative axis normalized),
+     float32.
+  5. `ReduceMax`: `axes`/`keepdims` per the Y1b policy; empty axes = all axes.
+  6. `Mod`: fmod=0 trunc-remainder on int64 (dividend's sign; Y1b [Q2]).
+  7. `Equal`: elementwise comparison → bool output (broadcast like `Add`).
+  8. `Where`: (bool cond, X, Y) with NumPy broadcast across all three.
+  9. Every kernel validates dtype/shape preconditions and throws
+     `InferenceException` with node context on violation; every kernel has at
+     least one hand-computed test plus one off-default test where a config
+     exists (axis ≠ default, broadcast case, Cast pair).
+- **Budget:** 15 turns. **Handback:** `GROUP Y2 HANDBACK pass|fail`, one line
+  per obligation with evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R engine_kernels --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y1a — IR dtypes, Constant folding, Flatten admission
 ### Packet Y1b — allowlist, attribute policies, shape rules, Q1–Q3
 
 Y1a landed (Bool IR, Constant folding, Flatten). This packet teaches the loader
