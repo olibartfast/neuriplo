@@ -983,10 +983,18 @@ std::vector<TensorInfo> compute_outputs(const Graph& graph, const Node& node,
         return *inputs[index];
     };
 
-    if (op == "Add" || op == "Mul" || op == "Div" || op == "Sub" ||
-        op == "Mod") {
+    if (op == "Add" || op == "Mul" || op == "Div" || op == "Sub") {
         return {TensorInfo{DataType::Float32,
             broadcast_shape(need(0).dims, need(1).dims, node)}};
+    }
+    if (op == "Mod") {
+        const TensorInfo& lhs = need(0);
+        const TensorInfo& rhs = need(1);
+        if (lhs.dtype != rhs.dtype) {
+            fail(node, "Mod inputs must share dtype");
+        }
+        return {TensorInfo{lhs.dtype,
+            broadcast_shape(lhs.dims, rhs.dims, node)}};
     }
     if (op == "Relu" || op == "Sigmoid" || op == "Softmax") {
         return {TensorInfo{DataType::Float32, need(0).dims}};
