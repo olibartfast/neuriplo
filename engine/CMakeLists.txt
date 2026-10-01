@@ -53,7 +53,17 @@ add_library(neuriplo_engine STATIC
     src/kernels/Gemm.cpp
     src/kernels/MatMul.cpp
     src/kernels/Conv.cpp
-    src/kernels/MaxPool.cpp)
+    src/kernels/MaxPool.cpp
+    src/kernels/Mul.cpp
+    src/kernels/Div.cpp
+    src/kernels/Sub.cpp
+    src/kernels/Sigmoid.cpp
+    src/kernels/Cast.cpp
+    src/kernels/Softmax.cpp
+    src/kernels/ReduceMax.cpp
+    src/kernels/Mod.cpp
+    src/kernels/Equal.cpp
+    src/kernels/Where.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC

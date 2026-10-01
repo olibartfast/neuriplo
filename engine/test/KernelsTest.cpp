@@ -1,4 +1,5 @@
-// CPU kernel tests: Relu, Add, Reshape, and ReduceMean.
+// CPU kernel tests: Relu, Add, Reshape, ReduceMean, Mul, Div, Sub, Sigmoid,
+// Cast, Softmax, ReduceMax, Mod, Equal, and Where.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -6,6 +7,7 @@
 
 #include "engine/Device.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -30,6 +32,26 @@ engine::TensorView Int64View(std::vector<int64_t>& data, std::vector<int64_t> di
     view.dtype = engine::DataType::Int64;
     view.dims = std::move(dims);
     return view;
+}
+
+// A bool tensor view over `data` (one byte per element, 0 or 1), with its
+// concrete shape.
+engine::TensorView BoolView(std::vector<std::uint8_t>& data, std::vector<int64_t> dims) {
+    engine::TensorView view;
+    view.data = data.empty() ? nullptr : data.data();
+    view.dtype = engine::DataType::Bool;
+    view.dims = std::move(dims);
+    return view;
+}
+
+// Reads a bool output buffer back as bytes (0 or 1) for comparison.
+std::vector<std::uint8_t> BoolBytes(const std::vector<std::uint8_t>& data) {
+    const bool* flags = reinterpret_cast<const bool*>(data.data());
+    std::vector<std::uint8_t> out(data.size(), 0);
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        out[i] = flags[i] ? std::uint8_t{1} : std::uint8_t{0};
+    }
+    return out;
 }
 
 engine::Node MakeNode(const std::string& name, const std::string& op_type) {
@@ -448,6 +470,481 @@ TEST(EngineKernels, MaxPoolPaddingAndCeilMode) {
     EXPECT_EQ(out, (std::vector<float>{5.0f, 6.0f, 8.0f, 9.0f}));
 }
 
+// Mul broadcasts a trailing [3] input across a [2,3] input.
+TEST(EngineKernels, MulBroadcastsLowerRank) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> b = {10.0f, 20.0f, 30.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("mul0", "Mul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{10.0f, 40.0f, 90.0f, 40.0f, 100.0f, 180.0f}));
+}
+
+// Mul broadcasts [2,1] against [1,3] into [2,3].
+TEST(EngineKernels, MulBroadcastsBothAxes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {2.0f, 3.0f};
+    std::vector<float> b = {10.0f, 20.0f, 30.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("mul1", "Mul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 1}), FloatView(b, {1, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{20.0f, 40.0f, 60.0f, 30.0f, 60.0f, 90.0f}));
+}
+
+// Div divides elementwise without broadcasting.
+TEST(EngineKernels, DivPlainQuotient) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Div");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {6.0f, 8.0f, 10.0f};
+    std::vector<float> b = {2.0f, 4.0f, 5.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("div0", "Div");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{3.0f, 2.0f, 2.0f}));
+}
+
+// Div broadcasts a trailing [3] divisor across a [2,3] dividend.
+TEST(EngineKernels, DivBroadcastsLowerRank) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Div");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {6.0f, 12.0f, 18.0f, 24.0f, 30.0f, 36.0f};
+    std::vector<float> b = {2.0f, 3.0f, 6.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("div1", "Div");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{3.0f, 4.0f, 3.0f, 12.0f, 10.0f, 6.0f}));
+}
+
+// Div by zero follows IEEE float semantics: inf, -inf, nan, never a throw.
+TEST(EngineKernels, DivByZeroYieldsInfAndNan) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Div");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, -1.0f, 0.0f, 6.0f};
+    std::vector<float> b = {0.0f, 0.0f, 0.0f, 3.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("div_zero", "Div");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {4}), FloatView(b, {4})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_TRUE(std::isinf(out[0]) && out[0] > 0.0f);
+    EXPECT_TRUE(std::isinf(out[1]) && out[1] < 0.0f);
+    EXPECT_TRUE(std::isnan(out[2]));
+    EXPECT_EQ(out[3], 2.0f);
+}
+
+// Sub subtracts elementwise without broadcasting.
+TEST(EngineKernels, SubPlainDifference) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sub");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {5.0f, 7.0f, 9.0f};
+    std::vector<float> b = {1.0f, 2.0f, 3.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("sub0", "Sub");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{4.0f, 5.0f, 6.0f}));
+}
+
+// Sub broadcasts [2,1] against [1,3] into [2,3].
+TEST(EngineKernels, SubBroadcastsBothAxes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sub");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {10.0f, 20.0f};
+    std::vector<float> b = {1.0f, 2.0f, 3.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("sub1", "Sub");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 1}), FloatView(b, {1, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{9.0f, 8.0f, 7.0f, 19.0f, 18.0f, 17.0f}));
+}
+
+// Sigmoid maps 0 to 0.5 and symmetric inputs to complementary outputs.
+TEST(EngineKernels, SigmoidBasicValues) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sigmoid");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {0.0f, 2.0f, -2.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("sigmoid0", "Sigmoid");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_FLOAT_EQ(out[0], 0.5f);
+    EXPECT_NEAR(out[1], 0.88079708f, 1e-6f);
+    EXPECT_NEAR(out[2], 0.11920292f, 1e-6f);
+}
+
+// Sigmoid saturates: large inputs approach 1, large negatives approach 0.
+TEST(EngineKernels, SigmoidSaturatesForLargeMagnitudes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sigmoid");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {10.0f, -10.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("sigmoid1", "Sigmoid");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_NEAR(out[0], 0.9999546f, 1e-6f);
+    EXPECT_NEAR(out[1], 0.0000453979f, 1e-8f);
+}
+
+// Cast converts float32 to int64 with truncation toward zero.
+TEST(EngineKernels, CastFloatToInt64Truncates) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.9f, -2.7f, 0.0f, 3.0f};
+    std::vector<int64_t> out(4, 0);
+    engine::Node node = MakeNode("cast0", "Cast");
+    node.attributes.emplace_back("to", int64_t{7});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {4})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, -2, 0, 3}));
+}
+
+// Cast converts int64 to float32 exactly for small magnitudes.
+TEST(EngineKernels, CastInt64ToFloat) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {1, -2, 0};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("cast1", "Cast");
+    node.attributes.emplace_back("to", int64_t{1});
+    std::vector<engine::TensorView> inputs = {Int64View(in, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, -2.0f, 0.0f}));
+}
+
+// Cast converts float32 to bool: only exact zero maps to false.
+TEST(EngineKernels, CastFloatToBool) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {0.0f, 2.5f, -1.0f};
+    std::vector<std::uint8_t> out(3, 0);
+    engine::Node node = MakeNode("cast2", "Cast");
+    node.attributes.emplace_back("to", int64_t{9});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{0, 1, 1}));
+}
+
+// Cast converts bool to int64 as 1/0.
+TEST(EngineKernels, CastBoolToInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> in = {1, 0, 1};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("cast3", "Cast");
+    node.attributes.emplace_back("to", int64_t{7});
+    std::vector<engine::TensorView> inputs = {BoolView(in, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, 0, 1}));
+}
+
+// Cast converts int64 to bool: only zero maps to false.
+TEST(EngineKernels, CastInt64ToBool) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {0, 5, -3};
+    std::vector<std::uint8_t> out(3, 0);
+    engine::Node node = MakeNode("cast4", "Cast");
+    node.attributes.emplace_back("to", int64_t{9});
+    std::vector<engine::TensorView> inputs = {Int64View(in, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{0, 1, 1}));
+}
+
+// Cast converts bool to float32 as 1.0/0.0.
+TEST(EngineKernels, CastBoolToFloat) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> in = {1, 0};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("cast5", "Cast");
+    node.attributes.emplace_back("to", int64_t{1});
+    std::vector<engine::TensorView> inputs = {BoolView(in, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 0.0f}));
+}
+
+// Softmax over the default last axis normalizes each row of [2,3].
+TEST(EngineKernels, SoftmaxDefaultLastAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Softmax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 1.0f, 2.0f, 3.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("softmax0", "Softmax");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_NEAR(out[0], 0.09003057f, 1e-6f);
+    EXPECT_NEAR(out[1], 0.24472847f, 1e-6f);
+    EXPECT_NEAR(out[2], 0.66524096f, 1e-6f);
+    EXPECT_NEAR(out[3], 0.09003057f, 1e-6f);
+    EXPECT_NEAR(out[4], 0.24472847f, 1e-6f);
+    EXPECT_NEAR(out[5], 0.66524096f, 1e-6f);
+}
+
+// Softmax over axis 0 normalizes each column of [2,3]; every column differs
+// by 3, so every column shares the same pair of outputs.
+TEST(EngineKernels, SoftmaxFirstAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Softmax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("softmax1", "Softmax");
+    node.attributes.emplace_back("axis", int64_t{0});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_NEAR(out[0], 0.04742587f, 1e-6f);
+    EXPECT_NEAR(out[1], 0.04742587f, 1e-6f);
+    EXPECT_NEAR(out[2], 0.04742587f, 1e-6f);
+    EXPECT_NEAR(out[3], 0.95257413f, 1e-6f);
+    EXPECT_NEAR(out[4], 0.95257413f, 1e-6f);
+    EXPECT_NEAR(out[5], 0.95257413f, 1e-6f);
+}
+
+// ReduceMax over axis 1 of [2,3] with the default keepdims == 1.
+TEST(EngineKernels, ReduceMaxOneAxisKeepdimsDefault) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 5.0f, 3.0f, 4.0f, 2.0f, 6.0f};
+    std::vector<float> out(2, 0.0f);
+    std::vector<int64_t> axes = {1};
+    engine::Node node = MakeNode("reducemax0", "ReduceMax");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{5.0f, 6.0f}));
+}
+
+// ReduceMax over axis 1 with keepdims == 0 squeezes the reduced axis.
+TEST(EngineKernels, ReduceMaxOneAxisKeepdimsZero) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 5.0f, 3.0f, 4.0f, 2.0f, 6.0f};
+    std::vector<float> out(2, 0.0f);
+    std::vector<int64_t> axes = {1};
+    engine::Node node = MakeNode("reducemax1", "ReduceMax");
+    node.attributes.emplace_back("keepdims", int64_t{0});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{5.0f, 6.0f}));
+}
+
+// ReduceMax with no axes input reduces every axis, leaving [1,1] by default.
+TEST(EngineKernels, ReduceMaxAllAxes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 5.0f, 3.0f, 4.0f};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("reducemax2", "ReduceMax");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{5.0f}));
+}
+
+// ReduceMax accepts a negative axis: -1 names the last axis of [2,3].
+TEST(EngineKernels, ReduceMaxNegativeAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 5.0f, 3.0f, 4.0f, 2.0f, 6.0f};
+    std::vector<float> out(2, 0.0f);
+    std::vector<int64_t> axes = {-1};
+    engine::Node node = MakeNode("reducemax3", "ReduceMax");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{5.0f, 6.0f}));
+}
+
+// Mod takes the truncating remainder on int64; the sign follows the dividend.
+TEST(EngineKernels, ModDividendSign) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mod");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {7, -7, 7, -7};
+    std::vector<int64_t> b = {3, 3, -3, -3};
+    std::vector<int64_t> out(4, 0);
+    engine::Node node = MakeNode("mod0", "Mod");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {4}), Int64View(b, {4})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, -1, 1, -1}));
+}
+
+// Mod broadcasts [2,1] against [3] into [2,3].
+TEST(EngineKernels, ModBroadcastsLowerRank) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mod");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {7, 8};
+    std::vector<int64_t> b = {3, 4, 5};
+    std::vector<int64_t> out(6, 0);
+    engine::Node node = MakeNode("mod1", "Mod");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2, 1}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, 3, 2, 2, 0, 3}));
+}
+
+// Equal compares float32 vectors elementwise into a bool output.
+TEST(EngineKernels, EqualFloatVectors) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Equal");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f};
+    std::vector<float> b = {1.0f, 0.0f, 3.0f};
+    std::vector<std::uint8_t> out(3, 0);
+    engine::Node node = MakeNode("equal0", "Equal");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{1, 0, 1}));
+}
+
+// Equal broadcasts int64 [2,1] against [3] into a [2,3] bool output.
+TEST(EngineKernels, EqualInt64Broadcast) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Equal");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {5, 6};
+    std::vector<int64_t> b = {5, 5, 5};
+    std::vector<std::uint8_t> out(6, 0);
+    engine::Node node = MakeNode("equal1", "Equal");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2, 1}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{1, 1, 1, 0, 0, 0}));
+}
+
+// Where selects elementwise between two flat vectors.
+TEST(EngineKernels, WhereFlatSelect) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Where");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> cond = {1, 0, 1};
+    std::vector<float> x = {1.0f, 2.0f, 3.0f};
+    std::vector<float> y = {10.0f, 20.0f, 30.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("where0", "Where");
+    std::vector<engine::TensorView> inputs = {BoolView(cond, {3}), FloatView(x, {3}), FloatView(y, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 20.0f, 3.0f}));
+}
+
+// Where broadcasts all three inputs: cond [2,1], X [3], scalar Y into [2,3].
+TEST(EngineKernels, WhereBroadcastsAllThree) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Where");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> cond = {1, 0};
+    std::vector<float> x = {1.0f, 2.0f, 3.0f};
+    std::vector<float> y = {9.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("where1", "Where");
+    std::vector<engine::TensorView> inputs = {BoolView(cond, {2, 1}), FloatView(x, {3}), FloatView(y, {})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 2.0f, 3.0f, 9.0f, 9.0f, 9.0f}));
+}
+
 // The op-type table resolves the implemented kernels and rejects unknown ops.
 TEST(EngineKernels, TableResolvesKnownOpsAndRejectsUnknown) {
     const engine::KernelTable& table = engine::CpuDevice().kernels();
@@ -459,6 +956,16 @@ TEST(EngineKernels, TableResolvesKnownOpsAndRejectsUnknown) {
     EXPECT_NE(table.find("MatMul"), nullptr);
     EXPECT_NE(table.find("Conv"), nullptr);
     EXPECT_NE(table.find("MaxPool"), nullptr);
+    EXPECT_NE(table.find("Mul"), nullptr);
+    EXPECT_NE(table.find("Div"), nullptr);
+    EXPECT_NE(table.find("Sub"), nullptr);
+    EXPECT_NE(table.find("Sigmoid"), nullptr);
+    EXPECT_NE(table.find("Cast"), nullptr);
+    EXPECT_NE(table.find("Softmax"), nullptr);
+    EXPECT_NE(table.find("ReduceMax"), nullptr);
+    EXPECT_NE(table.find("Mod"), nullptr);
+    EXPECT_NE(table.find("Equal"), nullptr);
+    EXPECT_NE(table.find("Where"), nullptr);
     EXPECT_EQ(table.find("NoSuchOp"), nullptr);
 }
 
@@ -596,5 +1103,244 @@ TEST(EngineKernelsNegative, MaxPoolRejectsShapeMismatch) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("MaxPool"), std::string::npos) << error.what();
+    }
+}
+
+// Mul rejects an int64 data input, naming the op.
+TEST(EngineKernelsNegative, MulRejectsDtypeMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {1, 2, 3};
+    std::vector<int64_t> b = {1, 2, 3};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("mul_bad", "Mul");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {3}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Mul"), std::string::npos) << error.what();
+    }
+}
+
+// Div rejects shapes that cannot broadcast, naming the op.
+TEST(EngineKernelsNegative, DivRejectsBroadcastMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Div");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f};
+    std::vector<float> b = {1.0f, 2.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("div_bad", "Div");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3}), FloatView(b, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Div"), std::string::npos) << error.what();
+    }
+}
+
+// Sub rejects the wrong input arity, naming the op.
+TEST(EngineKernelsNegative, SubRejectsWrongArity) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sub");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f, 3.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("sub_bad", "Sub");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Sub"), std::string::npos) << error.what();
+    }
+}
+
+// Sigmoid rejects an int64 data input, naming the op.
+TEST(EngineKernelsNegative, SigmoidRejectsDtypeMismatch) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sigmoid");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {1, 2, 3};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("sigmoid_bad", "Sigmoid");
+    std::vector<engine::TensorView> inputs = {Int64View(in, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Sigmoid"), std::string::npos) << error.what();
+    }
+}
+
+// Cast rejects an unsupported `to` code, naming the op.
+TEST(EngineKernelsNegative, CastRejectsUnsupportedTo) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("cast_bad", "Cast");
+    node.attributes.emplace_back("to", int64_t{6});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Cast"), std::string::npos) << error.what();
+    }
+}
+
+// Cast rejects a missing `to` attribute, naming the op.
+TEST(EngineKernelsNegative, CastRejectsMissingTo) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cast");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("cast_noto", "Cast");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Cast"), std::string::npos) << error.what();
+    }
+}
+
+// Softmax rejects an out-of-range axis, naming the op.
+TEST(EngineKernelsNegative, SoftmaxRejectsAxisOutOfRange) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Softmax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("softmax_bad", "Softmax");
+    node.attributes.emplace_back("axis", int64_t{2});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Softmax"), std::string::npos) << error.what();
+    }
+}
+
+// ReduceMax rejects a duplicated axis, naming the op.
+TEST(EngineKernelsNegative, ReduceMaxRejectsDuplicateAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> out(1, 0.0f);
+    std::vector<int64_t> axes = {0, 0};
+    engine::Node node = MakeNode("reducemax_bad", "ReduceMax");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 2}), Int64View(axes, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("ReduceMax"), std::string::npos) << error.what();
+    }
+}
+
+// Mod rejects a zero divisor, naming the op.
+TEST(EngineKernelsNegative, ModRejectsZeroDivisor) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mod");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {7, 8};
+    std::vector<int64_t> b = {3, 0};
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("mod_bad", "Mod");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2}), Int64View(b, {2})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Mod"), std::string::npos) << error.what();
+    }
+}
+
+// Mod rejects fmod=1, naming the op.
+TEST(EngineKernelsNegative, ModRejectsFmodOne) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mod");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {7, 8};
+    std::vector<int64_t> b = {3, 4};
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("mod_fmod", "Mod");
+    node.attributes.emplace_back("fmod", int64_t{1});
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2}), Int64View(b, {2})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Mod"), std::string::npos) << error.what();
+    }
+}
+
+// Equal rejects mixed float/int inputs, naming the op.
+TEST(EngineKernelsNegative, EqualRejectsMixedDtypes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Equal");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f};
+    std::vector<int64_t> b = {1, 2};
+    std::vector<std::uint8_t> out(2, 0);
+    engine::Node node = MakeNode("equal_bad", "Equal");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2}), Int64View(b, {2})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Equal"), std::string::npos) << error.what();
+    }
+}
+
+// Where rejects a non-bool condition, naming the op.
+TEST(EngineKernelsNegative, WhereRejectsNonBoolCondition) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Where");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> cond = {1.0f, 0.0f};
+    std::vector<float> x = {1.0f, 2.0f};
+    std::vector<float> y = {10.0f, 20.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("where_bad", "Where");
+    std::vector<engine::TensorView> inputs = {FloatView(cond, {2}), FloatView(x, {2}), FloatView(y, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Where"), std::string::npos) << error.what();
     }
 }
