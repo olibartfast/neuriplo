@@ -77,5 +77,48 @@ void MaxPool(const Node& node, const std::vector<TensorView>& inputs, const std:
 // implementation for it.
 KernelFn FindCpuKernel(const std::string& op_type);
 
+// Join the inputs along `axis` (negative values count from the back);
+// float32 or int64 data.
+void Concat(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Divide the input along `axis` into one output per part, sized by the
+// optional int64 sizes input or evenly; float32 or int64 data.
+void Split(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Insert size-1 axes at the int64 axes-input positions; float32 or int64 data.
+void Unsqueeze(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Broadcast the input to the int64 shape input; float32 or int64 data.
+void Expand(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Permute the input axes per `perm` (absent means reverse); float32 or int64.
+void Transpose(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Strided ranges from the int64 starts/ends (and optional axes/steps) inputs;
+// float32 or int64 data.
+void Slice(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Whole-slice selection along `axis` with int64 indices; float32 or int64 data.
+void Gather(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Per-element selection along `axis` with int64 indices; float32 or int64 data.
+void GatherElements(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Nearest-neighbor upsampling from the float32 scales input; float32 or int64.
+void Resize(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Collapse to [prod(dims[:axis]), prod(dims[axis:])]; float32 or int64 data.
+void Flatten(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Emit the input dims as a rank-1 int64 tensor.
+void Shape(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Fill an int64 tensor of the shape-input dims with the `value` attribute.
+void ConstantOfShape(const Node& node, const std::vector<TensorView>& inputs,
+    const std::vector<TensorView>& outputs);
+
+// K largest elements along `axis`, descending; float32 values, int64 indices.
+void TopK(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 } // namespace kernels
 } // namespace engine

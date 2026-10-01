@@ -32,6 +32,19 @@ KernelFn FindCpuKernel(const std::string& op_type) {
         {"MatMul", &MatMul},
         {"Conv", &Conv},
         {"MaxPool", &MaxPool},
+        {"Concat", &Concat},
+        {"Split", &Split},
+        {"Unsqueeze", &Unsqueeze},
+        {"Expand", &Expand},
+        {"Transpose", &Transpose},
+        {"Slice", &Slice},
+        {"Gather", &Gather},
+        {"GatherElements", &GatherElements},
+        {"Resize", &Resize},
+        {"Flatten", &Flatten},
+        {"Shape", &Shape},
+        {"ConstantOfShape", &ConstantOfShape},
+        {"TopK", &TopK},
     };
     const auto it = table.find(op_type);
     return it == table.end() ? nullptr : it->second;
