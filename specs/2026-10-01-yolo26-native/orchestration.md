@@ -23,6 +23,26 @@ Packet index:
 - Y8 (below) — data-movement dtype propagation audit
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
 - Y4-retry-3 (below) — re-run parity after Y7 (no code changes)
+- Y4-retry-4 (below) — parity run on the green tree (no code changes)
+
+### Packet Y4-retry-4 — parity run on the green tree
+
+Y8 fixed the last known load/run blocker (scratch full NATIVE inference
+reaches `[1,300,6]` with 0 non-finite). This packet runs the committed Y4
+harness to a figure — no code changes unless the run exposes a harness
+defect (same latitude + reporting duty as previous retries).
+
+- **Writable:** the three Y4 harness files, harness-defect fixes only.
+  Never: `specs/**`, `engine/**`, anything else.
+- **Required final state:** green chain with `YOLO_PARITY_MAX_ABS_DIFF`. Over
+  1e-4 → stop, report `fail` with the figure + per-region stats, retune
+  nothing.
+- **Budget:** 20 turns. **Handback:** `GROUP Y4-RETRY-4 HANDBACK pass|fail`,
+  observed figure, evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y8 — data-movement dtype propagation audit
 
@@ -591,3 +611,4 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 13 | Y4-retry-2 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; executor has no buffer for unconsumed TopK values output) | 0 | Planner dead-tensor skip invalid under executor contract → Y7 |
 | 14 | Y7 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, plan+executor 4/4 green) | 0 | Dead tensors live `[definition, definition]`; TopK-shaped both-outputs test; reuse intact |
 | 15 | Y4-retry-3 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; Unsqueeze rule hardcodes f32, kernel demands dtype match on int64 data) | 0 | Rule/kernel dtype class bug → Y8 audit |
+| 16 | Y8 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, `engine_` 11/11 green) | 1 (Concat agreement rejection added — required, accepted) | 9 rules propagate data dtype; reshape/TopK-values stay f32 (justified); zero kernel widenings; scratch full NATIVE run → [1,300,6], 0 non-finite |

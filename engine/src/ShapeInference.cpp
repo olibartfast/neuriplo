@@ -860,6 +860,8 @@ TensorInfo reshape_shape(const StaticContext& ctx, const Node& node,
     if (element_count(out) != in_count) {
         fail(node, "Reshape target product does not match input elements");
     }
+    // Float32-only by contract: the Reshape kernel rejects non-float32 data,
+    // and every fixture site carries float32 (Y8 audit stay-as-is).
     return TensorInfo{DataType::Float32, out};
 }
 
@@ -886,7 +888,7 @@ TensorInfo flatten_shape(const Node& node,
     for (size_t i = static_cast<size_t>(axis); i < in.size(); ++i) {
         second *= in[i];
     }
-    return TensorInfo{DataType::Float32, {first, second}};
+    return TensorInfo{inputs[0]->dtype, {first, second}};
 }
 
 TensorInfo concat_shape(const Node& node,
@@ -902,9 +904,13 @@ TensorInfo concat_shape(const Node& node,
     const int64_t axis =
         normalize_axis(node, attr_int(node, "axis", 1), rank, "Concat");
     std::vector<int64_t> out = inputs[0]->dims;
+    const DataType dtype = inputs[0]->dtype;
     for (size_t i = 1; i < inputs.size(); ++i) {
         if (inputs[i] == nullptr) {
             fail(node, "Concat requires all inputs");
+        }
+        if (inputs[i]->dtype != dtype) {
+            fail(node, "Concat inputs must share dtype");
         }
         const std::vector<int64_t>& dims = inputs[i]->dims;
         if (static_cast<int64_t>(dims.size()) != rank) {
@@ -920,7 +926,7 @@ TensorInfo concat_shape(const Node& node,
         }
         out[static_cast<size_t>(axis)] += dims[static_cast<size_t>(axis)];
     }
-    return TensorInfo{DataType::Float32, out};
+    return TensorInfo{dtype, out};
 }
 
 std::vector<TensorInfo> split_shapes(const StaticContext& ctx, const Node& node,
@@ -966,7 +972,7 @@ std::vector<TensorInfo> split_shapes(const StaticContext& ctx, const Node& node,
     for (size_t i = 0; i < count; ++i) {
         std::vector<int64_t> dims = in;
         dims[static_cast<size_t>(axis)] = parts[i];
-        outputs.push_back(TensorInfo{DataType::Float32, dims});
+        outputs.push_back(TensorInfo{inputs[0]->dtype, dims});
     }
     return outputs;
 }
@@ -1005,7 +1011,7 @@ TensorInfo unsqueeze_shape(const StaticContext& ctx, const Node& node,
             out[static_cast<size_t>(i)] = in[data_pos++];
         }
     }
-    return TensorInfo{DataType::Float32, out};
+    return TensorInfo{inputs[0]->dtype, out};
 }
 
 TensorInfo expand_shape(const StaticContext& ctx, const Node& node,
@@ -1047,7 +1053,7 @@ TensorInfo expand_shape(const StaticContext& ctx, const Node& node,
             fail(node, "Expand input is not broadcastable to the target shape");
         }
     }
-    return TensorInfo{DataType::Float32, out};
+    return TensorInfo{inputs[0]->dtype, out};
 }
 
 TensorInfo transpose_shape(const Node& node,
@@ -1061,7 +1067,7 @@ TensorInfo transpose_shape(const Node& node,
     std::vector<int64_t> perm = attr_ints(node, "perm");
     if (perm.empty()) {
         std::vector<int64_t> out(in.rbegin(), in.rend());
-        return TensorInfo{DataType::Float32, out};
+        return TensorInfo{inputs[0]->dtype, out};
     }
     if (static_cast<int64_t>(perm.size()) != rank) {
         fail(node, "Transpose perm rank must match the input rank");
@@ -1077,7 +1083,7 @@ TensorInfo transpose_shape(const Node& node,
     for (int64_t i = 0; i < rank; ++i) {
         out[static_cast<size_t>(i)] = in[static_cast<size_t>(perm[i])];
     }
-    return TensorInfo{DataType::Float32, out};
+    return TensorInfo{inputs[0]->dtype, out};
 }
 
 TensorInfo gatherelements_shape(const Node& node,
@@ -1092,7 +1098,7 @@ TensorInfo gatherelements_shape(const Node& node,
     if (static_cast<int64_t>(inputs[1]->dims.size()) != rank) {
         fail(node, "GatherElements data and indices must share rank");
     }
-    return TensorInfo{DataType::Float32, inputs[1]->dims};
+    return TensorInfo{inputs[0]->dtype, inputs[1]->dims};
 }
 
 TensorInfo gather_shape(const Node& node,
@@ -1162,7 +1168,7 @@ TensorInfo resize_shape(const Graph& graph, const Node& node,
             }
             out[static_cast<size_t>(i)] = dim;
         }
-        return TensorInfo{DataType::Float32, out};
+        return TensorInfo{inputs[0]->dtype, out};
     }
     fail(node, "Resize requires a scales input");
 }
@@ -1224,7 +1230,7 @@ TensorInfo slice_shape(const StaticContext& ctx, const Node& node,
         out[static_cast<size_t>(axis)] =
             end > begin ? (end - begin + steps[i] - 1) / steps[i] : 0;
     }
-    return TensorInfo{DataType::Float32, out};
+    return TensorInfo{inputs[0]->dtype, out};
 }
 
 std::vector<TensorInfo> topk_shapes(const StaticContext& ctx, const Node& node,
@@ -1256,6 +1262,8 @@ std::vector<TensorInfo> topk_shapes(const StaticContext& ctx, const Node& node,
     }
     std::vector<int64_t> out = in;
     out[static_cast<size_t>(axis)] = k;
+    // Values stay float32: the TopK kernel takes float32 input only, so the
+    // values output can never be anything else (Y8 audit stay-as-is).
     return {TensorInfo{DataType::Float32, out},
         TensorInfo{DataType::Int64, out}};
 }
