@@ -23,8 +23,6 @@ Packet index:
 
 ### Packet Y4-retry-2 — re-run parity after Y6
 
-### Packet Y4-retry-2 — re-run parity after Y6
-
 Y6 fixed the Reshape `-1` runtime rejection that stopped the last parity run
 at `/model.23/Reshape`. The harness is unchanged since. This packet only
 re-runs the chain — no code changes unless the run exposes a harness defect
