@@ -1,8 +1,8 @@
-// Expand: broadcast the input to the int64 shape input following NumPy
-// right-alignment rules.
+// Expand: symmetric max-broadcast of the input against the int64 shape input
+// following NumPy right-alignment rules.
 //
-// Every input dimension must equal the corresponding target dimension or be
-// one (missing leading axes broadcast as size one). Data is float32 or int64.
+// Each aligned pair resolves to max(d, s) when either side is one (missing
+// leading axes broadcast as size one). Data is float32 or int64.
 
 #include "Kernels.hpp"
 
@@ -90,8 +90,12 @@ void Expand(const Node& node, const std::vector<TensorView>& inputs, const std::
         if (s < 1) {
             throw InferenceException(context + ": Expand target shape must be positive");
         }
-        if (d == s || di < 0 || d == 1) {
+        if (d == s) {
             expected[i] = s;
+        } else if (d == 1 || di < 0) {
+            expected[i] = s;
+        } else if (s == 1) {
+            expected[i] = d;
         } else {
             throw InferenceException(context + ": Expand input is not broadcastable to the target shape");
         }

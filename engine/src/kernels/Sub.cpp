@@ -1,4 +1,6 @@
 // Sub: elementwise difference with NumPy multidirectional broadcasting.
+//
+// Both inputs share one element type (float32 or int64); the output matches.
 
 #include "Kernels.hpp"
 
@@ -72,6 +74,23 @@ std::vector<int64_t> AlignedStrides(const std::vector<int64_t>& inDims, const st
     return aligned;
 }
 
+template <typename T>
+void SubTyped(const T* x, const T* z, T* y, int64_t outCount, const std::vector<int64_t>& outStrides,
+    const std::vector<int64_t>& aStrides, const std::vector<int64_t>& bStrides, std::size_t rank) {
+    for (int64_t i = 0; i < outCount; ++i) {
+        int64_t remaining = i;
+        int64_t aOffset = 0;
+        int64_t bOffset = 0;
+        for (std::size_t j = 0; j < rank; ++j) {
+            const int64_t coord = remaining / outStrides[j];
+            remaining %= outStrides[j];
+            aOffset += coord * aStrides[j];
+            bOffset += coord * bStrides[j];
+        }
+        y[i] = x[aOffset] - z[bOffset];
+    }
+}
+
 } // namespace
 
 void Sub(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs) {
@@ -82,8 +101,9 @@ void Sub(const Node& node, const std::vector<TensorView>& inputs, const std::vec
     const TensorView& a = inputs[0];
     const TensorView& b = inputs[1];
     const TensorView& out = outputs[0];
-    if (a.dtype != DataType::Float32 || b.dtype != DataType::Float32 || out.dtype != DataType::Float32) {
-        throw InferenceException(context + ": tensors must be float32");
+    if (a.dtype != b.dtype || (a.dtype != DataType::Float32 && a.dtype != DataType::Int64) ||
+        out.dtype != a.dtype) {
+        throw InferenceException(context + ": tensors must share one float32 or int64 dtype");
     }
 
     const int64_t outCount = ElementCount(out.dims, context);
@@ -100,20 +120,12 @@ void Sub(const Node& node, const std::vector<TensorView>& inputs, const std::vec
     const std::vector<int64_t> aStrides = AlignedStrides(a.dims, out.dims, context);
     const std::vector<int64_t> bStrides = AlignedStrides(b.dims, out.dims, context);
 
-    const float* x = static_cast<const float*>(a.data);
-    const float* z = static_cast<const float*>(b.data);
-    float* y = static_cast<float*>(out.data);
-    for (int64_t i = 0; i < outCount; ++i) {
-        int64_t remaining = i;
-        int64_t aOffset = 0;
-        int64_t bOffset = 0;
-        for (std::size_t j = 0; j < out.dims.size(); ++j) {
-            const int64_t coord = remaining / outStrides[j];
-            remaining %= outStrides[j];
-            aOffset += coord * aStrides[j];
-            bOffset += coord * bStrides[j];
-        }
-        y[i] = x[aOffset] - z[bOffset];
+    if (a.dtype == DataType::Float32) {
+        SubTyped(static_cast<const float*>(a.data), static_cast<const float*>(b.data),
+            static_cast<float*>(out.data), outCount, outStrides, aStrides, bStrides, out.dims.size());
+    } else {
+        SubTyped(static_cast<const int64_t*>(a.data), static_cast<const int64_t*>(b.data),
+            static_cast<int64_t*>(out.data), outCount, outStrides, aStrides, bStrides, out.dims.size());
     }
 }
 
