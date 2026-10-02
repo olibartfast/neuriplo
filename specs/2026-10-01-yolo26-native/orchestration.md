@@ -15,6 +15,56 @@ Packet index:
 - Y3-repair (below) — rule/kernel dtype alignment (Resize sizes, TopK indices)
 - Y4 (below) — YOLO parity harness (provisioning + native_yolo_parity_test)
 - Y4-repair (below) — admit load-folded Constant in fixture gate + full chain
+- Y5 (below) — static shape-parameter evaluation + int64 arithmetic
+
+### Packet Y5 — static shape-parameter evaluation + int64 arithmetic
+
+Y4-repair failed at NATIVE load: `/model.23/Slice[_1]` ends/starts and
+`Expand_[67]` shapes come from `Shape→Gather→Add/Div/Mul` and
+`Where`-of-constants chains — all int64, all fixed at load for the fixed
+`[1,3,640,640]` input, but not initializers, so the constant-only shape rules
+reject them. Two coupled gaps (both in scope, nothing else):
+
+(a) No load-time evaluation of shape-parameter expressions.
+(b) `Add/Sub/Mul/Div` shape rules type int64 arithmetic as float32 and the Y2
+    kernels are float32-only; `Where` shape rule types X/Y as float32 and the
+    kernel takes float32 X/Y — but the fixture runs all of these on int64
+    (surveyed 2026-10-01: every constant in the five chains is dtype 7).
+
+- **Writable:** `engine/src/ShapeInference.cpp`, `engine/src/kernels/{Add,Sub,Mul,Div,Where}.cpp`,
+  `engine/test/ShapeInferenceTest.cpp`, `engine/test/KernelsTest.cpp`
+  (extend in place). Never: `specs/**`, loader, `Graph.hpp`, other kernels,
+  Device/Executor/Planner, `backends/**`, `cmake/**`, `scripts/**`.
+- **Read-only:** `/tmp` fixture at `build-parity/native_yolo_parity_fixture/yolo26n.onnx`
+  (oracle for the five chains; no committed test opens it).
+- **Required final state:**
+  1. Static evaluator: when a shape-input position requires a constant absent
+     from initializers, recursively evaluate over exactly
+     {Shape, Gather, Add, Sub, Mul, Div, Equal, Where, ConstantOfShape}.
+     `Shape`-of-X uses X's already-inferred dims (topological order holds).
+     Evaluator arithmetic must match kernel arithmetic exactly (int64
+     trunc-division, Mul/Add/Sub int64, Equal→bool, Where select,
+     ConstantOfShape fill, Gather with negative wrap + range check). Any op
+     outside the whitelist, any data-dependent root, any failure → the
+     existing load rejection, unchanged.
+  2. `Add/Sub/Mul/Div` shape rules propagate input dtype (both inputs must
+     agree; mismatch rejects with node context — the Mod precedent); kernels
+     gain int64 paths (templated like the Y3 data-movement kernels).
+  3. `Where` shape rule outputs X's dtype (X/Y must agree; mismatch rejects);
+     kernel gains int64 X/Y (cond stays bool).
+  4. Hermetic tests: evaluator chains mirroring the fixture's five sites
+     (Shape→Gather→Add→Div→Mul ends; Where-of-constants Expand shape;
+     int64 Add/Mul/Div/Where dtype propagation + agreement rejections;
+     whitelist-violation rejection e.g. Sigmoid-rooted expression).
+  5. Full-file load verified with a /tmp-only scratch driver (never committed):
+     report node/initializer counts and that `/model.23/Slice[_1]` +
+     `Expand_[67]` infer.
+- **Budget:** 20 turns. **Handback:** `GROUP Y5 HANDBACK pass|fail`, one line
+  per obligation with evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y4-repair — admit load-folded Constant in fixture gate
 
