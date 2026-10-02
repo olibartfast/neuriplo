@@ -17,6 +17,34 @@ Packet index:
 - Y4-repair (below) — admit load-folded Constant in fixture gate + full chain
 - Y5 (below) — static shape-parameter evaluation + int64 arithmetic
 - Y5-repair (below) — Expand max-broadcast (rule + kernel)
+- Y4-retry (below) — build + run yolo parity (harness defects allowed)
+
+### Packet Y4-retry — build + run yolo parity
+
+### Packet Y4-retry — build + run yolo parity
+
+Y5 unblocked the load path (full-file InferShapes succeeds; fixture provisioned
+at `build-parity/native_yolo_parity_fixture/yolo26n.onnx`). The Y4 harness
+(`backends/native/test/CMakeLists.txt` modification + new
+`YoloParityTest.cpp` + `provision_yolo_fixture.py`, all uncommitted in-tree)
+has never compiled or run. This packet finishes it.
+
+- **Writable:** `backends/native/test/YoloParityTest.cpp`,
+  `backends/native/test/provision_yolo_fixture.py`,
+  `backends/native/test/CMakeLists.txt` (harness defects may be fixed here;
+  each fix reported in the handback). Never: `specs/**`, `engine/**`,
+  anything else.
+- **Required final state:** the chain below runs green end to end with
+  `YOLO_PARITY_MAX_ABS_DIFF` observed. If parity exceeds 1e-4, stop and report
+  `fail` with the observed figure and per-region diff stats — do not retune
+  kernels, tolerances, inputs, or engine code (orchestrator work).
+- **Budget:** 20 turns. **Handback:** `GROUP Y4-RETRY HANDBACK pass|fail`,
+  observed `YOLO_PARITY_MAX_ABS_DIFF`, evidence, deviations, NO-GO,
+  `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y5-repair — Expand max-broadcast
 
