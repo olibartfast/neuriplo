@@ -16,6 +16,38 @@ Packet index:
 - Y4 (below) — YOLO parity harness (provisioning + native_yolo_parity_test)
 - Y4-repair (below) — admit load-folded Constant in fixture gate + full chain
 - Y5 (below) — static shape-parameter evaluation + int64 arithmetic
+- Y5-repair (below) — Expand max-broadcast (rule + kernel)
+
+### Packet Y5-repair — Expand max-broadcast
+
+### Packet Y5-repair — Expand max-broadcast
+
+Y5 failed only at obligation 5: `/model.23/Expand_6` rejects data `[1,300,1]`
+against evaluated target `[1,1,80]` because the Y1b/Y3 Expand contract demands
+output == target exactly. ONNX/ORT `Expand` is symmetric max-broadcast
+(worker-probed: `[1,300,1]+[1,1,80]→[1,300,80]`, `[2,3]+[2,1]→[2,3]`). The
+evaluated values are correct (cross-checked vs ORT); only the contract is wrong.
+
+- **Writable:** `engine/src/ShapeInference.cpp` (the `expand_shape` arm only:
+  output = max-broadcast(data dims, target); keep the existing rejections for
+  genuinely incompatible pairs), `engine/src/kernels/Expand.cpp` (same
+  semantics), `engine/test/ShapeInferenceTest.cpp`,
+  `engine/test/KernelsTest.cpp` (extend in place: `[1,300,1]+[1,1,80]→[1,300,80]`
+  cases for rule and kernel, plus an incompatible-pair negative each).
+  Never: `specs/**`, loader, `Graph.hpp`, other kernels/rules, Device/Executor/
+  Planner, `backends/**`, `cmake/**`, `scripts/**`.
+- **Required final state:** rule and kernel agree on max-broadcast; the five
+  fixture sites infer (verified with a /tmp-only scratch driver, never
+  committed).
+- Out of scope (recorded observation, not this packet): `GatherElements`
+  shape rule hardcodes float32 while its kernel is dual-dtype — same latent
+  class as the Gather deviation Y5 accepted; no fixture site triggers it.
+- **Budget:** 8 turns. **Handback:** `GROUP Y5-REPAIR HANDBACK pass|fail`,
+  evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y5 — static shape-parameter evaluation + int64 arithmetic
 
