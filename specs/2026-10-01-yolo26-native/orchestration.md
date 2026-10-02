@@ -13,6 +13,7 @@ Packet index:
 - Y2-repair (below) — Mod shape dtype follows input (int64)
 - Y3 (below) — data-movement / shape / selection kernels
 - Y3-repair (below) — rule/kernel dtype alignment (Resize sizes, TopK indices)
+- Y4 (below) — YOLO parity harness (provisioning + native_yolo_parity_test)
 
 ### Packet Y2-repair — Mod shape dtype follows input
 
@@ -162,6 +163,50 @@ Conventions (as Y2): one file per op, declare in `Kernels.hpp`, register in
 - **Acceptance (once, verbatim, final action):**
   ```bash
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R engine_kernels --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y4 — YOLO parity harness
+
+Y3 landed (all 23 ops have kernels). This packet proves end-to-end detection:
+the same NMS-embedded yolo26n file through NATIVE and ONNX_RUNTIME, compared
+elementwise. Mirror the 7a precedent exactly
+(`backends/native/test/provision_parity_fixture.py`, `ParityTest.cpp`, and the
+`ONNX_RUNTIME`-gated block in `backends/native/test/CMakeLists.txt`) — read
+all three before writing.
+
+- **Writable:** new `backends/native/test/provision_yolo_fixture.py`, new
+  `backends/native/test/YoloParityTest.cpp`,
+  `backends/native/test/CMakeLists.txt` (extend the `ONNX_RUNTIME`-gated
+  block in place). Never: `specs/**`, `engine/**`, other `backends/**`,
+  `cmake/**`, `scripts/**`, docs.
+- **Required final state:**
+  1. `provision_yolo_fixture.py <output_dir>`: exports Ultralytics `yolo26n`
+     with `nms=True`, `imgsz=640`, opset 18 into `<output_dir>/yolo26n.onnx`;
+     pins ultralytics/torch/onnx versions (fail loudly on mismatch — survey
+     oracle: ultralytics 8.4.113, torch 2.12, onnx 1.22); refuses `/workspace`;
+     verifies the emitted graph (opset 18, single `[1,3,640,640]` input,
+     single `[1,300,6]` output, op set ⊆ the 31 supported ops) and prints the
+     resolved path. Downloading `yolo26n.pt` weights (~5 MB) on first run is
+     expected and must be stated in the script docstring.
+  2. CMake target `native_yolo_parity_fixture` provisions into the build tree
+     (always re-runs, like the ResNet target); test target
+     `native_yolo_parity_test` with ctest name `native_yolo_parity`, fixture
+     via env `NEURIPLO_YOLO_PARITY_FIXTURE`, TIMEOUT 1800.
+  3. `YoloParityTest.cpp`: deterministic `1×3×640×640` float input (same
+     `0.01*((i%7)+1)` pattern as `ParityTest`), both backends, elementwise max
+     abs diff ≤ 1e-4, prints `YOLO_PARITY_MAX_ABS_DIFF=<v>`; missing fixture
+     fails, never skips. Output is `[1,300,6]` = 1800 floats.
+  4. Only meaningful (and only wired) when `ONNX_RUNTIME` is enabled — same
+     `IN_LIST` gate as the ResNet block. Default `OPENCV_DNN` builds are
+     untouched.
+- CHANGELOG, validation evidence, and the merge-hold decision stay
+  orchestrator-owned — do not touch them.
+- **Budget:** 20 turns (parity build + run is slow). **Handback:**
+  `GROUP Y4 HANDBACK pass|fail`, observed `YOLO_PARITY_MAX_ABS_DIFF`, evidence,
+  deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
 ### Packet Y1b — allowlist, attribute policies, shape rules, Q1–Q3
