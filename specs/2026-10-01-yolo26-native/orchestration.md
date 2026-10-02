@@ -20,8 +20,6 @@ Packet index:
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
 - Y6 (below) — Reshape -1/0 semantics in kernel
 
-### Packet Y6 — Reshape -1/0 semantics in kernel
-
 ### Packet Y4-retry — build + run yolo parity
 
 Y5 unblocked the load path (full-file InferShapes succeeds; fixture provisioned
