@@ -19,6 +19,9 @@ Packet index:
 - Y5-repair (below) — Expand max-broadcast (rule + kernel)
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
 - Y6 (below) — Reshape -1/0 semantics in kernel
+- Y7 (below) — plan buffers for unconsumed node outputs
+
+### Packet Y7 — plan buffers for unconsumed node outputs
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
 
 ### Packet Y4-retry-2 — re-run parity after Y6
@@ -63,6 +66,35 @@ has never compiled or run. This packet finishes it.
 - **Acceptance (once, verbatim, final action):**
   ```bash
   cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y7 — plan buffers for unconsumed node outputs
+
+Y4-retry-2 failed at runtime: `executor: no arena buffer for output
+'/model.23/TopK_output_0' of node '/model.23/TopK'`. Root cause (orchestrator,
+read-only): `MemoryPlanner.cpp:158-161` gives no buffer to a defined tensor
+that is never consumed and is not a graph output. TopK's values output is
+exactly that (only the indices flow onward), but the executor unconditionally
+resolves a buffer for every node output before dispatching the kernel — the
+kernel writes both outputs, so "no storage" is not an option. The skip
+optimization is invalid under the executor contract; ResNet never tripped it
+because every output there is consumed.
+
+- **Writable:** `engine/src/MemoryPlanner.cpp`,
+  `engine/test/MemoryPlannerTest.cpp` (extend in place). Never: `specs/**`,
+  executor, kernels, shape rule, loader, `Graph.hpp`, `backends/**`,
+  `cmake/**`, `scripts/**`.
+- **Required final state:** every node output defined in the graph gets a
+  planned buffer (remove the dead-tensor skip; an unconsumed non-output lives
+  `[definition, definition]`). Reuse is preserved (existing
+  `SequentialArenaSmallerThanSum`-class tests must stay green). New tests: a
+  dead-output tensor gets a buffer; a two-output node with one dead output
+  (TopK-shaped) plans both.
+- **Budget:** 8 turns. **Handback:** `GROUP Y7 HANDBACK pass|fail`, evidence,
+  deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
 ### Packet Y6 — Reshape -1/0 semantics in kernel
@@ -496,3 +528,4 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 10 | Y5-repair (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: `engine_` 11/11 green; full-file InferShapes succeeds per scratch) | 1 (acceptance ran twice: typo fix then green — recorded) | Expand max-broadcast in rule + kernel; all 8 fixture Expand sites infer |
 | 11 | Y4-retry (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; NATIVE runtime rejects Reshape `-1` at `/model.23/Reshape`) | 0 | No harness fixes needed; engine gap → Y6 |
 | 12 | Y6 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, `engine_` 11/11 green) | 0 | Reshape kernel mirrors rule `-1`/`0` semantics; all-15 fixture sites float32, no dtype work |
+| 13 | Y4-retry-2 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; executor has no buffer for unconsumed TopK values output) | 0 | Planner dead-tensor skip invalid under executor contract → Y7 |
