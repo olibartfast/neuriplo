@@ -740,6 +740,27 @@ TEST_F(EngineShapes, ExpandBroadcastsToShape)
     EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 3, 4}));
 }
 
+// Expand max-broadcast: data [1,300,1] against target [1,1,80] resolves to
+// [1,300,80] (fixture /model.23/Expand_6 site).
+
+TEST_F(EngineShapes, ExpandMaxBroadcastsDataAndTarget)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("eshape", {3}, {1, 1, 80}));
+    put_sub(body, 1, encode_node("e0", "Expand", {"x", "eshape"}, {"y"},
+                      {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 300, 1}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 300, 80}));
+
+    const engine::Graph graph =
+        load_graph("expand_max.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 300, 1}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims,
+        (std::vector<int64_t>{1, 300, 80}));
+}
+
 // Transpose: perm [0,2,1] maps [2,3,4] to [2,4,3].
 
 TEST_F(EngineShapes, TransposePermutes)
@@ -1471,5 +1492,433 @@ TEST_F(EngineShapesNegative, ModDtypeMismatchNamesNode)
     EXPECT_NE(message.find("mod_bad"), std::string::npos)
         << "message: " << message;
     EXPECT_NE(message.find("Mod"), std::string::npos)
+        << "message: " << message;
+}
+
+// Static evaluator: Shape->Gather->Add->Div->Mul ends chains mirroring the
+// fixture's /model.23/Slice (ends) and /model.23/Slice_1 (starts/ends) sites.
+// The Constant nodes fold at load; the Slice bounds evaluate at load.
+
+TEST_F(EngineShapes, EvaluatorSliceEndsChains)
+{
+    auto constant_node = [](const std::string& name, const std::string& out,
+                             const std::vector<int64_t>& dims,
+                             const std::vector<int64_t>& values) {
+        return encode_node(name, "Constant", {}, {out},
+            {encode_attribute_tensor("value",
+                encode_constant_tensor(7, dims, raw_bytes_int64(values)))});
+    };
+    std::string body;
+    put_sub(body, 1, constant_node("c_idx", "idx", {1}, {1}));
+    put_sub(body, 1, constant_node("c_one", "one", {1}, {1}));
+    put_sub(body, 1, constant_node("c_two", "two", {1}, {2}));
+    put_sub(body, 1, constant_node("c_starts", "starts", {1}, {0}));
+    put_sub(body, 1, constant_node("c_axes", "axes", {1}, {1}));
+    put_sub(body, 1, encode_node("sh0", "Shape", {"feat"}, {"sh"}, {}));
+    put_sub(body, 1, encode_node("g0", "Gather", {"sh", "idx"}, {"g"},
+                      {encode_attribute_int("axis", 0)}));
+    put_sub(body, 1, encode_node("a0", "Add", {"g", "one"}, {"a"}, {}));
+    put_sub(body, 1, encode_node("d0", "Div", {"a", "two"}, {"d"}, {}));
+    put_sub(body, 1, encode_node("m0", "Mul", {"d", "one"}, {"e"}, {}));
+    put_sub(body, 1, encode_node("m1", "Mul", {"d", "two"}, {"e2"}, {}));
+    put_sub(body, 1, encode_node("sl0", "Slice", {"x", "starts", "e", "axes"},
+                      {"y"}, {}));
+    put_sub(body, 1, encode_node("sl1", "Slice", {"x", "e", "e2", "axes"},
+                      {"y2"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 10}));
+    put_sub(body, 11, encode_value_info("feat", 1, {2, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 2}));
+    put_sub(body, 12, encode_value_info("y2", 1, {1, 2}));
+
+    const engine::Graph graph =
+        load_graph("eval_slice_ends.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 10}}, {"feat", {2, 4}}});
+    // Gather picks dim 1 (4); (4 + 1) / 2 truncates to 2; the ends are
+    // 2 * 1 and 2 * 2.
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 2}));
+    ASSERT_EQ(shapes.tensors.count("y2"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y2").dims, (std::vector<int64_t>{1, 2}));
+    ASSERT_EQ(shapes.tensors.count("e"), 1U);
+    EXPECT_EQ(shapes.tensors.at("e").dtype, engine::DataType::Int64);
+    ASSERT_EQ(shapes.tensors.count("e2"), 1U);
+    EXPECT_EQ(shapes.tensors.at("e2").dtype, engine::DataType::Int64);
+}
+
+// Static evaluator: Where-of-constants Expand shape mirroring the fixture's
+// /model.23/Expand_6 site ([1,1,1] vs [-1,-1,80] selects [1,1,80]).
+
+TEST_F(EngineShapes, EvaluatorWhereExpandShape)
+{
+    auto constant_node = [](const std::string& name, const std::string& out,
+                             const std::vector<int64_t>& dims,
+                             const std::vector<int64_t>& values) {
+        return encode_node(name, "Constant", {}, {out},
+            {encode_attribute_tensor("value",
+                encode_constant_tensor(7, dims, raw_bytes_int64(values)))});
+    };
+    std::string body;
+    put_sub(body, 1, constant_node("c_shp", "cshape", {1}, {3}));
+    put_sub(body, 1, constant_node("c_neg", "neg", {1}, {-1}));
+    put_sub(body, 1, constant_node("c_tgt", "target", {3}, {-1, -1, 80}));
+    put_sub(body, 1, encode_node("cos0", "ConstantOfShape", {"cshape"},
+                      {"cos"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(7, {1},
+                              raw_bytes_int64({1})))}));
+    put_sub(body, 1, encode_node("m0", "Mul", {"cos", "neg"}, {"m"}, {}));
+    put_sub(body, 1, encode_node("eq0", "Equal", {"target", "m"}, {"e"},
+                      {}));
+    put_sub(body, 1, encode_node("w0", "Where", {"e", "cos", "target"},
+                      {"w"}, {}));
+    put_sub(body, 1, encode_node("e0", "Expand", {"x", "w"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {80}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 1, 80}));
+
+    const engine::Graph graph =
+        load_graph("eval_where_expand.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {80}}});
+    ASSERT_EQ(shapes.tensors.count("w"), 1U);
+    EXPECT_EQ(shapes.tensors.at("w").dims, (std::vector<int64_t>{3}));
+    EXPECT_EQ(shapes.tensors.at("w").dtype, engine::DataType::Int64);
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 1, 80}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Float32);
+}
+
+// Add/Sub/Mul/Div over int64 inputs propagate int64 (the Mod precedent:
+// output dtype follows the agreed input dtype).
+
+TEST_F(EngineShapes, Int64ArithmeticPropagatesDtype)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    graph.nodes.push_back(cast);
+    const std::vector<std::pair<std::string, std::string>> ops = {
+        {"Add", "ad"}, {"Sub", "su"}, {"Mul", "mu"}, {"Div", "di"}};
+    for (const auto& entry : ops) {
+        engine::Node node;
+        node.name = entry.first + "_op";
+        node.op_type = entry.first;
+        node.inputs = {"a", "k"};
+        node.outputs = {entry.second};
+        graph.nodes.push_back(node);
+    }
+    engine::Initializer k;
+    k.dtype = engine::DataType::Int64;
+    k.dims = {3};
+    k.values = std::vector<int64_t>{10, 20, 30};
+    graph.initializers["k"] = k;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    for (const std::string& name : {"ad", "su", "mu", "di"}) {
+        ASSERT_EQ(shapes.tensors.count(name), 1U) << name;
+        EXPECT_EQ(shapes.tensors.at(name).dims, (std::vector<int64_t>{2, 3}))
+            << name;
+        EXPECT_EQ(shapes.tensors.at(name).dtype, engine::DataType::Int64)
+            << name;
+    }
+}
+
+// Where with int64 X/Y propagates int64; the condition comes from Equal.
+
+TEST_F(EngineShapes, WhereInt64PropagatesDtype)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    graph.nodes.push_back(cast);
+    engine::Node equal;
+    equal.name = "eq0";
+    equal.op_type = "Equal";
+    equal.inputs = {"a", "k"};
+    equal.outputs = {"e"};
+    graph.nodes.push_back(equal);
+    engine::Node where;
+    where.name = "w0";
+    where.op_type = "Where";
+    where.inputs = {"e", "a", "k"};
+    where.outputs = {"z"};
+    graph.nodes.push_back(where);
+    engine::Initializer k;
+    k.dtype = engine::DataType::Int64;
+    k.dims = {3};
+    k.values = std::vector<int64_t>{1, 2, 3};
+    graph.initializers["k"] = k;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    ASSERT_EQ(shapes.tensors.count("e"), 1U);
+    EXPECT_EQ(shapes.tensors.at("e").dtype, engine::DataType::Bool);
+    ASSERT_EQ(shapes.tensors.count("z"), 1U);
+    EXPECT_EQ(shapes.tensors.at("z").dims, (std::vector<int64_t>{2, 3}));
+    EXPECT_EQ(shapes.tensors.at("z").dtype, engine::DataType::Int64);
+}
+
+// Add with disagreeing input dtypes names the node.
+
+TEST_F(EngineShapesNegative, AddDtypeMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node add;
+    add.name = "add_bad";
+    add.op_type = "Add";
+    add.inputs = {"a", "x"};
+    add.outputs = {"z"};
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(add);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Add dtype mismatch did not throw";
+    EXPECT_NE(message.find("add_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Add"), std::string::npos)
+        << "message: " << message;
+}
+
+// Sub with disagreeing input dtypes names the node.
+
+TEST_F(EngineShapesNegative, SubDtypeMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node sub;
+    sub.name = "sub_bad";
+    sub.op_type = "Sub";
+    sub.inputs = {"a", "x"};
+    sub.outputs = {"z"};
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(sub);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Sub dtype mismatch did not throw";
+    EXPECT_NE(message.find("sub_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Sub"), std::string::npos)
+        << "message: " << message;
+}
+
+// Mul with disagreeing input dtypes names the node.
+
+TEST_F(EngineShapesNegative, MulDtypeMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node mul;
+    mul.name = "mul_bad";
+    mul.op_type = "Mul";
+    mul.inputs = {"a", "x"};
+    mul.outputs = {"z"};
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(mul);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Mul dtype mismatch did not throw";
+    EXPECT_NE(message.find("mul_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Mul"), std::string::npos)
+        << "message: " << message;
+}
+
+// Div with disagreeing input dtypes names the node.
+
+TEST_F(EngineShapesNegative, DivDtypeMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node div;
+    div.name = "div_bad";
+    div.op_type = "Div";
+    div.inputs = {"a", "x"};
+    div.outputs = {"z"};
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(div);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Div dtype mismatch did not throw";
+    EXPECT_NE(message.find("div_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Div"), std::string::npos)
+        << "message: " << message;
+}
+
+// Where with disagreeing X/Y dtypes names the node.
+
+TEST_F(EngineShapesNegative, WhereXYMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node equal;
+    equal.name = "eq0";
+    equal.op_type = "Equal";
+    equal.inputs = {"x", "x"};
+    equal.outputs = {"c"};
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node where;
+    where.name = "where_bad";
+    where.op_type = "Where";
+    where.inputs = {"c", "x", "a"};
+    where.outputs = {"z"};
+    graph.nodes.push_back(equal);
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(where);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Where X/Y mismatch did not throw";
+    EXPECT_NE(message.find("where_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Where"), std::string::npos)
+        << "message: " << message;
+}
+
+// A Sigmoid-rooted shape expression is outside the evaluator whitelist, so
+// the Slice keeps its existing rejection.
+
+TEST_F(EngineShapesNegative, SliceSigmoidRootedStartsNamesNode)
+{
+    engine::Graph graph;
+    engine::Node sigmoid;
+    sigmoid.name = "sig_src";
+    sigmoid.op_type = "Sigmoid";
+    sigmoid.inputs = {"x"};
+    sigmoid.outputs = {"s"};
+    engine::Node add;
+    add.name = "starts_src";
+    add.op_type = "Add";
+    add.inputs = {"s", "f"};
+    add.outputs = {"starts"};
+    engine::Node slice;
+    slice.name = "sl_wl";
+    slice.op_type = "Slice";
+    slice.inputs = {"x", "starts", "ends"};
+    slice.outputs = {"y"};
+    graph.nodes.push_back(sigmoid);
+    graph.nodes.push_back(add);
+    graph.nodes.push_back(slice);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 10}}});
+    engine::Initializer ends;
+    ends.dtype = engine::DataType::Int64;
+    ends.dims = {1};
+    ends.values = std::vector<int64_t>{5};
+    graph.initializers["ends"] = ends;
+    engine::Initializer f;
+    f.dtype = engine::DataType::Float32;
+    f.dims = {1};
+    f.values = std::vector<float>{0.5F};
+    graph.initializers["f"] = f;
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 10}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Sigmoid-rooted Slice starts did not throw";
+    EXPECT_NE(message.find("sl_wl"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Slice"), std::string::npos)
+        << "message: " << message;
+}
+
+// Expand with genuinely incompatible dims ([2,3] vs [2,4]) still rejects.
+
+TEST_F(EngineShapesNegative, ExpandIncompatibleDimsNamesNode)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("eshape", {2}, {2, 4}));
+    put_sub(body, 1, encode_node("expand_bad", "Expand", {"x", "eshape"},
+                      {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 4}));
+
+    const engine::Graph graph =
+        load_graph("expand_bad.onnx", encode_model(body));
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Expand incompatible dims did not throw";
+    EXPECT_NE(message.find("expand_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Expand"), std::string::npos)
         << "message: " << message;
 }

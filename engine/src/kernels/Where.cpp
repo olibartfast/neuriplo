@@ -1,6 +1,7 @@
 // Where: ternary selection with NumPy multidirectional broadcasting.
 //
-// The condition is bool; the two value operands (and the output) are float32.
+// The condition is bool; the two value operands share one element type
+// (float32 or int64) and the output matches it.
 
 #include "Kernels.hpp"
 
@@ -74,6 +75,26 @@ std::vector<int64_t> AlignedStrides(const std::vector<int64_t>& inDims, const st
     return aligned;
 }
 
+template <typename T>
+void WhereTyped(const bool* c, const T* xv, const T* zv, T* y, int64_t outCount,
+    const std::vector<int64_t>& outStrides, const std::vector<int64_t>& condStrides,
+    const std::vector<int64_t>& xStrides, const std::vector<int64_t>& zStrides, std::size_t rank) {
+    for (int64_t i = 0; i < outCount; ++i) {
+        int64_t remaining = i;
+        int64_t cOffset = 0;
+        int64_t xOffset = 0;
+        int64_t zOffset = 0;
+        for (std::size_t j = 0; j < rank; ++j) {
+            const int64_t coord = remaining / outStrides[j];
+            remaining %= outStrides[j];
+            cOffset += coord * condStrides[j];
+            xOffset += coord * xStrides[j];
+            zOffset += coord * zStrides[j];
+        }
+        y[i] = c[cOffset] ? xv[xOffset] : zv[zOffset];
+    }
+}
+
 } // namespace
 
 void Where(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs) {
@@ -88,8 +109,9 @@ void Where(const Node& node, const std::vector<TensorView>& inputs, const std::v
     if (cond.dtype != DataType::Bool) {
         throw InferenceException(context + ": condition must be bool");
     }
-    if (x.dtype != DataType::Float32 || z.dtype != DataType::Float32 || out.dtype != DataType::Float32) {
-        throw InferenceException(context + ": value tensors must be float32");
+    if (x.dtype != z.dtype || (x.dtype != DataType::Float32 && x.dtype != DataType::Int64) ||
+        out.dtype != x.dtype) {
+        throw InferenceException(context + ": value tensors must share one float32 or int64 dtype");
     }
 
     const int64_t outCount = ElementCount(out.dims, context);
@@ -108,23 +130,14 @@ void Where(const Node& node, const std::vector<TensorView>& inputs, const std::v
     const std::vector<int64_t> xStrides = AlignedStrides(x.dims, out.dims, context);
     const std::vector<int64_t> zStrides = AlignedStrides(z.dims, out.dims, context);
 
-    const bool* c = static_cast<const bool*>(cond.data);
-    const float* xv = static_cast<const float*>(x.data);
-    const float* zv = static_cast<const float*>(z.data);
-    float* y = static_cast<float*>(out.data);
-    for (int64_t i = 0; i < outCount; ++i) {
-        int64_t remaining = i;
-        int64_t cOffset = 0;
-        int64_t xOffset = 0;
-        int64_t zOffset = 0;
-        for (std::size_t j = 0; j < out.dims.size(); ++j) {
-            const int64_t coord = remaining / outStrides[j];
-            remaining %= outStrides[j];
-            cOffset += coord * condStrides[j];
-            xOffset += coord * xStrides[j];
-            zOffset += coord * zStrides[j];
-        }
-        y[i] = c[cOffset] ? xv[xOffset] : zv[zOffset];
+    if (x.dtype == DataType::Float32) {
+        WhereTyped(static_cast<const bool*>(cond.data), static_cast<const float*>(x.data),
+            static_cast<const float*>(z.data), static_cast<float*>(out.data), outCount, outStrides, condStrides,
+            xStrides, zStrides, out.dims.size());
+    } else {
+        WhereTyped(static_cast<const bool*>(cond.data), static_cast<const int64_t*>(x.data),
+            static_cast<const int64_t*>(z.data), static_cast<int64_t*>(out.data), outCount, outStrides, condStrides,
+            xStrides, zStrides, out.dims.size());
     }
 }
 

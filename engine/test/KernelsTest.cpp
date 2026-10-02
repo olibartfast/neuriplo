@@ -1121,17 +1121,17 @@ TEST(EngineKernelsNegative, MaxPoolRejectsShapeMismatch) {
     }
 }
 
-// Mul rejects an int64 data input, naming the op.
-TEST(EngineKernelsNegative, MulRejectsDtypeMismatch) {
+// Mul rejects mixed float/int inputs, naming the op.
+TEST(EngineKernelsNegative, MulRejectsMixedDtypes) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mul");
     ASSERT_NE(kernel, nullptr);
 
-    std::vector<int64_t> a = {1, 2, 3};
+    std::vector<float> a = {1.0f, 2.0f, 3.0f};
     std::vector<int64_t> b = {1, 2, 3};
-    std::vector<int64_t> out(3, 0);
+    std::vector<float> out(3, 0.0f);
     engine::Node node = MakeNode("mul_bad", "Mul");
-    std::vector<engine::TensorView> inputs = {Int64View(a, {3}), Int64View(b, {3})};
-    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+    std::vector<engine::TensorView> inputs = {FloatView(a, {3}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
 
     try {
         kernel(node, inputs, outputs);
@@ -1501,6 +1501,32 @@ TEST(EngineKernels, ExpandHigherRankInt64) {
     kernel(node, inputs, outputs);
 
     EXPECT_EQ(out, (std::vector<int64_t>{4, 5, 6, 4, 5, 6}));
+}
+
+// Expand max-broadcast: [1,300,1] against [1,1,80] resolves to [1,300,80].
+TEST(EngineKernels, ExpandMaxBroadcastDataAndTarget) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Expand");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in(300, 0.0f);
+    for (int64_t i = 0; i < 300; ++i) {
+        in[static_cast<std::size_t>(i)] = static_cast<float>(i + 1);
+    }
+    std::vector<float> out(300 * 80, 0.0f);
+    std::vector<int64_t> shape = {1, 1, 80};
+    engine::Node node = MakeNode("expand_max", "Expand");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {1, 300, 1}), Int64View(shape, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 300, 80})};
+
+    kernel(node, inputs, outputs);
+
+    ASSERT_EQ(out.size(), static_cast<std::size_t>(300 * 80));
+    for (int64_t r = 0; r < 300; ++r) {
+        for (int64_t c = 0; c < 80; ++c) {
+            EXPECT_EQ(out[static_cast<std::size_t>(r * 80 + c)], static_cast<float>(r + 1))
+                << "row " << r << " col " << c;
+        }
+    }
 }
 
 // Transpose with perm [1,0] swaps [2,3] to [3,2].
@@ -1971,6 +1997,26 @@ TEST(EngineKernelsNegative, ExpandRejectsUnbroadcastable) {
     }
 }
 
+// Expand rejects genuinely incompatible dims ([2,3] vs [2,4]), naming the op.
+TEST(EngineKernelsNegative, ExpandRejectsIncompatibleDims) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Expand");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(8, 0.0f);
+    std::vector<int64_t> shape = {2, 4};
+    engine::Node node = MakeNode("expand_incompat", "Expand");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(shape, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 4})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Expand"), std::string::npos) << error.what();
+    }
+}
+
 // Transpose rejects a perm that is not a permutation, naming the op.
 TEST(EngineKernelsNegative, TransposeRejectsBadPerm) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("Transpose");
@@ -2299,5 +2345,150 @@ TEST(EngineKernelsNegative, TopKRejectsNonScalarK) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("TopK"), std::string::npos) << error.what();
+    }
+}
+
+// Add broadcasts int64 [2,1] against [1,3] into [2,3].
+TEST(EngineKernels, AddInt64BroadcastsBothAxes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Add");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {1, 2};
+    std::vector<int64_t> b = {10, 20, 30};
+    std::vector<int64_t> out(6, 0);
+    engine::Node node = MakeNode("add_i64", "Add");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2, 1}), Int64View(b, {1, 3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{11, 21, 31, 12, 22, 32}));
+}
+
+// Sub subtracts int64 elementwise without broadcasting.
+TEST(EngineKernels, SubInt64PlainDifference) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sub");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {5, 7, 9};
+    std::vector<int64_t> b = {1, 2, 3};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("sub_i64", "Sub");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {3}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{4, 5, 6}));
+}
+
+// Mul broadcasts an int64 trailing [3] input across a [2,3] input.
+TEST(EngineKernels, MulInt64BroadcastsLowerRank) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Mul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {1, 2, 3, 4, 5, 6};
+    std::vector<int64_t> b = {10, 20, 30};
+    std::vector<int64_t> out(6, 0);
+    engine::Node node = MakeNode("mul_i64", "Mul");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2, 3}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{10, 40, 90, 40, 100, 180}));
+}
+
+// Div on int64 truncates toward zero, matching the static evaluator.
+TEST(EngineKernels, DivInt64TruncatesTowardZero) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Div");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {7, -7, 7, -7};
+    std::vector<int64_t> b = {2, 2, -2, -2};
+    std::vector<int64_t> out(4, 0);
+    engine::Node node = MakeNode("div_i64", "Div");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {4}), Int64View(b, {4})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{3, -3, -3, 3}));
+}
+
+// Where selects elementwise between two int64 vectors.
+TEST(EngineKernels, WhereInt64FlatSelect) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Where");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> cond = {1, 0, 1};
+    std::vector<int64_t> x = {1, 2, 3};
+    std::vector<int64_t> y = {10, 20, 30};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("where_i64", "Where");
+    std::vector<engine::TensorView> inputs = {BoolView(cond, {3}), Int64View(x, {3}), Int64View(y, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, 20, 3}));
+}
+
+// Where broadcasts int64 X/Y with the bool condition into [2,3].
+TEST(EngineKernels, WhereInt64BroadcastsAllThree) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Where");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> cond = {1, 0};
+    std::vector<int64_t> x = {1, 2, 3};
+    std::vector<int64_t> y = {9};
+    std::vector<int64_t> out(6, 0);
+    engine::Node node = MakeNode("where_i64b", "Where");
+    std::vector<engine::TensorView> inputs = {BoolView(cond, {2, 1}), Int64View(x, {3}), Int64View(y, {})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, 2, 3, 9, 9, 9}));
+}
+
+// Div rejects an int64 zero divisor, naming the op.
+TEST(EngineKernelsNegative, DivRejectsInt64ZeroDivisor) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Div");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {7, 8};
+    std::vector<int64_t> b = {2, 0};
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("div_zero_i64", "Div");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {2}), Int64View(b, {2})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Div"), std::string::npos) << error.what();
+    }
+}
+
+// Where rejects mixed float/int value inputs, naming the op.
+TEST(EngineKernelsNegative, WhereRejectsMixedValueDtypes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Where");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> cond = {1, 0};
+    std::vector<float> x = {1.0f, 2.0f};
+    std::vector<int64_t> y = {10, 20};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("where_mixed", "Where");
+    std::vector<engine::TensorView> inputs = {BoolView(cond, {2}), FloatView(x, {2}), Int64View(y, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Where"), std::string::npos) << error.what();
     }
 }
