@@ -1,4 +1,9 @@
 // Reshape: copy the input flat buffer to the output in order.
+//
+// When a shape operand is present, the effective shape is resolved exactly as
+// `reshape_shape` in ShapeInference.cpp does: a 0 copies the input dimension
+// at the same position unless `allowzero` is set, at most one -1 is inferred
+// from the element count, and the final product must equal the element count.
 
 #include "Kernels.hpp"
 
@@ -34,15 +39,18 @@ void Reshape(const Node& node, const std::vector<TensorView>& inputs, const std:
         throw InferenceException(context + ": data tensors must be float32");
     }
 
-    const int64_t inCount = ElementCount(in.dims, context);
-    const int64_t outCount = ElementCount(out.dims, context);
-    if (inCount != outCount) {
-        throw InferenceException(context + ": element-count mismatch");
-    }
-    if (in.data == nullptr || out.data == nullptr) {
-        throw InferenceException(context + ": null buffer");
+    bool allowzero = false;
+    for (const Attribute& attr : node.attributes) {
+        if (attr.name == "allowzero") {
+            const int64_t* value = std::get_if<int64_t>(&attr.value);
+            if (value == nullptr) {
+                throw InferenceException(context + ": attribute 'allowzero' must be an integer");
+            }
+            allowzero = (*value != 0);
+        }
     }
 
+    const int64_t inCount = ElementCount(in.dims, context);
     if (inputs.size() == 2) {
         const TensorView& shape = inputs[1];
         if (shape.dtype != DataType::Int64) {
@@ -53,13 +61,65 @@ void Reshape(const Node& node, const std::vector<TensorView>& inputs, const std:
             throw InferenceException(context + ": null shape buffer");
         }
         const int64_t* values = static_cast<const int64_t*>(shape.data);
-        int64_t product = 1;
+        std::vector<int64_t> target;
         for (int64_t i = 0; i < shapeCount; ++i) {
-            product *= values[i];
+            target.push_back(values[i]);
+        }
+
+        // Mirror of reshape_shape in ShapeInference.cpp.
+        std::vector<int64_t> effective(target.size(), 0);
+        int64_t inferred = -1;
+        for (size_t i = 0; i < target.size(); ++i) {
+            const int64_t v = target[i];
+            if (v == 0 && !allowzero) {
+                if (i >= in.dims.size()) {
+                    throw InferenceException(context + ": Reshape 0 has no matching input dimension");
+                }
+                effective[i] = in.dims[i];
+            } else if (v == -1) {
+                if (inferred >= 0) {
+                    throw InferenceException(context + ": Reshape allows at most one -1");
+                }
+                inferred = static_cast<int64_t>(i);
+            } else if (v < 0) {
+                throw InferenceException(context + ": Reshape target dimensions must be positive");
+            } else {
+                effective[i] = v;
+            }
+        }
+
+        int64_t known = 1;
+        for (size_t i = 0; i < effective.size(); ++i) {
+            if (static_cast<int64_t>(i) == inferred) {
+                continue;
+            }
+            known *= effective[i];
+        }
+        if (inferred >= 0) {
+            if (known == 0 || inCount % known != 0) {
+                throw InferenceException(context + ": Reshape target product does not match input elements");
+            }
+            effective[static_cast<size_t>(inferred)] = inCount / known;
+        }
+
+        int64_t product = 1;
+        for (int64_t dim : effective) {
+            product *= dim;
         }
         if (product != inCount) {
-            throw InferenceException(context + ": shape operand product does not match the element count");
+            throw InferenceException(context + ": Reshape target product does not match input elements");
         }
+        if (out.dims != effective) {
+            throw InferenceException(context + ": output shape does not match the resolved shape operand");
+        }
+    }
+
+    const int64_t outCount = ElementCount(out.dims, context);
+    if (inCount != outCount) {
+        throw InferenceException(context + ": element-count mismatch");
+    }
+    if (in.data == nullptr || out.data == nullptr) {
+        throw InferenceException(context + ": null buffer");
     }
 
     const float* x = static_cast<const float*>(in.data);

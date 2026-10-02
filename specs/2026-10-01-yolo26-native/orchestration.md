@@ -19,6 +19,28 @@ Packet index:
 - Y5-repair (below) — Expand max-broadcast (rule + kernel)
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
 - Y6 (below) — Reshape -1/0 semantics in kernel
+- Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
+
+### Packet Y4-retry-2 — re-run parity after Y6
+
+### Packet Y4-retry-2 — re-run parity after Y6
+
+Y6 fixed the Reshape `-1` runtime rejection that stopped the last parity run
+at `/model.23/Reshape`. The harness is unchanged since. This packet only
+re-runs the chain — no code changes unless the run exposes a harness defect
+(same latitude + reporting duty as Y4-retry).
+
+- **Writable:** the three Y4 harness files, and only to fix a harness defect
+  (report first use). Never: `specs/**`, `engine/**`, anything else.
+- **Required final state:** green chain with `YOLO_PARITY_MAX_ABS_DIFF`. Over
+  1e-4 → stop, report `fail` with the figure + per-region stats, retune
+  nothing.
+- **Budget:** 20 turns. **Handback:** `GROUP Y4-RETRY-2 HANDBACK pass|fail`,
+  observed figure, evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y4-retry — build + run yolo parity
 
@@ -474,3 +496,5 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 8 | Y4-repair (implement) | Implementer | opencode `general` subagent | — | — | Fail (gate fixed, provision green; load blocked at `/model.23/Slice`) | 0 | Gate admits `Constant`; computed Slice/Expand params need static evaluation → Y5 |
 | 9 | Y5 (implement) | Implementer | opencode `general` subagent | — | — | Pass with 1 finding (evaluator + int64 work verified in the green tree; Expand finding → Y5-repair) | 1 (Gather rule propagates data dtype — required, accepted) | Static evaluator (9-op whitelist), int64 Add/Sub/Mul/Div + Where, hermetic chain tests |
 | 10 | Y5-repair (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: `engine_` 11/11 green; full-file InferShapes succeeds per scratch) | 1 (acceptance ran twice: typo fix then green — recorded) | Expand max-broadcast in rule + kernel; all 8 fixture Expand sites infer |
+| 11 | Y4-retry (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; NATIVE runtime rejects Reshape `-1` at `/model.23/Reshape`) | 0 | No harness fixes needed; engine gap → Y6 |
+| 12 | Y6 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, `engine_` 11/11 green) | 0 | Reshape kernel mirrors rule `-1`/`0` semantics; all-15 fixture sites float32, no dtype work |

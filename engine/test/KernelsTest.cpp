@@ -148,6 +148,42 @@ TEST(EngineKernels, ReshapeRankChangeWithShapeOperand) {
     EXPECT_EQ(out, (std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f}));
 }
 
+// Reshape infers a single -1 from the element count (the /model.23/Reshape
+// fixture pattern: [1,4,2,2] with shape [1,4,-1] resolves to [1,4,4]).
+TEST(EngineKernels, ReshapeInfersMinusOne) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Reshape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f, 13.0f,
+        14.0f, 15.0f, 16.0f};
+    std::vector<float> out(in.size(), 0.0f);
+    std::vector<int64_t> shape = {1, 4, -1};
+    engine::Node node = MakeNode("reshape_minus1", "Reshape");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {1, 4, 2, 2}), Int64View(shape, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 4, 4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, in);
+}
+
+// Reshape copies the input dimension for a 0 entry when allowzero is unset.
+TEST(EngineKernels, ReshapeZeroCopiesInputDim) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Reshape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(in.size(), 0.0f);
+    std::vector<int64_t> shape = {0, 3};
+    engine::Node node = MakeNode("reshape_zero", "Reshape");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(shape, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f}));
+}
+
 // ReduceMean over axis 1 of [2,3] with the default keepdims == 1.
 TEST(EngineKernels, ReduceMeanOneAxisKeepdimsDefault) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMean");
@@ -1038,6 +1074,72 @@ TEST(EngineKernelsNegative, ReshapeRejectsSizeMismatch) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("Reshape"), std::string::npos) << error.what();
+    }
+}
+
+// Reshape with allowzero keeps a literal 0, so [0,3] resolves to a zero
+// product and is rejected for six input elements.
+TEST(EngineKernelsNegative, ReshapeAllowzeroKeepsZero) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Reshape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(in.size(), 0.0f);
+    std::vector<int64_t> shape = {0, 3};
+    engine::Node node = MakeNode("reshape_allowzero", "Reshape");
+    node.attributes.emplace_back("allowzero", int64_t{1});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(shape, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Reshape"), std::string::npos) << error.what();
+        EXPECT_NE(std::string(error.what()).find("does not match"), std::string::npos) << error.what();
+    }
+}
+
+// Reshape rejects two -1 entries, naming the op.
+TEST(EngineKernelsNegative, ReshapeRejectsTwoMinusOne) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Reshape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(in.size(), 0.0f);
+    std::vector<int64_t> shape = {-1, -1};
+    engine::Node node = MakeNode("reshape_two_minus1", "Reshape");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(shape, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Reshape"), std::string::npos) << error.what();
+        EXPECT_NE(std::string(error.what()).find("at most one -1"), std::string::npos) << error.what();
+    }
+}
+
+// Reshape rejects a -1 that does not divide the element count (6 is not
+// divisible by 4), naming the op.
+TEST(EngineKernelsNegative, ReshapeRejectsIndivisibleMinusOne) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Reshape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(in.size(), 0.0f);
+    std::vector<int64_t> shape = {4, -1};
+    engine::Node node = MakeNode("reshape_indivisible", "Reshape");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(shape, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Reshape"), std::string::npos) << error.what();
+        EXPECT_NE(std::string(error.what()).find("does not match"), std::string::npos) << error.what();
     }
 }
 
