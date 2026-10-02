@@ -33,6 +33,13 @@ In:
   hand-computed unit tests (same bar as [V-4]/[V-4a] of the spine phase).
 - [R4] Static shapes throughout: every node output shape resolves at load for
   the fixed `[1,3,640,640]` input. No dynamic-shape machinery in this packet.
+  Shape *parameters* (Slice starts/ends, Expand shapes, TopK K, …) may be
+  load-evaluable expressions over initializers and `Shape`-of-statically-shaped
+  tensors through a fixed whitelist (`Shape, Gather, Add, Sub, Mul, Div,
+  Equal, Where, ConstantOfShape`); anything else in such a position is a load
+  rejection, as before. Decided 2026-10-01 (Y5): the fixture feeds Slice ends
+  and Expand shapes from `Shape→Gather→arithmetic` and `Where`-of-constants
+  chains — all int64, all fixed at load for the fixed input shape.
 - [R5] Parity: the same NMS-embedded file through NATIVE and ONNX_RUNTIME,
   elementwise max abs diff within 1e-4 (budget carried from [A-2]; observed
   figure recorded). Missing fixture fails, never skips.
