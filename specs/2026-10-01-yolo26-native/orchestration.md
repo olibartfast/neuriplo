@@ -20,7 +20,27 @@ Packet index:
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
 - Y6 (below) — Reshape -1/0 semantics in kernel
 - Y7 (below) — plan buffers for unconsumed node outputs
+- Y4-retry-3 (below) — re-run parity after Y7 (no code changes)
+
+### Packet Y4-retry-3 — re-run parity after Y7
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
+
+### Packet Y4-retry-3 — re-run parity after Y7
+
+Y7 fixed the missing-buffer throw that stopped the last parity run at
+`/model.23/TopK`. Same terms as Y4-retry-2 (harness-defect latitude +
+reporting duty, stop-and-report over 1e-4, retune nothing), same verbatim
+acceptance chain.
+
+- **Writable:** the three Y4 harness files, harness-defect fixes only.
+  Never: `specs/**`, `engine/**`, anything else.
+- **Budget:** 20 turns. **Handback:** `GROUP Y4-RETRY-3 HANDBACK pass|fail`,
+  observed `YOLO_PARITY_MAX_ABS_DIFF`, evidence, deviations, NO-GO,
+  `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y4-retry-2 — re-run parity after Y6
 
@@ -527,3 +547,4 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 11 | Y4-retry (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; NATIVE runtime rejects Reshape `-1` at `/model.23/Reshape`) | 0 | No harness fixes needed; engine gap → Y6 |
 | 12 | Y6 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, `engine_` 11/11 green) | 0 | Reshape kernel mirrors rule `-1`/`0` semantics; all-15 fixture sites float32, no dtype work |
 | 13 | Y4-retry-2 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; executor has no buffer for unconsumed TopK values output) | 0 | Planner dead-tensor skip invalid under executor contract → Y7 |
+| 14 | Y7 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, plan+executor 4/4 green) | 0 | Dead tensors live `[definition, definition]`; TopK-shaped both-outputs test; reuse intact |

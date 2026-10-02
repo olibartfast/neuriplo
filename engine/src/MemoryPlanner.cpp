@@ -156,8 +156,10 @@ MemoryPlan PlanMemory(const Graph& graph, const InferredShapes& shapes) {
         } else if (last_use != last_uses.end()) {
             end = last_use->second;
         } else {
-            // Never consumed and not an output: nothing to keep alive.
-            continue;
+            // Never consumed and not an output: still needs storage because the
+            // executor resolves a buffer for every node output. Lives only at
+            // its defining node.
+            end = definition;
         }
 
         ArenaTensor tensor;
