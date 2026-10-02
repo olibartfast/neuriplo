@@ -116,4 +116,51 @@ if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
         TIMEOUT 1800
     )
 
+    # -----------------------------------------------------------------------
+    # YOLO NATIVE <-> ONNX_RUNTIME parity (packet Y4). The same NMS-embedded
+    # yolo26n file through both adapters, compared elementwise.
+    # -----------------------------------------------------------------------
+
+    # Deterministic fixture provisioning: exports Ultralytics yolo26n with NMS
+    # (never to the old hard-coded /workspace/). Always re-runs.
+    set(NEURIPLO_YOLO_PARITY_FIXTURE_DIR "${CMAKE_BINARY_DIR}/native_yolo_parity_fixture")
+    add_custom_target(native_yolo_parity_fixture
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${NEURIPLO_YOLO_PARITY_FIXTURE_DIR}"
+        COMMAND ${NEURIPLO_PYTHON3_EXECUTABLE}
+                "${CMAKE_CURRENT_LIST_DIR}/provision_yolo_fixture.py"
+                "${NEURIPLO_YOLO_PARITY_FIXTURE_DIR}"
+        COMMENT "Provisioning the YOLO NATIVE<->ONNX_RUNTIME parity fixture (yolo26n NMS, opset 18)"
+        VERBATIM
+        USES_TERMINAL
+    )
+
+    add_executable(native_yolo_parity_test ${CMAKE_CURRENT_LIST_DIR}/YoloParityTest.cpp)
+    target_compile_features(native_yolo_parity_test PRIVATE cxx_std_17)
+    target_compile_options(native_yolo_parity_test PRIVATE -Wall -Wextra -Wpedantic)
+
+    target_include_directories(native_yolo_parity_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/backends/native/src
+        ${CMAKE_SOURCE_DIR}/backends/onnx-runtime/src
+        ${CMAKE_SOURCE_DIR}/backends/src
+        ${CMAKE_SOURCE_DIR}/include
+        ${ONNX_RUNTIME_DIR}/include
+        ${GLOG_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(native_yolo_parity_test PRIVATE
+        neuriplo
+        neuriplo_engine
+        ${ONNX_RUNTIME_LIBRARY}
+        GTest::gtest
+        GTest::gtest_main
+        ${GLOG_LIBRARIES}
+        glog::glog
+    )
+
+    add_test(NAME native_yolo_parity COMMAND native_yolo_parity_test)
+    set_tests_properties(native_yolo_parity PROPERTIES
+        ENVIRONMENT "NEURIPLO_YOLO_PARITY_FIXTURE=${NEURIPLO_YOLO_PARITY_FIXTURE_DIR}/yolo26n.onnx"
+        TIMEOUT 1800
+    )
+
 endif()

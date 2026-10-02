@@ -1016,6 +1016,208 @@ TEST_F(EngineShapes, FlattenAxis)
     EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{6, 20}));
 }
 
+// --- Y8 data-movement dtype propagation --------------------------------------
+// Each rule below must carry the data dtype (int64 here, produced by a
+// Cast(to=7) since graph inputs stay float32-only) instead of hardcoding
+// float32. The Unsqueeze case mirrors the fixture trigger
+// (/model.23/Unsqueeze_7 over a TopK int64 output).
+
+TEST_F(EngineShapes, ConcatInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"a"}, {"ai"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("c1", "Cast", {"b"}, {"bi"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("cc", "Concat", {"ai", "bi"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("a", 1, {1, 2, 4}));
+    put_sub(body, 11, encode_value_info("b", 1, {1, 3, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 5, 4}));
+    const engine::Graph graph =
+        load_graph("concat_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes = engine::InferShapes(graph,
+        {{"a", {1, 2, 4}}, {"b", {1, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 5, 4}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, SplitInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("sp0", "Split", {"a"}, {"y", "z"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 6}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 3}));
+    const engine::Graph graph =
+        load_graph("split_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 6}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 3}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+    ASSERT_EQ(shapes.tensors.count("z"), 1U);
+    EXPECT_EQ(shapes.tensors.at("z").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, UnsqueezeInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 5, encode_initializer_int64("axes", {2}, {0, -1}));
+    put_sub(body, 1, encode_node("u0", "Unsqueeze", {"a", "axes"}, {"y"},
+                      {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 2, 3, 1}));
+    const engine::Graph graph =
+        load_graph("unsqueeze_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims,
+        (std::vector<int64_t>{1, 2, 3, 1}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, ExpandInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 5, encode_initializer_int64("eshape", {3}, {2, 3, 4}));
+    put_sub(body, 1, encode_node("e0", "Expand", {"a", "eshape"}, {"y"},
+                      {}));
+    put_sub(body, 11, encode_value_info("x", 1, {3, 1}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 3, 4}));
+    const engine::Graph graph =
+        load_graph("expand_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {3, 1}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 3, 4}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, TransposeInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("t0", "Transpose", {"a"}, {"y"},
+                      {encode_attribute_ints("perm", {0, 2, 1})}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 4, 3}));
+    const engine::Graph graph =
+        load_graph("transpose_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 4, 3}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, SliceInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {2}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1}, {7}));
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {1}));
+    put_sub(body, 1, encode_node("sl0", "Slice",
+                      {"a", "starts", "ends", "axes"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 10}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 5}));
+    const engine::Graph graph =
+        load_graph("slice_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 10}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 5}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, GatherInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 5, encode_initializer_int64("idx", {1}, {1}));
+    put_sub(body, 1, encode_node("g0", "Gather", {"a", "idx"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {4, 5, 6}));
+    put_sub(body, 12, encode_value_info("y", 1, {4, 1, 6}));
+    const engine::Graph graph =
+        load_graph("gather_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {4, 5, 6}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{4, 1, 6}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, GatherElementsInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("ge0", "GatherElements", {"a", "idx"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 11, encode_value_info("idx", 1, {2, 1, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 1, 4}));
+    const engine::Graph graph =
+        load_graph("gelem_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}, {"idx", {2, 1, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 1, 4}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, ResizeInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 5,
+        encode_initializer("scales", {4}, {1.0F, 1.0F, 2.0F, 2.0F}));
+    put_sub(body, 1, encode_node("rs0", "Resize", {"a", "", "scales"}, {"y"},
+                      {encode_attribute_string("mode", "nearest")}));
+    put_sub(body, 11, encode_value_info("x", 1, {1, 3, 8, 8}));
+    put_sub(body, 12, encode_value_info("y", 1, {1, 3, 16, 16}));
+    const engine::Graph graph =
+        load_graph("resize_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 8, 8}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims,
+        (std::vector<int64_t>{1, 3, 16, 16}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
+TEST_F(EngineShapes, FlattenInt64PropagatesDtype)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("c0", "Cast", {"x"}, {"a"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("fl0", "Flatten", {"a"}, {"y"},
+                      {encode_attribute_int("axis", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 12}));
+    const engine::Graph graph =
+        load_graph("flatten_int64.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 12}));
+    EXPECT_EQ(shapes.tensors.at("y").dtype, engine::DataType::Int64);
+}
+
 // --- Fixture cases ---------------------------------------------------------
 
 TEST_F(EngineShapes, FixtureInferShapes)
@@ -1492,6 +1694,42 @@ TEST_F(EngineShapesNegative, ModDtypeMismatchNamesNode)
     EXPECT_NE(message.find("mod_bad"), std::string::npos)
         << "message: " << message;
     EXPECT_NE(message.find("Mod"), std::string::npos)
+        << "message: " << message;
+}
+
+// Concat inputs that disagree on dtype name the node (the kernel demands one
+// shared element type, so the shape walk enforces it).
+
+TEST_F(EngineShapesNegative, ConcatDtypeMismatchNamesNode)
+{
+    engine::Graph graph;
+    engine::Node cast;
+    cast.name = "c0";
+    cast.op_type = "Cast";
+    cast.inputs = {"x"};
+    cast.outputs = {"a"};
+    cast.attributes.push_back(engine::Attribute("to", int64_t(7)));
+    engine::Node concat;
+    concat.name = "cc_bad";
+    concat.op_type = "Concat";
+    concat.inputs = {"a", "x"};
+    concat.outputs = {"z"};
+    concat.attributes.push_back(engine::Attribute("axis", int64_t(1)));
+    graph.nodes.push_back(cast);
+    graph.nodes.push_back(concat);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 2}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 2}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "Concat dtype mismatch did not throw";
+    EXPECT_NE(message.find("cc_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("Concat"), std::string::npos)
         << "message: " << message;
 }
 
