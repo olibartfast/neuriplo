@@ -20,8 +20,6 @@ Packet index:
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
 - Y6 (below) — Reshape -1/0 semantics in kernel
 - Y7 (below) — plan buffers for unconsumed node outputs
-
-### Packet Y7 — plan buffers for unconsumed node outputs
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
 
 ### Packet Y4-retry-2 — re-run parity after Y6
