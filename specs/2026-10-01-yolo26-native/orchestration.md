@@ -20,8 +20,54 @@ Packet index:
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
 - Y6 (below) — Reshape -1/0 semantics in kernel
 - Y7 (below) — plan buffers for unconsumed node outputs
+- Y8 (below) — data-movement dtype propagation audit
+
+### Packet Y8 — data-movement dtype propagation audit
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
 - Y4-retry-3 (below) — re-run parity after Y7 (no code changes)
+
+### Packet Y8 — data-movement dtype propagation audit
+
+Y4-retry-3 failed at runtime: `Unsqueeze (node '/model.23/Unsqueeze_7'):
+output dtype must match the input dtype`. Root cause (orchestrator,
+read-only): `/model.23/Unsqueeze_7` moves TopK int64 output, but the
+`unsqueeze_shape` rule hardcodes float32 while the kernel (correctly) demands
+output dtype == data dtype. Same latent class as the Gather deviation Y5
+accepted and the GatherElements observation Y5-repair recorded — now audited
+everywhere instead of one by one.
+
+- **Writable:** `engine/src/ShapeInference.cpp` (data-movement arms),
+  `engine/src/kernels/*.cpp` ONLY where the fixture exercises a dtype the
+  kernel rejects (each widening reported in the handback; prefer rule-side
+  fixes), `engine/test/ShapeInferenceTest.cpp`, `engine/test/KernelsTest.cpp`
+  (extend in place). Never: `specs/**`, loader, `Graph.hpp`, Device/Executor/
+  Planner, `backends/**`, `cmake/**`, `scripts/**`.
+- **Required final state:**
+  1. Audit table (handback evidence): for every supported op, the shape-rule
+     output dtype(s) vs the kernel's accepted input dtype(s). Mark each
+     agree/disagree.
+  2. Every data-movement rule (`flatten, concat, split, unsqueeze, expand,
+     transpose, slice, gather, gatherelements, resize, reshape`) propagates
+     the data dtype instead of hardcoding float32, unless its kernel is
+     genuinely float32-only AND the fixture never feeds it another dtype —
+     those cases stay as-is and are listed explicitly with the justification.
+  3. Kernel widenings only where the fixture demands (int64 data paths must
+     already exist or be added; bool data stays rejected everywhere — no bool
+     data movement in the fixture; verify this claim against the export,
+     do not assume it).
+  4. Hermetic tests: int64 data through each retyped rule + kernel
+     (concat/split/unsqueeze/transpose/slice/gather/expand/flatten/resize),
+     plus agreement-rejection negatives where rules enforce them.
+  5. Full-file verification with a /tmp-only scratch driver (never committed):
+     InferShapes AND full inference to the `[1,300,6]` output on the oracle
+     fixture — report output shape, finiteness, and first/last values.
+     (Deeper numeric parity stays Y4's job; this only proves the run completes.)
+- **Budget:** 20 turns. **Handback:** `GROUP Y8 HANDBACK pass|fail`, audit
+  table, evidence per obligation, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y4-retry-3 — re-run parity after Y7
 
@@ -546,3 +592,4 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 12 | Y6 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, `engine_` 11/11 green) | 0 | Reshape kernel mirrors rule `-1`/`0` semantics; all-15 fixture sites float32, no dtype work |
 | 13 | Y4-retry-2 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; executor has no buffer for unconsumed TopK values output) | 0 | Planner dead-tensor skip invalid under executor contract → Y7 |
 | 14 | Y7 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, plan+executor 4/4 green) | 0 | Dead tensors live `[definition, definition]`; TopK-shaped both-outputs test; reuse intact |
+| 15 | Y4-retry-3 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; Unsqueeze rule hardcodes f32, kernel demands dtype match on int64 data) | 0 | Rule/kernel dtype class bug → Y8 audit |
