@@ -21,8 +21,6 @@ Packet index:
 
 ### Packet Y4-retry — build + run yolo parity
 
-### Packet Y4-retry — build + run yolo parity
-
 Y5 unblocked the load path (full-file InferShapes succeeds; fixture provisioned
 at `build-parity/native_yolo_parity_fixture/yolo26n.onnx`). The Y4 harness
 (`backends/native/test/CMakeLists.txt` modification + new
