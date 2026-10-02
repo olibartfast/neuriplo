@@ -14,6 +14,9 @@ Packet index:
 - Y3 (below) — data-movement / shape / selection kernels
 - Y3-repair (below) — rule/kernel dtype alignment (Resize sizes, TopK indices)
 - Y4 (below) — YOLO parity harness (provisioning + native_yolo_parity_test)
+- Y4-repair (below) — admit load-folded Constant in fixture gate + full chain
+
+### Packet Y4-repair — admit load-folded Constant in fixture gate
 
 ### Packet Y2-repair — Mod shape dtype follows input
 
@@ -163,6 +166,33 @@ Conventions (as Y2): one file per op, declare in `Kernels.hpp`, register in
 - **Acceptance (once, verbatim, final action):**
   ```bash
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R engine_kernels --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y4-repair — admit load-folded Constant in fixture gate
+
+Y4 failed at fixture provisioning for a script-level reason the worker diagnosed:
+`provision_yolo_fixture.py` rejects the raw export because it contains 64
+`Constant` nodes outside the engine's 31-op allowlist — but `Constant` nodes
+never reach the allowlist; the loader folds them into initializers first
+(`ModelLoader.cpp` fold + Y1a survey: 53 int64 + 11 float, 485 → 421 nodes).
+The gate must admit what the loader folds.
+
+- **Writable:** `backends/native/test/provision_yolo_fixture.py` (one change:
+  admit `"Constant"` in the op-set check with a comment citing the loader
+  fold; nothing else), `backends/native/test/YoloParityTest.cpp` and
+  `backends/native/test/CMakeLists.txt` only if the full chain exposes a
+  defect in them (report first use of this latitude in the handback).
+  Never: `specs/**`, `engine/**`, anything else.
+- **Required final state:** the Y4 acceptance chain runs green end to end and
+  reports `YOLO_PARITY_MAX_ABS_DIFF`. If parity exceeds 1e-4, stop and report
+  `fail` with the observed figure and per-region diff stats — do not retune
+  kernels, tolerances, or inputs (that is orchestrator work).
+- **Budget:** 20 turns. **Handback:** `GROUP Y4-REPAIR HANDBACK pass|fail`,
+  observed `YOLO_PARITY_MAX_ABS_DIFF`, evidence, deviations, NO-GO,
+  `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
 ### Packet Y4 — YOLO parity harness
