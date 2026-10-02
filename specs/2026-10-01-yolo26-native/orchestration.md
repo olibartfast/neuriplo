@@ -66,8 +66,6 @@ reject them. Two coupled gaps (both in scope, nothing else):
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
-### Packet Y4-repair — admit load-folded Constant in fixture gate
-
 ### Packet Y2-repair — Mod shape dtype follows input
 
 Orchestrator re-score of Y2 found a cross-packet contract bug: `compute_outputs`
