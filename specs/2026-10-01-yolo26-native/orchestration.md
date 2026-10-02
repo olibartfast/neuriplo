@@ -18,6 +18,9 @@ Packet index:
 - Y5 (below) — static shape-parameter evaluation + int64 arithmetic
 - Y5-repair (below) — Expand max-broadcast (rule + kernel)
 - Y4-retry (below) — build + run yolo parity (harness defects allowed)
+- Y6 (below) — Reshape -1/0 semantics in kernel
+
+### Packet Y6 — Reshape -1/0 semantics in kernel
 
 ### Packet Y4-retry — build + run yolo parity
 
@@ -42,6 +45,33 @@ has never compiled or run. This packet finishes it.
 - **Acceptance (once, verbatim, final action):**
   ```bash
   cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y6 — Reshape -1/0 semantics in kernel
+
+Y4-retry failed at runtime: `/model.23/Reshape` (data `[1,4,80,80]`, shape
+`[1,4,-1]`) throws "shape operand product does not match" because
+`engine/src/kernels/Reshape.cpp` multiplies the raw shape values including
+`-1`. The shape rule (`reshape_shape`) already implements ONNX `-1`/`0`
+semantics; the kernel never needed them until this fixture (ResNet shapes are
+all explicit). Fixture audit 2026-10-01: all 15 Reshape sites carry float32
+data — no dtype work in this packet.
+
+- **Writable:** `engine/src/kernels/Reshape.cpp`,
+  `engine/test/KernelsTest.cpp` (extend in place). Never: `specs/**`,
+  shape rule, loader, `Graph.hpp`, other kernels, Device/Executor/Planner,
+  `backends/**`, `cmake/**`, `scripts/**`.
+- **Required final state:** kernel resolves the effective shape exactly as
+  `reshape_shape` does (0 → copy of the input dim unless `allowzero`; at most
+  one `-1` → `inCount / known product`, divisible; final product must equal
+  the element count) and rejects the same cases with node context. Tests:
+  `-1` inference, `0`-copy, `allowzero`, two-`-1` rejection, indivisible
+  rejection — all hand-computed.
+- **Budget:** 8 turns. **Handback:** `GROUP Y6 HANDBACK pass|fail`, evidence,
+  deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
 
 ### Packet Y5-repair — Expand max-broadcast
