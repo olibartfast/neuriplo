@@ -21,8 +21,6 @@ Packet index:
 - Y6 (below) — Reshape -1/0 semantics in kernel
 - Y7 (below) — plan buffers for unconsumed node outputs
 - Y8 (below) — data-movement dtype propagation audit
-
-### Packet Y8 — data-movement dtype propagation audit
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
 - Y4-retry-3 (below) — re-run parity after Y7 (no code changes)
 
