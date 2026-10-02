@@ -543,6 +543,62 @@ TEST_F(EnginePlan, FixturePlanNonEmpty) {
     }
 }
 
+// A node output that is never consumed and is not a graph output still gets a
+// buffer: the executor resolves a buffer for every node output. Its lifetime
+// is [definition, definition].
+TEST_F(EnginePlan, DeadOutputTensorGetsBuffer) {
+    engine::Graph graph;
+    graph.inputs.push_back({"x", f32({1, 64})});
+    graph.nodes.push_back(relu_node("relu0", "x", "dead"));
+    graph.nodes.push_back(relu_node("relu1", "x", "out"));
+    graph.outputs.push_back({"out", f32({1, 64})});
+
+    engine::InferredShapes shapes;
+    shapes.tensors["x"] = f32({1, 64});
+    shapes.tensors["dead"] = f32({1, 64});
+    shapes.tensors["out"] = f32({1, 64});
+
+    const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+    ASSERT_EQ(plan.buffers.count("dead"), 1U);
+    ASSERT_EQ(plan.buffers.count("out"), 1U);
+    EXPECT_EQ(plan.buffers.at("dead").size, 64 * 4);
+    EXPECT_EQ(plan.buffers.at("dead").offset % 64, 0);
+    EXPECT_LE(plan.buffers.at("dead").offset + plan.buffers.at("dead").size, plan.arena_size);
+}
+
+// TopK-shaped two-output node where only the indices flow onward: both the
+// consumed indices and the unconsumed values outputs get planned buffers.
+// Values lives [0, 0] while indices lives [0, 1], so their byte ranges must
+// stay disjoint.
+TEST_F(EnginePlan, TwoOutputNodeWithOneDeadOutputPlansBoth) {
+    engine::Graph graph;
+    graph.inputs.push_back({"x", f32({1, 8})});
+    engine::Node topk;
+    topk.name = "topk0";
+    topk.op_type = "TopK";
+    topk.inputs = {"x"};
+    topk.outputs = {"values", "indices"};
+    graph.nodes.push_back(topk);
+    graph.nodes.push_back(relu_node("relu0", "indices", "out"));
+    graph.outputs.push_back({"out", f32({1, 4})});
+
+    engine::InferredShapes shapes;
+    shapes.tensors["x"] = f32({1, 8});
+    shapes.tensors["values"] = f32({1, 4});
+    shapes.tensors["indices"] = i64({1, 4});
+    shapes.tensors["out"] = f32({1, 4});
+
+    const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+    ASSERT_EQ(plan.buffers.count("values"), 1U);
+    ASSERT_EQ(plan.buffers.count("indices"), 1U);
+    ASSERT_EQ(plan.buffers.count("out"), 1U);
+    EXPECT_EQ(plan.buffers.at("values").size, 4 * 4);
+    EXPECT_EQ(plan.buffers.at("indices").size, 4 * 8);
+    EXPECT_FALSE(ranges_overlap(plan.buffers.at("values"), plan.buffers.at("indices")))
+        << "values=" << plan.buffers.at("values").offset << "+" << plan.buffers.at("values").size
+        << " indices=" << plan.buffers.at("indices").offset << "+" << plan.buffers.at("indices").size;
+}
+
 // ===========================================================================
 // EnginePlanNegative.* — rejections whose messages must name the tensor/node.
 // ===========================================================================
