@@ -20,8 +20,6 @@ Packet index:
 
 ### Packet Y5-repair — Expand max-broadcast
 
-### Packet Y5-repair — Expand max-broadcast
-
 Y5 failed only at obligation 5: `/model.23/Expand_6` rejects data `[1,300,1]`
 against evaluated target `[1,1,80]` because the Y1b/Y3 Expand contract demands
 output == target exactly. ONNX/ORT `Expand` is symmetric max-broadcast
