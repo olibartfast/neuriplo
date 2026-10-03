@@ -12,6 +12,9 @@ thin, independently reviewable phases over broad rewrites.
 - **Complete** — the intended repository capability has landed; ongoing
   maintenance may remain.
 - **Next** — the next phase to specify and implement.
+- **Specified** — a dated feature packet exists and validation is defined;
+  implementation has not started. A phase in this state is no longer `Planned`
+  (its packet exists) but has not displaced whatever is `Next`.
 - **Planned** — ordered but not yet specified as a feature packet.
 - **Blocked** — cannot proceed without an identified decision or dependency.
 
@@ -64,7 +67,12 @@ Exit criteria:
 
 ## Phase 2 — Plugin ABI and Loader Hardening
 
-**Status: Planned**
+**Status: Implemented, pending [M-1]** — packet at
+`specs/2026-09-22-plugin-abi-loader-hardening/`, branch
+`feature/plugin-abi-loader-hardening`. Groups 0–4 and 6 landed, and every
+automated check in `validation.md` passes with evidence. It moves to
+Complete once the documentation walkthrough ([M-1]) has been run by
+someone new to the repository. This does not displace Phase 1 as `Next`.
 
 Goal: make runtime-loaded backends predictable under malformed and incompatible
 plugin conditions.
@@ -179,6 +187,37 @@ Exit criteria:
 - A release can move from `develop` to `master` with a recorded validation
   trail and understandable compatibility notes.
 
+## Phase 7 — Stable Consumer C ABI
+
+**Status: Implemented, pending [M-1]–[M-3]** — packet at
+`specs/2026-09-25-consumer-c-abi/`, branch `feature/consumer-c-abi`. Groups
+0–6 have landed, and every automated check in `validation.md` passes with
+recorded evidence. The phase moves to Complete once three manual checks have
+run: the documentation walkthrough, the contract read, and the Unity run on
+Windows. It was numbered 7 only because it was added after Phases 3–6 were
+written. It does not depend on them.
+
+Goal: let any third-party application — C++ or not — run inference through
+neuriplo across compiler, standard-library, and language boundaries.
+
+Scope:
+
+- A versioned C ABI, `include/neuriplo/neuriplo_c.h`, in front of the existing
+  host: engine lifecycle, metadata, inference with library-owned results,
+  status codes with a thread-local error message, a log callback, and a
+  documented thread-safety contract.
+- A header-only C++ wrapper over it for third-party C++ applications.
+- Install rules and a CMake package (`find_package(neuriplo)`) plus pkg-config.
+- ABI stability checks (exported symbol list, struct layouts) and consumer
+  proofs in C, C++, and Python `ctypes`; C#/Unity documented and checked
+  manually.
+
+Exit criteria:
+
+- A plain-C program, a C++ program, and a Python script each run inference
+  against an installed neuriplo package with no access to its source tree.
+- The existing C++ API and `neuriplo-infer` are unchanged.
+
 ## Specification Rule
 
 Create a dated `specs/YYYY-MM-DD-feature-name/` packet for active work that is
@@ -189,5 +228,14 @@ Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
 
-_Revision: 2026-09-11 - aligned packet proportionality and active-work scope
-with the spec-driven-development workflow._
+_Revision: 2026-09-27 - Phase 7 implemented; Complete pending the manual
+checks [M-1]–[M-3]._
+
+_Revision: 2026-09-25 - added Phase 7 (stable consumer C ABI) with its feature
+packet._
+
+_Revision: 2026-09-25 - Phase 2 implemented; Complete pending the [M-1]
+documentation walkthrough._
+
+_Revision: 2026-09-22 - added the `Specified` status and moved Phase 2 into it
+with its feature packet; Phase 1 remains `Next`._
