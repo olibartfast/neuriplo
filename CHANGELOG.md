@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-03
+
+### Fixed
+- Plugin loader: plugin metadata is validated before use. A null layer
+  array, null name, null shape with `ndim > 0`, rank above the host bound, or
+  unknown `element_type` rejects the backend with a diagnostic naming the
+  plugin path, the layer and the field. Before, these were undefined
+  behaviour, and an unknown dtype was silently treated as Float32.
+- Plugin loader: plugin outputs are validated before they are read. Null
+  pointers, negative dimensions, an unknown dtype, and a `size_bytes` that is
+  not exactly element size × shape product throw
+  `InferenceExecutionException` instead of being dereferenced. An unknown
+  dtype no longer yields an empty element vector in the variant view.
+- Plugin loader: `release_outputs` is called exactly once for every
+  successful `infer`, including when the host rejects the outputs or the copy
+  throws. Before, those paths leaked plugin memory.
+- Plugin loader: descriptor lookup is thread-safe. `find_plugin_backend`
+  locks, its pointers stay valid across later loads, and
+  `get_plugin_backends()` returns a snapshot rather than a reference to a
+  vector that a concurrent load could reallocate.
+
+### Added
+- Consumer C ABI, `include/neuriplo/neuriplo_c.h` (`NEURIPLO_C_API_VERSION`
+  1): a stable, versioned entry point that any language or toolchain can use.
+  It covers the engine lifecycle, backend listing, metadata views, inference
+  with library-owned results, status codes with a thread-local error message,
+  a log callback, and a documented thread-safety contract. Calls to
+  `neuriplo_infer` on one engine are serialised by a per-engine lock.
+- Header-only C++ wrapper, `include/neuriplo/neuriplo.hpp`: move-only
+  `neuriplo::Engine` and `neuriplo::Result` over the C ABI, with errors
+  thrown as `neuriplo::Error` on the application's side.
+- Install rules and packaging: `cmake --install`, a CMake package
+  (`find_package(neuriplo)`, target `neuriplo::neuriplo`), and a relocatable
+  `neuriplo.pc`. `NEURIPLO_INSTALL` defaults to ON only for a top-level
+  build.
+- ABI and consumer checks: `scripts/abi/check_symbols.sh` compares the
+  exported symbols against `scripts/abi/neuriplo_c.symbols`, and
+  `test/consumer/run.sh` runs C, C++, pkg-config, and Python `ctypes`
+  consumers against an installed prefix. Two new CI jobs, `capi-consumer`
+  and `capi-tsan`, run them.
+- `docs/C_API.md`: lifecycle, ownership, errors, threading, logging,
+  versioning, and examples in C, C++, Python, and C#/Unity.
+- `PluginAbiContractTest`: plugin ABI contract suite with first-party,
+  dependency-free fixture plugins. It is built and run in every configuration
+  (no vendor SDK), and covers load-time rejections, malformed metadata and
+  outputs, release ownership, concurrency, and isolation.
+- `docs/PLUGIN_BACKENDS.md`: packaging layout, dependency discovery,
+  versioning policy, the host validation contract, and a deployment example.
+
 ## [0.9.1] - 2026-09-11
 
 ### Fixed
@@ -334,7 +383,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/olibartfast/neuriplo/compare/v0.7.0...v0.8.0
