@@ -274,14 +274,34 @@ jobs:
         shell: pwsh
         run: |
           $ver = $env:ONNX_RUNTIME_VERSION
-          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ver/onnxruntime-win-x64-gpu-$ver.zip"
+          # ORT 1.28 renamed the GPU zip per CUDA major (gpu_cuda13); older
+          # releases use plain "gpu". Either way, install to the
+          # onnxruntime-win-x64-gpu-<ver> path cmake/versions.cmake expects.
+          $cudaMajor = ((Select-String -Path versions.env -Pattern '^CUDA_VERSION=(.+)$').Matches[0].Groups[1].Value.Trim() -split '\.')[0]
+          $base = "https://github.com/microsoft/onnxruntime/releases/download/v$ver"
           $dest = "$env:USERPROFILE\dependencies"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Write-Host "Downloading ONNX Runtime $ver..."
-          Invoke-WebRequest -Uri $url -OutFile "$dest\onnxruntime.zip"
+          $staging = "$dest\ort-staging"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          $downloaded = $null
+          foreach ($name in @("onnxruntime-win-x64-gpu_cuda$cudaMajor-$ver", "onnxruntime-win-x64-gpu-$ver")) {
+            try {
+              Write-Host "Downloading $name.zip..."
+              Invoke-WebRequest -Uri "$base/$name.zip" -OutFile "$staging\onnxruntime.zip"
+              $downloaded = $name
+              break
+            } catch {
+              Write-Host "  not published: $name"
+            }
+          }
+          if (-not $downloaded) { throw "No ONNX Runtime $ver GPU build found for CUDA $cudaMajor" }
           Write-Host "Extracting..."
-          Expand-Archive -Path "$dest\onnxruntime.zip" -DestinationPath "$dest" -Force
-          Remove-Item "$dest\onnxruntime.zip"
+          Expand-Archive -Path "$staging\onnxruntime.zip" -DestinationPath $staging -Force
+          $extracted = Get-ChildItem -Path $staging -Directory | Select-Object -First 1
+          if (-not $extracted) { throw "ONNX Runtime archive had no top-level directory" }
+          $target = "$dest\onnxruntime-win-x64-gpu-$ver"
+          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+          Move-Item -Path $extracted.FullName -Destination $target
+          Remove-Item -Recurse -Force $staging
 
       - name: Configure
         shell: pwsh
