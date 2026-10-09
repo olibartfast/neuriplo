@@ -4,7 +4,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/../../.." && pwd)"
-image="${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:25.12-py3}"
+image="${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:26.08-py3}"
 output_dir="${DALI_TEST_OUTPUT_DIR:-${repo_root}/build-release-dali-container}"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
