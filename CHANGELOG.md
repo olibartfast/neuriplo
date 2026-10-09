@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `NATIVE` backend: YOLO26-nano detection coverage (23 ops: Mul/Div/Sub,
+  Sigmoid/Cast/Softmax/ReduceMax/Mod/Equal/Where, Concat/Split/Unsqueeze/
+  Expand/Transpose/Slice/Gather/GatherElements/Resize/Flatten/Shape/
+  ConstantOfShape/TopK), int64/bool intermediate tensors, `Constant` folding,
+  load-time shape-parameter evaluation, and per-shape planning seams.
+  Validated on a real photo against `ONNX_RUNTIME`: 6 confident rows, min
+  IoU 0.999999, max score diff 2.7e-06. Background-tail exact cell selection
+  is explicitly out of scope (backend-noise-dependent near-tie selection).
+
+### Fixed
+- `NATIVE` backend: `GatherElements` now strides the gather axis on the data
+  grid (was indices grid; dormant in equal-stride fixtures, proven by a
+  hermetic unequal-stride test); unconsumed node outputs get arena buffers;
+  `Reshape` kernel implements `-1`/`0` semantics; `Expand` is max-broadcast.
+
 ## [0.10.0] - 2026-10-03
 
 ### Fixed

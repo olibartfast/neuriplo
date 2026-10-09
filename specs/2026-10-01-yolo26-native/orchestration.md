@@ -24,6 +24,144 @@ Packet index:
 - Y4-retry-2 (below) — re-run parity after Y6 (no code changes)
 - Y4-retry-3 (below) — re-run parity after Y7 (no code changes)
 - Y4-retry-4 (below) — parity run on the green tree (no code changes)
+- Y9 (below) — order-invariant parity + non-degenerate input (maintainer: both fixes, 2026-10-09)
+- Y10 (below) — GatherElements axis-stride fix (dormant-but-real, 2026-10-09)
+- Y10-repair (below) — correct the unequal-stride expectation
+- Y11 (below) — real-image threshold-gated parity (maintainer: real image + threshold, 2026-10-10)
+
+### Packet Y10 — GatherElements axis-stride fix
+
+Audit finding (2026-10-09, fixture-dormant, real): `engine/src/kernels/GatherElements.cpp:62`
+advances the gather-axis offset by `k * strides[axis]` (indices-grid stride)
+where `k` indexes the data grid — it must be `in_strides[axis]` (the non-axis
+arms already use `in_strides`). Dormant in the fixture only because all three
+sites have equal trailing dims. Fix the latent bug now with a hermetic
+unequal-stride proof.
+
+- **Writable:** `engine/src/kernels/GatherElements.cpp` (the stride line only),
+  `engine/test/KernelsTest.cpp` (extend in place: unequal-stride GatherElements
+  case where old/new disagree + keep existing coverage green). Never:
+  `specs/**`, other kernels, shape rule, loader, `Graph.hpp`,
+  Device/Executor/Planner, `backends/**`, `cmake/**`, `scripts/**`.
+- **Required final state:** stride uses the data-grid stride; new test fails
+  against the old line and passes with the fix (hand-computed expectation);
+  full `engine_` suite green; no behavior change on equal-stride sites.
+- **Budget:** 8 turns. **Handback:** `GROUP Y10 HANDBACK pass|fail`, evidence,
+  deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y11 — real-image threshold-gated parity
+
+Y9 + /tmp column dump (2026-10-10) proved the noise-input elementwise bar
+meaningless: scores match to 5.2e-07 while background-cell selection (~1e-5
+scores, 1e-9 deltas) picks different cells per backend. Maintainer decision
+2026-10-10: parity on a REAL image, gated to confident detections, matched by
+IoU/class. The background tail is explicitly out of scope
+(backend-noise-dependent); [R5] is restated, not lowered — confident
+detections must agree.
+
+- **Writable:** `backends/native/test/YoloParityTest.cpp`,
+  `backends/native/test/provision_yolo_fixture.py` (extend: image + tensor
+  provisioning), `backends/native/test/CMakeLists.txt` (only if wiring
+  changes; report first use). Never: `specs/**`, `engine/**`, anything else.
+  No new C++ dependency: image decode/resize/normalize happens in the
+  provision script (PIL via the already-pinned torch/ultralytics env), the
+  test reads a float bin.
+- **Read-before-write (mandatory):** current `YoloParityTest.cpp` (Y9 gates —
+  they are REPLACED, not extended), `provision_yolo_fixture.py` (pin/image
+  conventions, `/workspace` refusal, allowlist gate).
+- **Required final state:**
+  1. Provisioning exports, alongside `yolo26n.onnx`, a real photo
+     (Ultralytics sample, e.g. `bus.jpg`, pinned URL + sha256, fail loudly
+     on mismatch — same discipline as the `.pt` download) AND a
+     deterministic `1×3×640×640` float input tensor (resize + `/255`,
+     documented) saved as a raw bin; CMake target provisions both into the
+     build tree; test reads the bin via a new env var (fixture missing →
+     fail, never skip).
+  2. Test runs the identical tensor through NATIVE and ONNX_RUNTIME, takes
+     rows with score > 0.25 on EACH side, and requires: same confident-row
+     count on both sides; each ORT row matched to a NATIVE row with same
+     class and IoU ≥ 0.999; matched score diff ≤ 1e-4. Prints
+     `YOLO_PARITY_CONFIDENT_ROWS=<n>`, `YOLO_PARITY_MIN_IOU=<v>`,
+     `YOLO_PARITY_MAX_SCORE_DIFF=<v>`.
+  3. If confident-row counts differ or any match fails → report `fail` with
+     the three figures + per-row dump (retune nothing; that is orchestrator
+     work). If the image yields ZERO confident rows → `fail` (wrong image,
+     not a pass).
+  4. The Y9 noise-input gates are removed (record the removal in the
+     handback). ResNet `native_parity` untouched.
+- **Budget:** 20 turns. **Handback:** `GROUP Y11 HANDBACK pass|fail`, the
+  three figures, evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y10-repair — correct the unequal-stride expectation
+
+Y10 attempt applied the right one-line fix but wrote a wrong hand-computation
+(orchestrator re-trace 2026-10-09): for output `[2,1,3]` on data `[2,3,4]`,
+ONNX defines `y[pos] = data[pos with axis-coord ← k]`, i.e. offset =
+`r*12 + k*4 + c`. The correct vector is `{0,5,10,20,17,14}`, not the
+committed `{0,4,8,20,17,12}` (which drops `+c`) and not the attempt's
+`{0,4,8,20,16,12}` guess. Pre-fix line yields `{0,4,8,18,16,14}` — the test
+still discriminates on 4 of 6 elements.
+
+- **Writable:** `engine/test/KernelsTest.cpp` (expectation + comment only),
+  `engine/src/kernels/GatherElements.cpp` (only if the failure output proves
+  the fix line itself wrong — report first use; default: do NOT touch, the
+  line is verified by re-trace). Never: `specs/**`, anything else.
+- **Required final state:** expectation `{0,5,10,20,17,14}` with the `r*12 +
+  k*4 + c` comment; if the actual test output disagrees with this vector,
+  STOP and report `fail` with actual-vs-expected (do not force-fit — that
+  means the re-trace is wrong and it is orchestrator work). Full `engine_`
+  suite green.
+- **Budget:** 5 turns. **Handback:** `GROUP Y10-REPAIR HANDBACK pass|fail`,
+  actual test output lines, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
+
+### Packet Y9 — order-invariant parity + non-degenerate input
+
+Y4-retry-4 scratch: 633.003 elementwise on the degenerate `0.01*((i%7)+1)`
+input (7 distinct values over 1.2M pixels → massive TopK ties over 8400
+cells; tie order spec-silent, native lower-index-wins). Maintainer decision
+2026-10-09: both fixes — realistic input AND order-invariant comparison. The
+1e-4 bar is restated, not lowered.
+
+- **Writable:** `backends/native/test/YoloParityTest.cpp`,
+  `backends/native/test/provision_yolo_fixture.py` (only if the input pattern
+  lives there — verify first), `backends/native/test/CMakeLists.txt` (only if
+  wiring changes are needed; report first use). Never: `specs/**`,
+  `engine/**`, anything else.
+- **Read-before-write (mandatory):** current `YoloParityTest.cpp` (input
+  pattern, compare block, `kMaxAllowedAbsDiff`), the ResNet `ParityTest.cpp`
+  precedent, TopK tie semantics (`engine/src/kernels/TopK.cpp:130-134`,
+  read-only — do NOT modify the kernel in this packet).
+- **Required final state:**
+  1. Non-degenerate deterministic input: distinct values across the
+     `1x3x640x640` tensor (seeded PRNG or irrational-slope pattern —
+     document the choice in a comment), same buffer fed to both backends.
+     The old 7-value tiled pattern is gone.
+  2. Elementwise max-abs-diff ≤ 1e-4 stays the primary gate, printed as
+     `YOLO_PARITY_MAX_ABS_DIFF=<v>`.
+  3. Order-invariant secondary: sort both `[300,6]` outputs by score column
+     (or greedy nearest-row match — document the choice) and print
+     `YOLO_PARITY_MATCHED_MAX_ABS_DIFF=<v>`; it must also be ≤ 1e-4.
+     If primary fails but secondary passes → stop, report `fail` with both
+     figures (tie-break pin becomes orchestrator work — retune nothing).
+  4. Missing fixture fails, never skips (unchanged).
+- **Budget:** 20 turns. **Handback:** `GROUP Y9 HANDBACK pass|fail`, both
+  figures, evidence, deviations, NO-GO, `git status`.
+- **Acceptance (once, verbatim, final action):**
+  ```bash
+  cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-parity --target native_yolo_parity_fixture --parallel 6 && cmake --build build-parity --parallel 6 && ctest --test-dir build-parity -R yolo_parity --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
+  ```
 
 ### Packet Y4-retry-4 — parity run on the green tree
 
@@ -612,3 +750,8 @@ no allowlist or shape-rule changes for the 23 ops (those are Y1b), no kernels.
 | 14 | Y7 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, plan+executor 4/4 green) | 0 | Dead tensors live `[definition, definition]`; TopK-shaped both-outputs test; reuse intact |
 | 15 | Y4-retry-3 (validate) | Validator | opencode `general` subagent | — | — | Fail (harness sound; Unsqueeze rule hardcodes f32, kernel demands dtype match on int64 data) | 0 | Rule/kernel dtype class bug → Y8 audit |
 | 16 | Y8 (implement) | Implementer | opencode `general` subagent | — | — | Pass (orchestrator re-scored: 2 files in scope, `engine_` 11/11 green) | 1 (Concat agreement rejection added — required, accepted) | 9 rules propagate data dtype; reshape/TopK-values stay f32 (justified); zero kernel widenings; scratch full NATIVE run → [1,300,6], 0 non-finite |
+| 17 | Y4-retry-4 (validate) | Validator | implementer subagent | — | — | Incomplete (step ceiling before the single acceptance run; TEMP-DIAG edit reverted by orchestrator, tree clean) | 0 | Scratch pre-flight: max diff 633.003 / mean 69.7 / 318-1800 exact / 0 non-finite. Two read-only explores converge: ordering-fragile harness (TopK tie-order spec-silent + 7-distinct-value degenerate input → permuted box rows, 633≈640) + latent real `GatherElements.cpp:62` stride bug (dormant here). Replan: Y9 parity-method fix, Y10 stride fix |
+| 18 | Y10 (implement) | Implementer | implementer subagent | — | — | Incomplete (step ceiling; fix + test applied, acceptance never ran; worker's 17-vs-16 self-diagnosis wrong per orchestrator re-trace) | 0 | One-line stride fix correct; test expectation wrong (dropped `+c`). Repaired in Y10-repair |
+| 19 | Y10-repair (implement) | Implementer | implementer subagent | — | — | Pass (orchestrator re-trace `{0,5,10,20,17,14}` confirmed by actual, no force-fit; `engine_` 11/11 green, format clean) | 0 | GatherElements axis-stride fixed with unequal-stride proof; pre-fix yields `{0,4,8,18,16,14}` on the same case |
+| 20 | Y9 (implement) | Implementer | implementer subagent | — | — | Incomplete (step ceiling; harness written — splitmix64 distinct input + score-sorted secondary — acceptance never ran) | 0 | Scratch: elementwise AND matched diffs BOTH 635.463. Orchestrator /tmp column dump refutes tie hypothesis: score col ≤5.2e-07, diverging rows all near-zero scores (~2–4e-05, 1e-9 deltas) with different classes ⇒ TopK near-tie background-cell selection, not box decoding. Open: Y11 threshold-gated/real-image parity (maintainer decision) |
+| 21 | Y11 (implement+score) | Implementer + Orchestrator | implementer subagent + muse-spark | — | — | Pass (worker wrote harness; orchestrator ran verbatim acceptance once: configure + fixture + build + `yolo_parity` 96s + format all green) | 1 (orchestrator clang-format pass on the new test before scoring — mechanical, no logic change) | bus.jpg real-image parity: 6 confident rows, min IoU 0.999999, max score diff 2.7e-06. Y9 noise gates removed. Merge hold LIFTED |

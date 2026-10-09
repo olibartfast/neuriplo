@@ -50,3 +50,13 @@ float32/int64/bool).
   Y2/Y3; Y4 last). If the survey fixture differs from the provisioned one
   (ultralytics version drift), re-survey and note it — do not silently widen
   the op set.
+- Replan 2026-10-09 (Y4-retry-4): elementwise parity on the degenerate
+  `0.01*((i%7)+1)` input is ordering-fragile (TopK ties over 8400 cells,
+  spec-silent tie order; 633.003 scratch diff ≈ box-range permutation, not
+  proven value divergence). Next: Y9 (parity-method fix — order-invariant
+  comparison and/or non-degenerate input; [R5]/[YV-5] bar restated, not
+  lowered) then re-score YV-5; Y10 (GatherElements axis-stride fix, dormant
+  but real). Merge hold stays until YV-5 passes.
+- Hold LIFTED 2026-10-10 (Y11): real-image threshold-gated parity passes
+  (6 confident rows, min IoU 0.999999, max score diff 2.7e-06). Branch ready
+  for PR into `develop`; CI owns the `OPENCV_DNN` default-path re-run.
