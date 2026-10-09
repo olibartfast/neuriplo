@@ -474,6 +474,68 @@ jobs:
             "
 
   # =============================================================
+  # NATIVE Backend (specs/2026-10-01-yolo26-native, Y12)
+  # First-party engine: no vendor SDK of its own, so no Docker image.
+  # Its parity harnesses need ONNX Runtime plus the pinned torch export
+  # stack, hence this runs inside the onnx-runtime builder image.
+  # =============================================================
+  native:
+    name: "NATIVE"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.onnx-runtime \
+              --target builder \
+              --tag neuriplo-lint:NATIVE \
+              --load \
+              --cache-from type=gha,scope=docker-ONNX_RUNTIME \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-NATIVE' || '' }} \
+              .
+
+      - name: Provision torch stack, build NATIVE, run engine + parity tests
+        run: |
+          docker run --rm neuriplo-lint:NATIVE bash -c '
+            set -euo pipefail
+            apt-get update >/dev/null && apt-get install -y python3 python3-pip libgl1 libglib2.0-0 >/dev/null
+            python3 -m pip install --break-system-packages --quiet \
+              --index-url https://download.pytorch.org/whl/cpu \
+              "torch==2.12.0+cpu" "torchvision==0.27.0+cpu"
+            python3 -m pip install --break-system-packages --quiet \
+              "onnx==1.22.0" "onnxscript==0.7.0" "ultralytics==8.4.113" pillow
+            cd /app
+            rm -rf build-native
+            # The engine and adapter tests take the ResNet fixture via
+            # NEURIPLO_NATIVE_FIXTURE (fail, never skip); provision it once
+            # up front so configure sees it. The parity targets re-provision
+            # into the build tree themselves at build time.
+            python3 backends/native/test/provision_parity_fixture.py /tmp/native-fixture
+            cmake -S . -B build-native \
+              -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+              -DNEURIPLO_NATIVE_FIXTURE=/tmp/native-fixture/resnet18.onnx \
+              -DONNX_RUNTIME_DIR=/opt/onnxruntime >/dev/null
+            cmake --build build-native --target native_parity_fixture native_yolo_parity_fixture --parallel
+            cmake --build build-native --parallel
+            ctest --test-dir build-native -R "engine_|NativeInferTest|native_parity|native_yolo_parity" --output-on-failure
+          '
+
+  # =============================================================
   # GPU Backend Builds (build-only, no GPU required)
   # Verifies that GPU backends compile successfully using Docker.
   # Tests are skipped — they require a real GPU (see build-and-test-gpu).

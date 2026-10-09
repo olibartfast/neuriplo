@@ -28,6 +28,7 @@ Packet index:
 - Y10 (below) — GatherElements axis-stride fix (dormant-but-real, 2026-10-09)
 - Y10-repair (below) — correct the unequal-stride expectation
 - Y11 (below) — real-image threshold-gated parity (maintainer: real image + threshold, 2026-10-10)
+- Y12 (below) — NATIVE CI job (maintainer go-ahead, 2026-10-10)
 
 ### Packet Y10 — GatherElements axis-stride fix
 
@@ -52,6 +53,47 @@ unequal-stride proof.
   ```bash
   cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-native --parallel 6 && ctest --test-dir build-native -R "engine_" --output-on-failure && ./scripts/quality/format.sh --check && git diff --stat
   ```
+
+### Packet Y12 — NATIVE CI job
+
+No CI job builds the native backend (verified 2026-10-10: zero `NATIVE`
+occurrences in `.github/`; vendor matrices cover 10 SDK backends; vendor
+builds never compile `engine/`). Green CI therefore proves nothing about
+NATIVE, and post-merge breakage would be invisible. This packet closes that
+gap before the N0 branch merges.
+
+- **Writable:** `.github/workflows/ci.yml` (one new job only),
+  `docs/LOCAL_CI.md` (only if a new act pattern is needed; report first
+  use). Never: `specs/**` (this packet text excepted), `engine/**`,
+  `backends/**`, `cmake/**`, `scripts/**`, Dockerfiles.
+- **Required final state:** a `native` job that reuses the `onnx-runtime`
+  builder image (ORT + gtest + glog already present), installs the pinned
+  torch export stack (`torch==2.12.0+cpu` + `torchvision==0.27.0+cpu` from
+  the CPU index, then `onnx==1.22.0` + `ultralytics==8.4.113` + pillow from
+  PyPI — versions verified resolvable 2026-10-10; scripts fail loudly on
+  mismatch), configures `-DDEFAULT_BACKEND=NATIVE
+  -DNEURIPLO_BACKENDS=ONNX_RUNTIME`, provisions both fixtures, and runs
+  `ctest -R "engine_|NativeInferTest|native_parity|native_yolo_parity"`.
+  Timeout 45 min. No new Docker image (NATIVE has no SDK; `dockerfile: null`
+  stands).
+- **Validation (repo rule for workflow changes):** `act push --job native
+  --dryrun` then a full local `act push --job native` run, both green,
+  before pushing.
+- **Budget:** n/a (orchestrator-implemented). **Handback:** job URL + act
+  evidence + first CI run link on the PR.
+- **Acceptance:** the `native` job is green on the PR (GitHub), plus the
+  local act run recorded below.
+- **Evidence 2026-10-10:** `act --dryrun` resolves clean. Full `act` run
+  BLOCKED by a local environment fault (buildkit containers cannot resolve
+  registry-1.docker.io; host DNS + `docker pull` fine; evidence
+  `/tmp/act-native*.log`) — validated instead via the documented
+  direct-Docker equivalent (same image, verbatim job script): green,
+  14/14 (`engine_` 11 + `NativeInferTest` + both parities). The equivalent
+  run caught and fixed THREE real defects before push: missing `onnxscript`
+  pin, missing system `libgl1` + `libglib2.0-0` for opencv-python, and the
+  `NEURIPLO_NATIVE_FIXTURE` pre-provisioning the container needs (tests
+  fail-by-design without it). No repo-code change was needed for any of
+  them — workflow-only fixes, which is exactly what this packet owns.
 
 ### Packet Y11 — real-image threshold-gated parity
 
