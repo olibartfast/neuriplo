@@ -1,5 +1,6 @@
 set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/LibtorchInferTest.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/LibtorchRuntimeFactoryTest.cpp
 )
 
 find_package(Glog REQUIRED)

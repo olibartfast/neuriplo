@@ -175,7 +175,7 @@ Neuriplo uses a centralized configuration system that makes it easy to add new b
 │     │ Defines version numbers:                           │      │
 │     │ TVM_VERSION=0.18.0                                 │      │
 │     │ ONNX_RUNTIME_VERSION=1.19.2                        │      │
-│     │ PYTORCH_VERSION=2.3.0                              │      │
+│     │ PYTORCH_VERSION=2.14.0                             │      │
 │     └────────────────────────────────────────────────────┘      │
 │                           ↓                                      │
 │  2. cmake/versions.cmake                                        │

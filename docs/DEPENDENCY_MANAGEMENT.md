@@ -11,7 +11,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 |---|---|---|---|---|
 | `OPENCV_DNN` | OpenCV DNN | `4.6.0` | x86_64, ARM64 | no |
 | `ONNX_RUNTIME` | ONNX Runtime | `1.19.2` | x86_64, ARM64 | no |
-| `LIBTORCH` | LibTorch | `2.3.0` | x86_64, ARM64 | no |
+| `LIBTORCH` | LibTorch | `2.14.0` | x86_64, ARM64 | no |
 | `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
 | `TENSORRT` | TensorRT | `10.14.1.48` | x86_64 only | yes |
 | `OPENVINO` | OpenVINO | `2025.2.0` | x86_64, ARM64 | no |
@@ -204,7 +204,7 @@ Per-backend version overrides (default from `versions.env`):
 |---|---|
 | `OPENCV_VERSION` | `4.6.0` |
 | `ONNX_RUNTIME_VERSION` | `1.19.2` |
-| `PYTORCH_VERSION` | `2.3.0` |
+| `PYTORCH_VERSION` | `2.14.0` |
 | `TENSORFLOW_VERSION` | `2.19.0` |
 | `TENSORRT_VERSION` | `10.14.1.48` |
 | `OPENVINO_VERSION` | `2025.2.0` |
@@ -317,14 +317,14 @@ this release that the local driver supports when CUDA is wanted. Without an
 existing variant, no driver capability reported by `nvidia-smi` means CPU is
 selected, even if `nvcc` is installed. An existing CUDA build with no detected
 driver instead requires an explicit variant decision; failed CUDA download
-probes do not silently switch to CPU. Which CUDA builds exist differs per release — 2.3.0 ships
-`cu118` and `cu121` but no `cu120` — so the choice is made against what the
+probes do not silently switch to CPU. Which CUDA builds exist differs per release — 2.14.0 ships
+`cu126`, `cu130` and `cu132` but no `cu128` or `cu131` — so the choice is made against what the
 server actually publishes rather than derived from the local CUDA version.
 
 Override it explicitly with `LIBTORCH_VARIANT`:
 
 ```bash
-LIBTORCH_VARIANT=cu121 ./scripts/setup_libtorch.sh   # a specific CUDA build
+LIBTORCH_VARIANT=cu130 ./scripts/setup_libtorch.sh   # a specific CUDA build
 LIBTORCH_VARIANT=cpu   ./scripts/setup_libtorch.sh   # deliberately CPU-only
 ```
 
@@ -476,7 +476,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 |---|---|---|
 | OpenCV DNN | ONNX, Darknet (OpenCV 4.x only) | `scripts/setup_test_models.sh` |
 | ONNX Runtime | ONNX | `scripts/model_downloader.py` |
-| LibTorch | TorchScript (.pt) | `backends/libtorch/test/generate_model.sh` |
+| LibTorch | TorchScript (.pt), AOTInductor (.pt2) | `backends/libtorch/test/generate_model.sh` |
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
 | TensorRT | TensorRT engine (.engine) | converted from ONNX at test time |
 | OpenVINO | IR (.xml / .bin) | `backends/openvino/test/generate_model.sh` |
