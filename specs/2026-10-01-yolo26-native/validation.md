@@ -51,11 +51,13 @@ ctest --test-dir build-parity -R yolo_parity --output-on-failure
 
 - Y4-retry-4 (2026-10-09): incomplete — step ceiling before the single acceptance run; scratch figure 633.003 recorded above, not as acceptance evidence. Replan: Y9 (order-invariant parity + non-degenerate input) then re-score YV-5; Y10 (GatherElements stride fix, dormant-but-real).
 - Y9 (2026-10-10): harness written, acceptance never ran (worker step ceiling); scratch refuted the tie hypothesis (both diffs 635.463) and redirected to near-tie background-cell selection. Superseded by Y11.
-- Y11 (2026-10-10): PASS — merge hold LIFTED. Remaining DoD: PR into `develop` (CI runs the `OPENCV_DNN` default path not re-run locally), roadmap + CHANGELOG sync (in this branch).
+- Y11 (2026-10-10): PASS — hold-lift PROPOSED (evidence on the table; the
+  gate is the maintainer's to lift). Remaining DoD: PR review + CI green
+  into `develop`; roadmap + CHANGELOG sync (in this branch).
 - Record here any further criterion not fully met, why, and how it is tracked.
 
 ## Definition of Done
 
 - [x] Every check executed with evidence and dates
-- [x] Merge hold lifted → PR into `develop` (PR itself pending; branch ready)
+- [x] Merge hold-lift proposed → PR into `develop` (PR open; merge awaits review + CI)
 - [ ] Roadmap N2 status and CHANGELOG updated for the shipped scope
