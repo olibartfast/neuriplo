@@ -43,6 +43,12 @@ In:
 - [R5] Parity: the same NMS-embedded file through NATIVE and ONNX_RUNTIME,
   elementwise max abs diff within 1e-4 (budget carried from [A-2]; observed
   figure recorded). Missing fixture fails, never skips.
+  - Restated 2026-10-10 (Y11, maintainer decision): confident-detection
+    parity on a real-image input — same confident-row count, per-row class
+    match, IoU ≥ 0.999, score diff ≤ 1e-4. Background-tail exact cell
+    selection is explicitly OUT of scope: near-tie (~1e-5) background scores
+    select backend-noise-dependent cells (proven 2026-10-10: scores ≤5.2e-07
+    while boxes/classes diverge), so no elementwise bar applies to them.
 
 Out (with pointers):
 
