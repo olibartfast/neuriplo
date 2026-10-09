@@ -36,7 +36,7 @@ if [ -z "${TRT_CUDA_VERSION:-}" ]; then
     if [ -n "$local_cuda_major" ] && [ "$local_cuda_major" != "$pinned_cuda_major" ]; then
         case "$local_cuda_major" in
             12) TRT_CUDA_VERSION=12.9 ;;
-            13) TRT_CUDA_VERSION=13.0 ;;
+            13) TRT_CUDA_VERSION=13.4 ;;
             *)
                 echo "Warning: local CUDA $local_cuda_major.x has no known TensorRT build;" >&2
                 echo "         falling back to the pinned CUDA $CUDA_VERSION." >&2
@@ -61,8 +61,7 @@ if [[ -d "$dir" && "$FORCE" != "true" ]]; then
 fi
 
 # Derive the URL components from versions.env. The download path uses the
-# three-component version (10.14.1) while the tarball keeps the full build
-# number (10.14.1.48).
+# three-component version (11.2.1).
 trt_short="$(echo "$version" | cut -d. -f1-3)"
 tarball="TensorRT-${version}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz"
 download_url="https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${trt_short}/tars/${tarball}"
