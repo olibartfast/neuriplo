@@ -38,6 +38,21 @@ backend IDs and their CMake metadata:
 - `cmake/versions.cmake` — reads `versions.env` and validates that every
   registered backend has a version entry.
 
+```text
+versions.env                pins one version per dependency
+      |
+      v
+cmake/versions.cmake        reads the pins, checks every registered backend has one
+      |
+      v
+scripts/*.sh                source versions.env, so setup and CMake never disagree
+```
+
+The check runs on every configure (`cmake -S . -B build`) and prints a
+`Backend-Version Validation FAILED` warning naming any registered backend that
+has no version entry. To add a backend, follow
+[Adding an Inference Backend](ADDING_BACKEND.md).
+
 ### Dependency Validation
 
 `cmake/DependencyValidation.cmake` validates at configure time:
