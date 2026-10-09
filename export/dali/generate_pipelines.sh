@@ -11,7 +11,7 @@
 # backend deserializes the artifact through the DALI C API.
 set -euo pipefail
 
-TRITON_IMAGE="${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:25.12-py3}"
+TRITON_IMAGE="${TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:26.08-py3}"
 SIZE="${SIZE:-640}"
 OUTPUT_DIR="${OUTPUT_DIR:-data/dali}"
 PLUGIN=""
@@ -24,7 +24,7 @@ Usage: export/dali/generate_pipelines.sh [options]
   --output-dir DIR    where to write .dali artifacts (default data/dali)
   --plugin PATH       DALI operator plugin (.so) for postprocessing pipelines,
                       relative to the repository root
-  --triton-image REF  container image (default nvcr.io/nvidia/tritonserver:25.12-py3)
+  --triton-image REF  container image (default nvcr.io/nvidia/tritonserver:26.08-py3)
 
 Writes <output-dir>/yolo_preprocess_<size>.dali, plus a postprocess pipeline
 when --plugin is given.
