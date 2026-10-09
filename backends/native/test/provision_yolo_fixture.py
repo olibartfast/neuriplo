@@ -12,13 +12,29 @@ Downloading the ``yolo26n.pt`` weights (~5 MB) on first run is expected:
 ``ultralytics`` fetches them automatically when they are not cached
 locally.
 
+Packet Y11 additionally provisions a REAL image and a deterministic input
+tensor:
+
+1. ``bus.jpg`` — the Ultralytics sample photo, downloaded from the pinned
+   URL below and verified against a pinned sha256. A mismatch or missing
+   download is a loud provisioning failure, same discipline as the
+   ``yolo26n.pt`` weight download.
+2. ``yolo26n_input.bin`` — a raw little-endian float32 binary of exactly
+   ``1x3x640x640`` elements, built deterministically from the photo:
+   open with PIL, convert to RGB, bilinear-resize to 640x640, scale to
+   ``[0,1]`` (``/255``), reshape to CHW. Both backends receive these exact
+   bits, so preprocessing determinism only matters for reproducibility of
+   the fixture across runs, not for the comparison itself.
+
 Usage:
     provision_yolo_fixture.py <output_dir>
 """
 
+import hashlib
 import os
 import shutil
 import sys
+import urllib.request
 
 # The exporter and the emitted graph are pinned so the fixture is reproducible.
 PINNED_ULTRALYTICS_VERSION = "8.4.113"
@@ -27,6 +43,14 @@ PINNED_ONNX_VERSION_PREFIX = "1.22."
 OPSET_VERSION = 18
 EXPECTED_INPUT_SHAPE = [1, 3, 640, 640]
 EXPECTED_OUTPUT_SHAPE = [1, 300, 6]
+
+# Packet Y11: the real photo is the Ultralytics sample bus.jpg, pinned by url
+# and content hash; refuse to proceed on any mismatch.
+PINNED_IMAGE_URL = "https://ultralytics.com/images/bus.jpg"
+PINNED_IMAGE_SHA256 = "c02019c4979c191eb739ddd944445ef408dad5679acab6fd520ef9d434bfbc63"
+IMAGE_MODEL_NAME = "bus.jpg"
+INPUT_TENSOR_NAME = "yolo26n_input.bin"
+TENSOR_ELEMENTS = 1 * 3 * 640 * 640
 
 # Operators the native engine implements (the 31-op allowlist in
 # engine/src/ModelLoader.cpp: allowed_attributes()). The fixture must use
@@ -92,6 +116,57 @@ def check_version_prefix(label, found, prefix):
         )
 
 
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_and_verify_image(image_path):
+    """Download the pinned sample photo and verify its content hash."""
+    request = urllib.request.Request(
+        PINNED_IMAGE_URL,
+        headers={"User-Agent": "neuriplo-provision-yolo-fixture/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read()
+    except OSError as exc:
+        fail(f"cannot download pinned image {PINNED_IMAGE_URL}: {exc}")
+    if not data:
+        fail(f"downloaded image body is empty ({PINNED_IMAGE_URL})")
+    found = hashlib.sha256(data).hexdigest()
+    if found != PINNED_IMAGE_SHA256:
+        fail(
+            f"pinned image sha256 mismatch for {PINNED_IMAGE_URL}: "
+            f"expected {PINNED_IMAGE_SHA256}, got {found}"
+        )
+    with open(image_path, "wb") as handle:
+        handle.write(data)
+
+
+def build_input_tensor(image_path, tensor_path):
+    """Decode/resize/normalize the photo into a deterministic float32 bin."""
+    try:
+        import numpy
+        from PIL import Image
+    except ImportError as exc:
+        fail(f"required Python package missing: {exc}")
+
+    with Image.open(image_path) as image:
+        image = image.convert("RGB")
+        image = image.resize((640, 640), Image.BILINEAR)
+        pixels = numpy.asarray(image, dtype=numpy.float32) / 255.0
+        chw = numpy.ascontiguousarray(pixels.transpose(2, 0, 1))
+        assert chw.shape == (3, 640, 640)
+        flat = chw.reshape(-1)
+        assert flat.size == TENSOR_ELEMENTS
+        with open(tensor_path, "wb") as handle:
+            handle.write(flat.tobytes(order="C"))
+
+
 def static_shape(value_info):
     shape = []
     for dim in value_info.type.tensor_type.shape.dim:
@@ -114,6 +189,8 @@ def main():
         fail("refusing to write under /workspace")
     os.makedirs(output_dir, exist_ok=True)
     model_path = os.path.join(output_dir, "yolo26n.onnx")
+    image_path = os.path.join(output_dir, IMAGE_MODEL_NAME)
+    tensor_path = os.path.join(output_dir, INPUT_TENSOR_NAME)
 
     try:
         import onnx
@@ -167,8 +244,22 @@ def main():
     if unsupported:
         fail(f"graph contains op(s) the native engine does not implement: {unsupported}")
 
+    # Packet Y11: real photo + deterministic tensor, both into the build tree.
+    if os.path.exists(image_path):
+        os.remove(image_path)
+    download_and_verify_image(image_path)
+    if sha256_of(image_path) != PINNED_IMAGE_SHA256:
+        fail("post-write verification of the pinned image failed")
+
+    if os.path.exists(tensor_path):
+        os.remove(tensor_path)
+    build_input_tensor(image_path, tensor_path)
+    if os.path.getsize(tensor_path) != TENSOR_ELEMENTS * 4:
+        fail(f"tensor bin size is wrong: {os.path.getsize(tensor_path)} bytes")
+
     histogram = {op: op_types.count(op) for op in sorted(op_set)}
     print(f"provisioned {os.path.abspath(model_path)}")
+    print(f"provisioned {os.path.abspath(image_path)} (sha256 {PINNED_IMAGE_SHA256[:12]}...)")
     print(f"nodes={len(op_types)} ops={histogram}")
 
 
