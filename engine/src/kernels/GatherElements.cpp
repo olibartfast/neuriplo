@@ -59,7 +59,7 @@ void GatherElementsTyped(const T* x, const int64_t* idx, T* y, const std::vector
         if (k < 0 || k >= dim) {
             throw InferenceException(context + ": GatherElements index is out of range");
         }
-        offset += k * strides[static_cast<std::size_t>(axis)];
+        offset += k * in_strides[static_cast<std::size_t>(axis)];
         y[i] = x[offset];
     }
 }
