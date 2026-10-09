@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- LibTorch backend: AOTInductor packages. `LibtorchRuntimeFactory` now picks
+  the runtime from the model extension: `.pt2` loads through
+  `torch::inductor::AOTIModelPackageLoader` (`LibtorchAOTIInfer`), anything
+  else keeps the TorchScript path unchanged. A `.pt2` needs `input_sizes`
+  (full shapes) and float32 inputs. Output shapes come from one zero-filled
+  probe run at load. A package compiled for CPU or CUDA fails to load on the
+  other device rather than silently running elsewhere.
+- `model_downloader.py LIBTORCH_AOTI` exports a ResNet-18 `.pt2`, and
+  `--path-file` names the pointer file it writes.
+
+### Changed
+- LibTorch pinned to 2.14.0 (was 2.3.0). Builds that enable LibTorch now
+  compile as C++20, because LibTorch >= 2.10 headers require it. Builds
+  without LibTorch stay C++17.
+- LibTorch downloads use the `libtorch-shared-with-deps-*` archive name. The
+  old `cxx11-abi` name returns 404 for current releases. The Docker image
+  pins pip `torch` to `PYTORCH_VERSION`, since a `.pt2` only loads in the
+  LibTorch release that compiled it.
+
 ## [0.10.0] - 2026-10-03
 
 ### Fixed

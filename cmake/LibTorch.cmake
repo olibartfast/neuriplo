@@ -14,10 +14,20 @@ list(APPEND CMAKE_PREFIX_PATH "${_default_libtorch_root}")
 # Find LibTorch
 find_package(Torch REQUIRED)
 
+# LibTorch >= 2.10 headers refuse to compile below C++20 (#error in ATen.h).
+# They are included from the registry and the tests as well as the backend
+# sources, so raise the standard for every target in a LibTorch build. The
+# project default stays C++17 for builds without LibTorch.
+if(Torch_VERSION VERSION_GREATER_EQUAL "2.10" AND CMAKE_CXX_STANDARD LESS 20)
+    message(STATUS "LibTorch ${Torch_VERSION} requires C++20; raising CMAKE_CXX_STANDARD from ${CMAKE_CXX_STANDARD}")
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
+
 
 set(LIBTORCH_SOURCES
     ${INFER_ROOT}/libtorch/src/LibtorchInfer.cpp
-    # Add more LibTorch source files here if needed
+    ${INFER_ROOT}/libtorch/src/LibtorchAOTIInfer.cpp
 )
 
 # Append LibTorch sources to the main sources
