@@ -57,6 +57,7 @@ float32/int64/bool).
   comparison and/or non-degenerate input; [R5]/[YV-5] bar restated, not
   lowered) then re-score YV-5; Y10 (GatherElements axis-stride fix, dormant
   but real). Merge hold stays until YV-5 passes.
-- Hold LIFTED 2026-10-10 (Y11): real-image threshold-gated parity passes
+- Hold-lift PROPOSED 2026-10-10 (Y11): real-image threshold-gated parity passes
   (6 confident rows, min IoU 0.999999, max score diff 2.7e-06). Branch ready
-  for PR into `develop`; CI owns the `OPENCV_DNN` default-path re-run.
+  for PR review into `develop`; the lift itself is the maintainer's call
+  after review + green CI (which owns the `OPENCV_DNN` default-path re-run).
