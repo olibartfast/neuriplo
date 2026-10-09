@@ -1778,6 +1778,36 @@ TEST(EngineKernels, GatherElementsNegativeAxisInt64) {
     EXPECT_EQ(out, (std::vector<int64_t>{2, 3}));
 }
 
+// GatherElements with UNEQUAL data/indices trailing dims, so the gather-axis
+// stride of the data grid (in_strides[axis] = 4) differs from the indices-grid
+// stride (strides[axis] = 3). Data [2,3,4] sequential 0..23, indices [2,1,3],
+// axis 1. Per ONNX, y[pos] = data[pos with axis-coord <- k], i.e.
+// y[r,0,c] = data[r][k=idx[r][c]][c] at offset r*12 + k*4 + c.
+// Hand-computed: indices {r0: 0,1,2; r1: 2,1,0} yield offsets
+// r0: 0*12 + {0,4,8} + {0,1,2} = {0,5,10};
+// r1: 1*12 + {8,4,0} + {0,1,2} = {20,17,14}.
+// Pre-fix, the offset used strides[axis]=3 (the indices stride), producing
+// {0,3,6,18,15,12}.
+TEST(EngineKernels, GatherElementsUnequalStride) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("GatherElements");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in(24);
+    for (int i = 0; i < 24; ++i) {
+        in[i] = static_cast<float>(i);
+    }
+    std::vector<float> out(6, 0.0f);
+    std::vector<int64_t> indices = {0, 1, 2, 2, 1, 0};
+    engine::Node node = MakeNode("gatherelem2", "GatherElements");
+    node.attributes.emplace_back("axis", int64_t{1});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3, 4}), Int64View(indices, {2, 1, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 1, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 5.0f, 10.0f, 20.0f, 17.0f, 14.0f}));
+}
+
 // Resize doubles a [1,1,2,2] input to [1,1,4,4] with nearest-floor sampling.
 TEST(EngineKernels, ResizeNearestDouble) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("Resize");
