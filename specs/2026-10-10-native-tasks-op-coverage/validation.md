@@ -72,3 +72,20 @@ Tier 2 (2026-10-10, same tree). Seeded uniform [0,1) input; full shapes in
 
 Tier 2 status: [V-1] (tier 2 operators), [V-2] and [V-3] (transformer
 families) pass. Tiers 3–5 open.
+
+Regression after [D-15] (double accumulation, P3f; 2026-10-10): all 19
+tier 1 and tier 2 exports still pass, most with smaller differences:
+YOLO11n-pose 4.9e-05 (was 1.5e-04), YOLO26n-pose 9.3e-05 (1.9e-04), YOLOv5x
+2.9e-05 (7.7e-05), ViViT 4.5e-06 (2.6e-05), ResNet-18 3.8e-06 (2.2e-05).
+
+Tier 3 (2026-10-10, [D-16], real image `bus.jpg`):
+
+| Export | Input | Confident | Min box IoU | Max score diff |
+| --- | --- | --- | --- | --- |
+| RF-DETR (base) | 1x3x560x560, ImageNet-normalized | 5 | 0.999999 | 4.7e-08 |
+| RF-DETR-Seg | 1x3x432x432, ImageNet-normalized | 5 (mask IoU 1.0) | 0.999996 | 1.7e-06 |
+| RT-DETR v4 | 1x3x640x640, /255; sizes 640 | 5 | 0.999999 | 5.4e-07 |
+| D-FINE/DEIM | 1x3x640x640, /255; sizes 640 | 5 | 0.999999 | 2.4e-07 |
+| DEIMv2 | 1x3x640x640, /255; sizes 640 | 5 | 1.0 | 3.0e-07 |
+
+Tier 3 status: complete. Tiers 4-5 continue in `olibartfast/nert`.
