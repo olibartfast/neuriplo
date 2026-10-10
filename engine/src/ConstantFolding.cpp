@@ -56,11 +56,7 @@ bool FoldNode(Graph& graph, const Node& node, const Device& device) {
             Initializer& init = single.initializers.at(name);
             view.dtype = init.dtype;
             view.dims = init.dims;
-            if (init.dtype == DataType::Float32) {
-                view.data = std::get<std::vector<float>>(init.values).data();
-            } else {
-                view.data = std::get<std::vector<int64_t>>(init.values).data();
-            }
+            view.data = InitializerData(init);
         }
         inputs.push_back(std::move(view));
     }
@@ -69,7 +65,7 @@ bool FoldNode(Graph& graph, const Node& node, const Device& device) {
     std::vector<TensorView> outputs;
     for (const std::string& name : node.outputs) {
         const TensorInfo& info = shapes.tensors.at(name);
-        if (info.dtype != DataType::Float32 && info.dtype != DataType::Int64) {
+        if (info.dtype != DataType::Float32 && info.dtype != DataType::Int64 && info.dtype != DataType::Bool) {
             return false;
         }
         const int64_t count = ElementCount(info.dims);
@@ -81,8 +77,10 @@ bool FoldNode(Graph& graph, const Node& node, const Device& device) {
         init.dims = info.dims;
         if (info.dtype == DataType::Float32) {
             init.values = std::vector<float>(static_cast<size_t>(count));
-        } else {
+        } else if (info.dtype == DataType::Int64) {
             init.values = std::vector<int64_t>(static_cast<size_t>(count));
+        } else {
+            init.values = std::vector<uint8_t>(static_cast<size_t>(count));
         }
         results.push_back(std::move(init));
     }
@@ -90,11 +88,7 @@ bool FoldNode(Graph& graph, const Node& node, const Device& device) {
         TensorView view;
         view.dtype = results[i].dtype;
         view.dims = results[i].dims;
-        if (results[i].dtype == DataType::Float32) {
-            view.data = std::get<std::vector<float>>(results[i].values).data();
-        } else {
-            view.data = std::get<std::vector<int64_t>>(results[i].values).data();
-        }
+        view.data = InitializerData(results[i]);
         outputs.push_back(std::move(view));
     }
 

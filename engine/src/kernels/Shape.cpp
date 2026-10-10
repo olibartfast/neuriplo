@@ -1,10 +1,12 @@
-// Shape: emit the input's dimensions as a rank-1 int64 tensor.
+// Shape: emit the input's dimensions as a rank-1 int64 tensor, optionally only
+// dims[start:end] (opset 15; negative values count from the back, both clamp).
 //
 // The output has one element per input axis holding that axis extent. The
 // input element type is unconstrained; the output is always int64.
 
 #include "Kernels.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -24,6 +26,20 @@ int64_t ElementCount(const std::vector<int64_t>& dims, const std::string& contex
     return count;
 }
 
+int64_t IntAttribute(const Node& node, const std::string& name, int64_t fallback) {
+    for (const Attribute& attr : node.attributes) {
+        if (attr.name == name) {
+            const int64_t* value = std::get_if<int64_t>(&attr.value);
+            if (value == nullptr) {
+                throw InferenceException("Shape: attribute '" + name + "' must be an integer (node '" + node.name +
+                                         "')");
+            }
+            return *value;
+        }
+    }
+    return fallback;
+}
+
 } // namespace
 
 void Shape(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs) {
@@ -40,16 +56,23 @@ void Shape(const Node& node, const std::vector<TensorView>& inputs, const std::v
         throw InferenceException(context + ": Shape output must be int64");
     }
     const int64_t rank = static_cast<int64_t>(in.dims.size());
-    if (out.dims != std::vector<int64_t>{rank}) {
-        throw InferenceException(context + ": Shape output shape must be the input rank");
+    int64_t start = IntAttribute(node, "start", 0);
+    int64_t end = IntAttribute(node, "end", rank);
+    start = std::min(std::max(start < 0 ? start + rank : start, int64_t{0}), rank);
+    end = std::min(std::max(end < 0 ? end + rank : end, int64_t{0}), rank);
+    if (end < start) {
+        end = start;
     }
-    if (rank > 0 && out.data == nullptr) {
+    if (out.dims != std::vector<int64_t>{end - start}) {
+        throw InferenceException(context + ": Shape output shape must be the selected dim count");
+    }
+    if (end > start && out.data == nullptr) {
         throw InferenceException(context + ": null output buffer");
     }
 
     int64_t* y = static_cast<int64_t*>(out.data);
-    for (int64_t i = 0; i < rank; ++i) {
-        y[i] = in.dims[static_cast<std::size_t>(i)];
+    for (int64_t i = start; i < end; ++i) {
+        y[i - start] = in.dims[static_cast<std::size_t>(i)];
     }
 }
 

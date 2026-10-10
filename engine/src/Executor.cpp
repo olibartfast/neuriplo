@@ -89,20 +89,10 @@ InferenceResult Model::Run(const std::map<std::string, std::vector<float>>& inpu
         TensorView view;
         view.dtype = init.dtype;
         view.dims = init.dims;
-        if (init.dtype == DataType::Float32) {
-            const auto* values = std::get_if<std::vector<float>>(&init.values);
-            if (values == nullptr) {
-                throw InferenceException("executor: initializer '" + entry.first + "' has no float values");
-            }
-            view.data = const_cast<float*>(values->data());
-        } else if (init.dtype == DataType::Int64) {
-            const auto* values = std::get_if<std::vector<int64_t>>(&init.values);
-            if (values == nullptr) {
-                throw InferenceException("executor: initializer '" + entry.first + "' has no int64 values");
-            }
-            view.data = const_cast<int64_t*>(values->data());
-        } else {
-            throw InferenceException("executor: initializer '" + entry.first + "' has an unsupported dtype");
+        view.data = InitializerData(const_cast<Initializer&>(init));
+        // An empty initializer (an omitted Resize roi, say) has no storage.
+        if (view.data == nullptr && ElementCount(init.dims) != 0) {
+            throw InferenceException("executor: initializer '" + entry.first + "' has no values of its dtype");
         }
         views.emplace(entry.first, std::move(view));
     }

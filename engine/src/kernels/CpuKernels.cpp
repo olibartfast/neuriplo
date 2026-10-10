@@ -51,6 +51,12 @@ KernelFn FindCpuKernel(const std::string& op_type) {
         {"Tile", &Tile},
         {"AveragePool", &AveragePool},
         {"ConvTranspose", &ConvTranspose},
+        {"Erf", &Erf},
+        {"Sqrt", &Sqrt},
+        {"Tanh", &Tanh},
+        {"IsNaN", &IsNaN},
+        {"Squeeze", &Squeeze},
+        {"LayerNormalization", &LayerNormalization},
     };
     const auto it = table.find(op_type);
     return it == table.end() ? nullptr : it->second;

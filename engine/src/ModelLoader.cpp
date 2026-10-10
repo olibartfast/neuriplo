@@ -9,6 +9,7 @@
 // Everything here fails at load time, never at inference, and rejection
 // messages name the offending node and op type.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -71,6 +72,7 @@ constexpr int64_t kAttrType_Ints = 7;
 constexpr int kField_Tensor_Dims = 1;
 constexpr int kField_Tensor_DataType = 2;
 constexpr int kField_Tensor_FloatData = 4;
+constexpr int kField_Tensor_Int32Data = 5;
 constexpr int kField_Tensor_Int64Data = 7;
 constexpr int kField_Tensor_Name = 8;
 constexpr int kField_Tensor_DoubleData = 10;
@@ -234,6 +236,7 @@ struct TensorPatch {
     std::vector<float> float_data;
     std::vector<int64_t> int64_data;
     std::vector<double> double_data;
+    std::vector<int64_t> int32_data; // BOOL values when not stored raw
     std::string raw_data; // bytes as stored (little-endian elements)
     bool external = false;
     std::string external_location;
@@ -259,6 +262,9 @@ TensorPatch decode_tensor(const uint8_t* data, size_t size)
             break;
         case kField_Tensor_Int64Data:
             read_repeated_int64(reader, f.wire_type, t.int64_data);
+            break;
+        case kField_Tensor_Int32Data:
+            read_repeated_int64(reader, f.wire_type, t.int32_data);
             break;
         case kField_Tensor_DoubleData:
             read_repeated_double(reader, f.wire_type, t.double_data);
@@ -369,10 +375,13 @@ DataType initializer_dtype(int64_t onnx_type, const std::string& name)
         return DataType::Float32;
     case kElemType_OnnxInt64:
         return DataType::Int64;
+    case kElemType_OnnxBool:
+        return DataType::Bool;
     default:
         throw ModelLoadException("unsupported initializer data type " +
             quote(elem_type_name(onnx_type)) + " for tensor " + quote(name) +
-            " (engine accepts FLOAT weights and INT64 shape constants)");
+            " (engine accepts FLOAT weights, INT64 shape constants, and BOOL "
+            "masks)");
     }
 }
 
@@ -483,6 +492,29 @@ std::vector<float> float32_values(const TensorPatch& t,
     return float_initializer_values(t, model_dir, count);
 }
 
+// BOOL constants: one byte per element when raw, else int32_data entries.
+std::vector<uint8_t> bool_initializer_values(const TensorPatch& t,
+    const std::string& model_dir, int64_t count)
+{
+    std::vector<uint8_t> values;
+    if (!t.int32_data.empty()) {
+        for (const int64_t v : t.int32_data) {
+            values.push_back(v != 0 ? 1 : 0);
+        }
+    } else {
+        const std::string bytes = load_tensor_data(t, model_dir);
+        for (const char c : bytes) {
+            values.push_back(c != 0 ? 1 : 0);
+        }
+    }
+    if (static_cast<int64_t>(values.size()) != count) {
+        throw ModelLoadException("initializer element count " +
+            std::to_string(values.size()) +
+            " does not match shape for tensor " + quote(t.name));
+    }
+    return values;
+}
+
 Initializer materialize_initializer(const TensorPatch& t,
     const std::string& model_dir)
 {
@@ -497,6 +529,8 @@ Initializer materialize_initializer(const TensorPatch& t,
     init.dims = t.dims;
     if (dtype == DataType::Float32) {
         init.values = float32_values(t, model_dir, count);
+    } else if (dtype == DataType::Bool) {
+        init.values = bool_initializer_values(t, model_dir, count);
     } else {
         init.values = int64_initializer_values(t, model_dir, count);
     }
@@ -638,6 +672,10 @@ const std::unordered_map<std::string, AttrSlot>& resize_attrs()
         { "cubic_coeff_a", AttrSlot::Float },
         { "mode", AttrSlot::Str },
         { "nearest_mode", AttrSlot::Str },
+        { "antialias", AttrSlot::Int },
+        { "exclude_outside", AttrSlot::Int },
+        { "extrapolation_value", AttrSlot::Float },
+        { "keep_aspect_ratio_policy", AttrSlot::Str },
     };
     return k;
 }
@@ -705,6 +743,25 @@ const std::unordered_map<std::string, AttrSlot>& convtranspose_attrs()
     return k;
 }
 
+const std::unordered_map<std::string, AttrSlot>& shape_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "start", AttrSlot::Int },
+        { "end", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& layernorm_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "axis", AttrSlot::Int },
+        { "epsilon", AttrSlot::Float },
+        { "stash_type", AttrSlot::Int },
+    };
+    return k;
+}
+
 static const std::unordered_map<std::string, AttrSlot> kNoAttrs;
 
 const std::unordered_map<std::string,
@@ -727,7 +784,7 @@ allowed_attributes()
             { "Div", &kNoAttrs },
             { "Sub", &kNoAttrs },
             { "Sigmoid", &kNoAttrs },
-            { "Shape", &kNoAttrs },
+            { "Shape", &shape_attrs() },
             { "Equal", &kNoAttrs },
             { "Where", &kNoAttrs },
             { "Slice", &kNoAttrs },
@@ -751,6 +808,12 @@ allowed_attributes()
             { "Tile", &kNoAttrs },
             { "AveragePool", &averagepool_attrs() },
             { "ConvTranspose", &convtranspose_attrs() },
+            { "Erf", &kNoAttrs },
+            { "Sqrt", &kNoAttrs },
+            { "Tanh", &kNoAttrs },
+            { "IsNaN", &kNoAttrs },
+            { "Squeeze", &kNoAttrs },
+            { "LayerNormalization", &layernorm_attrs() },
         };
     return kOps;
 }
@@ -1003,38 +1066,38 @@ void validate_attr_policy(Node& node)
         return;
     }
     if (node.op_type == "Resize") {
-        // Surveyed fixture: nearest upsampling only.
-        const Attribute* mode = lookup("mode");
-        if (mode != nullptr) {
-            const std::string* v = std::get_if<std::string>(&mode->value);
-            if (v == nullptr || *v != "nearest") {
-                throw ModelLoadException(prefix +
-                    ": Resize 'mode' must be 'nearest' here");
+        // nearest or linear, the four plain coordinate transforms, no
+        // antialiasing. cubic_coeff_a and extrapolation_value only matter for
+        // cubic and tf_crop_and_resize, which are rejected, so any value loads.
+        auto require_one_of = [&](const char* name,
+                                  const std::vector<std::string>& allowed) {
+            const Attribute* a = lookup(name);
+            if (a == nullptr) {
+                return;
             }
-        }
-        const Attribute* ctm = lookup("coordinate_transformation_mode");
-        if (ctm != nullptr) {
-            const std::string* v = std::get_if<std::string>(&ctm->value);
-            if (v == nullptr || *v != "asymmetric") {
-                throw ModelLoadException(prefix +
-                    ": Resize 'coordinate_transformation_mode' must be "
-                    "'asymmetric' here");
+            const std::string* v = std::get_if<std::string>(&a->value);
+            if (v == nullptr ||
+                std::find(allowed.begin(), allowed.end(), *v) == allowed.end()) {
+                std::string list;
+                for (const std::string& option : allowed) {
+                    list += (list.empty() ? "'" : ", '") + option + "'";
+                }
+                throw ModelLoadException(prefix + ": Resize '" + name +
+                    "' must be one of " + list + " here");
             }
-        }
-        const Attribute* nm = lookup("nearest_mode");
-        if (nm != nullptr) {
-            const std::string* v = std::get_if<std::string>(&nm->value);
-            if (v == nullptr || *v != "floor") {
-                throw ModelLoadException(prefix +
-                    ": Resize 'nearest_mode' must be 'floor' here");
-            }
-        }
-        const Attribute* cca = lookup("cubic_coeff_a");
-        if (cca != nullptr) {
-            const float* v = std::get_if<float>(&cca->value);
-            if (v == nullptr || *v != -0.75F) {
-                throw ModelLoadException(prefix +
-                    ": Resize 'cubic_coeff_a' must be -0.75 here");
+        };
+        require_one_of("mode", {"nearest", "linear"});
+        require_one_of("coordinate_transformation_mode",
+            {"half_pixel", "pytorch_half_pixel", "align_corners",
+                "asymmetric"});
+        require_one_of("nearest_mode",
+            {"round_prefer_floor", "round_prefer_ceil", "floor", "ceil"});
+        require_one_of("keep_aspect_ratio_policy", {"stretch"});
+        for (const char* name : {"antialias", "exclude_outside"}) {
+            const Attribute* a = lookup(name);
+            if (a != nullptr && need_int(a) != 0) {
+                throw ModelLoadException(prefix + ": Resize '" + name +
+                    "' must be 0 here");
             }
         }
         return;
@@ -1060,6 +1123,16 @@ void validate_attr_policy(Node& node)
         if (sorted != nullptr && need_int(sorted) != 1) {
             throw ModelLoadException(
                 prefix + ": TopK 'sorted' must be 1 here");
+        }
+        return;
+    }
+    if (node.op_type == "LayerNormalization") {
+        // stash_type selects the statistics precision; only float32 (1) is a
+        // compute type here.
+        const Attribute* stash = lookup("stash_type");
+        if (stash != nullptr && need_int(stash) != 1) {
+            throw ModelLoadException(prefix +
+                ": LayerNormalization 'stash_type' must be 1 (FLOAT) here");
         }
         return;
     }
@@ -1103,7 +1176,8 @@ Node decode_node(const uint8_t* data, size_t size)
             "Reshape/Flatten/Mul/Div/Sub/Sigmoid/Shape/Equal/Where/Slice/"
             "Unsqueeze/Expand/Cast/Concat/ConstantOfShape/Gather/"
             "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose/"
-            "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose only)");
+            "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose/Erf/Sqrt/Tanh/"
+            "IsNaN/Squeeze/LayerNormalization only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;
@@ -1212,24 +1286,14 @@ std::pair<std::string, Initializer> fold_constant_node(
         tensor_bytes.size());
     if (t.data_type != kElemType_OnnxFloat &&
         t.data_type != kElemType_OnnxDouble &&
-        t.data_type != kElemType_OnnxInt64) {
+        t.data_type != kElemType_OnnxInt64 &&
+        t.data_type != kElemType_OnnxBool) {
         throw ModelLoadException("unsupported Constant value data type " +
             quote(elem_type_name(t.data_type)) + " on " + who +
-            " (engine folds FLOAT, DOUBLE, and INT64 Constants only)");
+            " (engine folds FLOAT, DOUBLE, INT64, and BOOL Constants only)");
     }
     t.name = raw.outputs[0];
-    const int64_t count = tensor_elem_count(t.dims);
-    Initializer init;
-    init.dims = t.dims;
-    if (t.data_type == kElemType_OnnxFloat ||
-        t.data_type == kElemType_OnnxDouble) {
-        init.dtype = DataType::Float32;
-        init.values = float32_values(t, model_dir, count);
-    } else {
-        init.dtype = DataType::Int64;
-        init.values = int64_initializer_values(t, model_dir, count);
-    }
-    return {raw.outputs[0], std::move(init)};
+    return {raw.outputs[0], materialize_initializer(t, model_dir)};
 }
 
 // ---------------------------------------------------------------------------
@@ -1336,7 +1400,9 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
     }
 
     // TensorShapeProto: dim = 1 (repeated); each dim carries dim_value = 1 or
-    // dim_param = 2. Only static shapes are supported.
+    // dim_param = 2. A named or unknown dim (a symbolic batch, say) is
+    // recorded as -1: the caller fixes it per load through the input shapes
+    // handed to InferShapes. An explicit non-positive dim_value is rejected.
     if (!shape.empty()) {
         WireReader shape_reader(
             reinterpret_cast<const uint8_t*>(shape.data()), shape.size());
@@ -1371,12 +1437,16 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
                     break;
                 }
             }
+            if (!has_value) {
+                dims.push_back(-1); // named or unknown: fixed per load
+                continue;
+            }
             if (!has_value || dim_value <= 0) {
                 reject("carries a non-fixed dimension" +
                     (dim_param.empty()
                             ? std::string()
                             : " (dim_param " + quote(dim_param) + ")") +
-                    " (engine accepts static positive shapes only)");
+                    " (engine accepts fixed or named dimensions only)");
             }
             dims.push_back(dim_value);
         }

@@ -1,11 +1,11 @@
-// Conv: the ONNX NCHW cross-correlation with groups, strides, dilations, and
-// explicit or automatic padding.
+// Conv: the ONNX cross-correlation over one, two, or three spatial axes, with
+// groups, strides, dilations, and explicit or automatic padding.
 //
-// Input X is [N,C,H,W], weight W is [M, C/group, kH, kW], and the optional bias
-// is [M]. Output is [N,M,oH,oW] with
+// Input X is [N,C,spatial...], weight W is [M, C/group, k...], and the optional
+// bias is [M]. Each output spatial dim is
 //   o = floor((in + pad_begin + pad_end - dilation*(k-1) - 1)/stride) + 1,
-// and ceil(in/stride) for the SAME_* auto_pad modes. Naive, float32,
-// single-threaded, one output tensor.
+// and ceil(in/stride) for the SAME_* auto_pad modes. 1-D and 2-D run as 3-D
+// with unit leading axes. Naive, float32, single-threaded, one output tensor.
 
 #include "Kernels.hpp"
 
@@ -64,8 +64,7 @@ std::string StringAttribute(const Node& node, const std::string& name, const std
         if (attr.name == name) {
             const std::string* value = std::get_if<std::string>(&attr.value);
             if (value == nullptr) {
-                throw InferenceException("Conv: attribute '" + name + "' must be a string (node '" + node.name +
-                                         "')");
+                throw InferenceException("Conv: attribute '" + name + "' must be a string (node '" + node.name + "')");
             }
             return *value;
         }
@@ -150,23 +149,21 @@ void Conv(const Node& node, const std::vector<TensorView>& inputs, const std::ve
     if (hasBias && inputs[2].dtype != DataType::Float32) {
         throw InferenceException(context + ": bias tensor must be float32");
     }
-    if (x.dims.size() != 4) {
-        throw InferenceException(context + ": input must be rank 4 (NCHW)");
+    const std::size_t rank = x.dims.size();
+    if (rank < 3 || rank > 5) {
+        throw InferenceException(context + ": input must be rank 3, 4, or 5 (1-D, 2-D, or 3-D convolution)");
     }
-    if (w.dims.size() != 4) {
-        throw InferenceException(context + ": weight must be rank 4");
+    if (w.dims.size() != rank) {
+        throw InferenceException(context + ": weight rank must match the input rank");
     }
     (void)ElementCount(x.dims, context);
     (void)ElementCount(w.dims, context);
     (void)ElementCount(out.dims, context);
+    const std::size_t spatial = rank - 2;
 
     const int64_t n_batch = x.dims[0];
     const int64_t inChannels = x.dims[1];
-    const int64_t inHeight = x.dims[2];
-    const int64_t inWidth = x.dims[3];
     const int64_t outChannels = w.dims[0];
-    const int64_t kernelHeight = w.dims[2];
-    const int64_t kernelWidth = w.dims[3];
 
     const int64_t group = IntAttribute(node, "group", 1);
     if (group <= 0) {
@@ -187,35 +184,35 @@ void Conv(const Node& node, const std::vector<TensorView>& inputs, const std::ve
     std::vector<int64_t> strides = IntListAttribute(node, "strides");
     std::vector<int64_t> dilations = IntListAttribute(node, "dilations");
     if (strides.empty()) {
-        strides = {1, 1};
+        strides.assign(spatial, 1);
     }
     if (dilations.empty()) {
-        dilations = {1, 1};
+        dilations.assign(spatial, 1);
     }
-    if (strides.size() != 2 || dilations.size() != 2) {
-        throw InferenceException(context + ": stride and dilation must each have two spatial entries");
+    if (strides.size() != spatial || dilations.size() != spatial) {
+        throw InferenceException(context + ": stride and dilation must have one entry per spatial dimension");
     }
-    for (std::size_t i = 0; i < 2; ++i) {
+    const std::vector<int64_t> in_spatial(x.dims.begin() + 2, x.dims.end());
+    const std::vector<int64_t> kernel(w.dims.begin() + 2, w.dims.end());
+    for (std::size_t i = 0; i < spatial; ++i) {
         if (strides[i] <= 0 || dilations[i] <= 0) {
             throw InferenceException(context + ": stride and dilation must be positive");
         }
-    }
-    if (kernelHeight <= 0 || kernelWidth <= 0) {
-        throw InferenceException(context + ": kernel dimensions must be positive");
+        if (kernel[i] <= 0) {
+            throw InferenceException(context + ": kernel dimensions must be positive");
+        }
     }
 
-    const std::vector<int64_t> in_spatial = {inHeight, inWidth};
-    const std::vector<int64_t> kernel = {kernelHeight, kernelWidth};
     std::vector<int64_t> pad_begin;
     std::vector<int64_t> pad_end;
     ResolvePads(context, StringAttribute(node, "auto_pad", "NOTSET"), in_spatial, kernel, dilations, strides,
                 IntListAttribute(node, "pads"), pad_begin, pad_end);
 
-    const int64_t outHeight =
-        WindowOutput(context, inHeight, kernelHeight, dilations[0], pad_begin[0], pad_end[0], strides[0], false);
-    const int64_t outWidth =
-        WindowOutput(context, inWidth, kernelWidth, dilations[1], pad_begin[1], pad_end[1], strides[1], false);
-    const std::vector<int64_t> expected = {n_batch, outChannels, outHeight, outWidth};
+    std::vector<int64_t> expected = {n_batch, outChannels};
+    for (std::size_t i = 0; i < spatial; ++i) {
+        expected.push_back(
+            WindowOutput(context, in_spatial[i], kernel[i], dilations[i], pad_begin[i], pad_end[i], strides[i], false));
+    }
     if (out.dims != expected) {
         throw InferenceException(context + ": output shape does not match the convolution");
     }
@@ -232,41 +229,64 @@ void Conv(const Node& node, const std::vector<TensorView>& inputs, const std::ve
         throw InferenceException(context + ": null buffer");
     }
 
+    // Lift every case to three spatial axes (depth, height, width); a missing
+    // leading axis has extent 1, stride 1, no padding.
+    const std::size_t lift = 3 - spatial;
+    auto lifted = [lift](const std::vector<int64_t>& v, int64_t fill) {
+        std::vector<int64_t> r(lift, fill);
+        r.insert(r.end(), v.begin(), v.end());
+        return r;
+    };
+    const std::vector<int64_t> in3 = lifted(in_spatial, 1);
+    const std::vector<int64_t> k3 = lifted(kernel, 1);
+    const std::vector<int64_t> o3 = lifted(std::vector<int64_t>(expected.begin() + 2, expected.end()), 1);
+    const std::vector<int64_t> s3 = lifted(strides, 1);
+    const std::vector<int64_t> d3 = lifted(dilations, 1);
+    const std::vector<int64_t> p3 = lifted(pad_begin, 0);
+    const int64_t inPlane = in3[0] * in3[1] * in3[2];
+    const int64_t kPlane = k3[0] * k3[1] * k3[2];
+    const int64_t outPlane = o3[0] * o3[1] * o3[2];
+
     const float* xData = static_cast<const float*>(x.data);
     const float* wData = static_cast<const float*>(w.data);
     float* yData = static_cast<float*>(out.data);
 
     for (int64_t n = 0; n < n_batch; ++n) {
         for (int64_t m = 0; m < outChannels; ++m) {
-            const int64_t groupIndex = m / outputsPerGroup;
-            const int64_t channelBase = groupIndex * channelsPerGroup;
+            const int64_t channelBase = (m / outputsPerGroup) * channelsPerGroup;
             const float biasValue = hasBias ? bias[m] : 0.0f;
-            for (int64_t oh = 0; oh < outHeight; ++oh) {
-                const int64_t inRowBase = oh * strides[0] - pad_begin[0];
-                for (int64_t ow = 0; ow < outWidth; ++ow) {
-                    const int64_t inColBase = ow * strides[1] - pad_begin[1];
-                    float acc = biasValue;
-                    for (int64_t kc = 0; kc < channelsPerGroup; ++kc) {
-                        const int64_t channel = channelBase + kc;
-                        const float* xChannel = xData + ((n * inChannels + channel) * inHeight) * inWidth;
-                        const float* wChannel = wData + ((m * channelsPerGroup + kc) * kernelHeight) * kernelWidth;
-                        for (int64_t kh = 0; kh < kernelHeight; ++kh) {
-                            const int64_t ih = inRowBase + kh * dilations[0];
-                            if (ih < 0 || ih >= inHeight) {
-                                continue;
-                            }
-                            const float* xRow = xChannel + ih * inWidth;
-                            const float* wRow = wChannel + kh * kernelWidth;
-                            for (int64_t kw = 0; kw < kernelWidth; ++kw) {
-                                const int64_t iw = inColBase + kw * dilations[1];
-                                if (iw < 0 || iw >= inWidth) {
+            float* yPlane = yData + (n * outChannels + m) * outPlane;
+            for (int64_t od = 0; od < o3[0]; ++od) {
+                for (int64_t oh = 0; oh < o3[1]; ++oh) {
+                    for (int64_t ow = 0; ow < o3[2]; ++ow) {
+                        float acc = biasValue;
+                        for (int64_t kc = 0; kc < channelsPerGroup; ++kc) {
+                            const float* xChannel = xData + (n * inChannels + channelBase + kc) * inPlane;
+                            const float* wChannel = wData + (m * channelsPerGroup + kc) * kPlane;
+                            for (int64_t kd = 0; kd < k3[0]; ++kd) {
+                                const int64_t id = od * s3[0] - p3[0] + kd * d3[0];
+                                if (id < 0 || id >= in3[0]) {
                                     continue;
                                 }
-                                acc += xRow[iw] * wRow[kw];
+                                for (int64_t kh = 0; kh < k3[1]; ++kh) {
+                                    const int64_t ih = oh * s3[1] - p3[1] + kh * d3[1];
+                                    if (ih < 0 || ih >= in3[1]) {
+                                        continue;
+                                    }
+                                    const float* xRow = xChannel + (id * in3[1] + ih) * in3[2];
+                                    const float* wRow = wChannel + (kd * k3[1] + kh) * k3[2];
+                                    for (int64_t kw = 0; kw < k3[2]; ++kw) {
+                                        const int64_t iw = ow * s3[2] - p3[2] + kw * d3[2];
+                                        if (iw < 0 || iw >= in3[2]) {
+                                            continue;
+                                        }
+                                        acc += xRow[iw] * wRow[kw];
+                                    }
+                                }
                             }
                         }
+                        yPlane[(od * o3[1] + oh) * o3[2] + ow] = acc;
                     }
-                    yData[((n * outChannels + m) * outHeight + oh) * outWidth + ow] = acc;
                 }
             }
         }

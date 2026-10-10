@@ -56,4 +56,19 @@ rows). Existing tests on the same tree: `engine_*` 12/12, `NativeInferTest`
 with the pinned script) 6 confident rows, min IoU 0.999999.
 
 Tier 1 status: [V-1] (tier 1 operators), [V-2] and [V-3] (YOLO families),
-[V-4], [V-5], [V-6] pass. Tiers 2–5 open.
+[V-4], [V-5], [V-6] pass. 
+
+Tier 2 (2026-10-10, same tree). Seeded uniform [0,1) input; full shapes in
+`input_sizes` for the symbolic-batch exports ([D-8]).
+
+| Export | Opset (source) | Input | Max scaled diff |
+| --- | --- | --- | --- |
+| ViT (base) | 17 (`~/model_repository`) | 1×3×224×224 | 2.6e-06 |
+| ViTPose (base) | 14 (`huggingface_playground`) | 1×3×256×192 | 5.3e-07 |
+| Depth Anything V2 (small) | 18 (neuriplo-tasks recipe) | 1×3×518×518 | 2.7e-06 |
+| VideoMAE (base) | 18 (neuriplo-tasks recipe) | 1×16×3×224×224 | 1.0e-06 |
+| ViViT (b-16x2) | 18 (neuriplo-tasks recipe) | 1×32×3×224×224 | 2.6e-05 |
+| TimeSformer | 14 (`~/model_repository`) | 1×8×3×224×224 | 3.4e-06 |
+
+Tier 2 status: [V-1] (tier 2 operators), [V-2] and [V-3] (transformer
+families) pass. Tiers 3–5 open.

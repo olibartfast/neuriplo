@@ -83,7 +83,13 @@ add_library(neuriplo_engine STATIC
     src/kernels/Pow.cpp
     src/kernels/Tile.cpp
     src/kernels/AveragePool.cpp
-    src/kernels/ConvTranspose.cpp)
+    src/kernels/ConvTranspose.cpp
+    src/kernels/Erf.cpp
+    src/kernels/Sqrt.cpp
+    src/kernels/Tanh.cpp
+    src/kernels/IsNaN.cpp
+    src/kernels/Squeeze.cpp
+    src/kernels/LayerNormalization.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC

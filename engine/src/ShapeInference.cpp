@@ -86,6 +86,19 @@ std::vector<int64_t> attr_ints(const Node& node, const std::string& name)
     return *v;
 }
 
+// Shape's [start, end) dim range (opset 15): negatives count from the back
+// and both clamp to [0, rank].
+std::pair<int64_t, int64_t> shape_range(const Node& node, int64_t rank)
+{
+    const auto clamp = [rank](int64_t v) {
+        v = v < 0 ? v + rank : v;
+        return std::min(std::max(v, int64_t{0}), rank);
+    };
+    const int64_t start = clamp(attr_int(node, "start", 0));
+    const int64_t end = std::max(start, clamp(attr_int(node, "end", rank)));
+    return {start, end};
+}
+
 int64_t element_count(const std::vector<int64_t>& dims)
 {
     int64_t count = 1;
@@ -243,9 +256,10 @@ TensorInfo conv_shape(const Node& node,
     }
     const std::vector<int64_t>& x = inputs[0]->dims;
     const std::vector<int64_t>& w = inputs[1]->dims;
-    if (x.size() != 4 || w.size() != 4) {
-        fail(node, "Conv input and weight must be rank 4");
+    if (x.size() < 3 || x.size() > 5 || w.size() != x.size()) {
+        fail(node, "Conv input and weight must share rank 3, 4, or 5");
     }
+    const size_t spatial = x.size() - 2;
     const int64_t group = attr_int(node, "group", 1);
     if (group <= 0) {
         fail(node, "Conv group must be positive");
@@ -257,18 +271,18 @@ TensorInfo conv_shape(const Node& node,
         fail(node, "Conv weight channel dim does not match input/group");
     }
 
-    const std::vector<int64_t> in_spatial = {x[2], x[3]};
-    const std::vector<int64_t> kernel = {w[2], w[3]};
+    const std::vector<int64_t> in_spatial(x.begin() + 2, x.end());
+    const std::vector<int64_t> kernel(w.begin() + 2, w.end());
     std::vector<int64_t> strides = attr_ints(node, "strides");
     std::vector<int64_t> dilations = attr_ints(node, "dilations");
     if (strides.empty()) {
-        strides = {1, 1};
+        strides.assign(spatial, 1);
     }
     if (dilations.empty()) {
-        dilations = {1, 1};
+        dilations.assign(spatial, 1);
     }
-    if (strides.size() != 2 || dilations.size() != 2) {
-        fail(node, "Conv stride/dilation must have two spatial entries");
+    if (strides.size() != spatial || dilations.size() != spatial) {
+        fail(node, "Conv stride/dilation must have one entry per spatial dim");
     }
     std::vector<int64_t> pad_begin;
     std::vector<int64_t> pad_end;
@@ -276,7 +290,7 @@ TensorInfo conv_shape(const Node& node,
         kernel, dilations, strides, attr_ints(node, "pads"), pad_begin, pad_end);
 
     std::vector<int64_t> out = {x[0], w[0]};
-    for (size_t i = 0; i < 2; ++i) {
+    for (size_t i = 0; i < spatial; ++i) {
         out.push_back(window_output(in_spatial[i], kernel[i], dilations[i],
             pad_begin[i], pad_end[i], strides[i], false, node, "Conv"));
     }
@@ -433,6 +447,19 @@ std::optional<EvalTensor> eval_tensor(
         return std::nullopt;
     }
     const auto init_it = ctx.graph.initializers.find(name);
+    if (init_it != ctx.graph.initializers.end() &&
+        init_it->second.dtype == DataType::Bool) {
+        const auto* values =
+            std::get_if<std::vector<uint8_t>>(&init_it->second.values);
+        if (values == nullptr) {
+            return std::nullopt;
+        }
+        EvalTensor tensor;
+        tensor.dtype = DataType::Bool;
+        tensor.dims = init_it->second.dims;
+        tensor.boolean.assign(values->begin(), values->end());
+        return tensor;
+    }
     if (init_it != ctx.graph.initializers.end()) {
         if (init_it->second.dtype != DataType::Int64) {
             return std::nullopt;
@@ -510,11 +537,20 @@ std::optional<EvalTensor> eval_node(
     const StaticContext& ctx, const Node& node, int depth)
 {
     const std::string& op = node.op_type;
-    if (op == "Identity") {
-        if (node.inputs.size() != 1) {
+    if (op == "Identity" || op == "Squeeze" || op == "Unsqueeze" ||
+        op == "Reshape" || op == "Flatten") {
+        // Layout-only: the values pass through in order; the dims are the
+        // node's already-inferred output shape.
+        if (node.inputs.empty() || node.outputs.size() != 1) {
             return std::nullopt;
         }
-        return eval_tensor(ctx, node.inputs[0], depth);
+        auto value = eval_tensor(ctx, node.inputs[0], depth);
+        const auto out_it = ctx.inferred.find(node.outputs[0]);
+        if (!value.has_value() || out_it == ctx.inferred.end()) {
+            return std::nullopt;
+        }
+        value->dims = out_it->second.dims;
+        return value;
     }
     if (op == "Shape") {
         if (node.inputs.size() != 1) {
@@ -524,11 +560,86 @@ std::optional<EvalTensor> eval_node(
         if (it == ctx.inferred.end()) {
             return std::nullopt;
         }
+        const std::pair<int64_t, int64_t> range = shape_range(node,
+            static_cast<int64_t>(it->second.dims.size()));
         EvalTensor tensor;
         tensor.dtype = DataType::Int64;
-        tensor.dims = {static_cast<int64_t>(it->second.dims.size())};
-        tensor.i64 = it->second.dims;
+        tensor.dims = {range.second - range.first};
+        tensor.i64.assign(it->second.dims.begin() + range.first,
+            it->second.dims.begin() + range.second);
         return tensor;
+    }
+    if (op == "Concat") {
+        // Rank-1 int64 pieces of a shape vector, joined in order.
+        EvalTensor out;
+        out.dtype = DataType::Int64;
+        for (const std::string& name : node.inputs) {
+            const auto piece = eval_tensor(ctx, name, depth);
+            if (!piece.has_value() || piece->dtype != DataType::Int64 ||
+                piece->dims.size() != 1) {
+                return std::nullopt;
+            }
+            out.i64.insert(out.i64.end(), piece->i64.begin(), piece->i64.end());
+        }
+        out.dims = {static_cast<int64_t>(out.i64.size())};
+        return out;
+    }
+    if (op == "Cast") {
+        const auto value = node.inputs.size() == 1
+            ? eval_tensor(ctx, node.inputs[0], depth)
+            : std::nullopt;
+        if (!value.has_value() || attr_int(node, "to", 0) != 7 /*INT64*/) {
+            return std::nullopt;
+        }
+        if (value->dtype == DataType::Int64) {
+            return value;
+        }
+        EvalTensor out;
+        out.dtype = DataType::Int64;
+        out.dims = value->dims;
+        out.i64.assign(value->boolean.begin(), value->boolean.end());
+        return out;
+    }
+    if (op == "Slice") {
+        // Rank-1 int64 data with constant starts/ends (and optional axes=0,
+        // steps): the slice of a shape vector.
+        if (node.inputs.size() < 3) {
+            return std::nullopt;
+        }
+        const auto data = eval_tensor(ctx, node.inputs[0], depth);
+        const auto starts = eval_tensor(ctx, node.inputs[1], depth);
+        const auto ends = eval_tensor(ctx, node.inputs[2], depth);
+        if (!data.has_value() || !starts.has_value() || !ends.has_value() ||
+            data->dtype != DataType::Int64 || data->dims.size() != 1 ||
+            starts->i64.size() != 1 || ends->i64.size() != 1) {
+            return std::nullopt;
+        }
+        if (node.inputs.size() > 3 && !node.inputs[3].empty()) {
+            const auto axes = eval_tensor(ctx, node.inputs[3], depth);
+            if (!axes.has_value() || axes->i64.size() != 1 ||
+                (axes->i64[0] != 0 && axes->i64[0] != -1)) {
+                return std::nullopt;
+            }
+        }
+        if (node.inputs.size() > 4 && !node.inputs[4].empty()) {
+            const auto steps = eval_tensor(ctx, node.inputs[4], depth);
+            if (!steps.has_value() || steps->i64.size() != 1 ||
+                steps->i64[0] != 1) {
+                return std::nullopt;
+            }
+        }
+        const int64_t len = data->dims[0];
+        const auto clamp = [len](int64_t v) {
+            v = v < 0 ? v + len : v;
+            return std::min(std::max(v, int64_t{0}), len);
+        };
+        const int64_t begin = clamp(starts->i64[0]);
+        const int64_t end = std::max(begin, clamp(ends->i64[0]));
+        EvalTensor out;
+        out.dtype = DataType::Int64;
+        out.i64.assign(data->i64.begin() + begin, data->i64.begin() + end);
+        out.dims = {end - begin};
+        return out;
     }
     if (op == "Gather") {
         if (node.inputs.size() != 2) {
@@ -866,9 +977,9 @@ TensorInfo reshape_shape(const StaticContext& ctx, const Node& node,
     if (element_count(out) != in_count) {
         fail(node, "Reshape target product does not match input elements");
     }
-    // Float32-only by contract: the Reshape kernel rejects non-float32 data,
-    // and every fixture site carries float32 (Y8 audit stay-as-is).
-    return TensorInfo{DataType::Float32, out};
+    // Reshape is layout-only: the output keeps the data's dtype (transformer
+    // exports reshape int64 shape tensors as well as float32 activations).
+    return TensorInfo{inputs[0]->dtype, out};
 }
 
 TensorInfo flatten_shape(const Node& node,
@@ -1153,7 +1264,10 @@ TensorInfo resize_shape(const StaticContext& ctx, const Node& node,
     }
     const std::vector<int64_t>& in = inputs[0]->dims;
     const int64_t rank = static_cast<int64_t>(in.size());
-    const bool has_scales = node.inputs.size() > 2 && !node.inputs[2].empty();
+    // An empty scales tensor means "absent", as older exporters write it.
+    const bool has_scales = node.inputs.size() > 2 && !node.inputs[2].empty() &&
+        !(inputs.size() > 2 && inputs[2] != nullptr &&
+            element_count(inputs[2]->dims) == 0);
     const bool has_sizes = node.inputs.size() > 3 && !node.inputs[3].empty();
     if (has_sizes && has_scales) {
         fail(node, "Resize takes exactly one of scales and sizes");
@@ -1312,8 +1426,12 @@ TensorInfo shape_shape(const Node& node,
     if (inputs.empty() || inputs[0] == nullptr) {
         fail(node, "Shape requires an input");
     }
-    return TensorInfo{DataType::Int64,
-        {static_cast<int64_t>(inputs[0]->dims.size())}};
+    const std::pair<int64_t, int64_t> range =
+        shape_range(node, static_cast<int64_t>(inputs[0]->dims.size()));
+    if (range.second == range.first) {
+        fail(node, "Shape selects no dims");
+    }
+    return TensorInfo{DataType::Int64, {range.second - range.first}};
 }
 
 TensorInfo reducemax_shape(const StaticContext& ctx, const Node& node,
@@ -1485,6 +1603,65 @@ TensorInfo tile_shape(const StaticContext& ctx, const Node& node,
     return TensorInfo{inputs[0]->dtype, out};
 }
 
+TensorInfo squeeze_shape(const StaticContext& ctx, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "Squeeze requires an input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    std::set<int64_t> drop;
+    if (node.inputs.size() > 1 && !node.inputs[1].empty()) {
+        for (const int64_t axis : int64_constant(ctx, node, node.inputs[1])) {
+            const int64_t a = normalize_axis(node, axis, rank, "Squeeze");
+            if (in[static_cast<size_t>(a)] != 1) {
+                fail(node, "Squeeze axis does not have size 1");
+            }
+            drop.insert(a);
+        }
+    } else {
+        for (int64_t a = 0; a < rank; ++a) {
+            if (in[static_cast<size_t>(a)] == 1) {
+                drop.insert(a);
+            }
+        }
+    }
+    std::vector<int64_t> out;
+    for (int64_t a = 0; a < rank; ++a) {
+        if (drop.count(a) == 0) {
+            out.push_back(in[static_cast<size_t>(a)]);
+        }
+    }
+    return TensorInfo{inputs[0]->dtype, out};
+}
+
+// LayerNormalization: Y has X's shape; Mean and InvStdDev keep the leading
+// dims and set the normalized ones to 1.
+std::vector<TensorInfo> layernorm_shapes(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || inputs[1] == nullptr) {
+        fail(node, "LayerNormalization requires X and Scale");
+    }
+    const std::vector<int64_t>& x = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(x.size());
+    if (rank == 0) {
+        fail(node, "LayerNormalization input must not be a scalar");
+    }
+    const int64_t axis = normalize_axis(node, attr_int(node, "axis", -1), rank,
+        "LayerNormalization");
+    std::vector<int64_t> stats = x;
+    for (int64_t a = axis; a < rank; ++a) {
+        stats[static_cast<size_t>(a)] = 1;
+    }
+    std::vector<TensorInfo> out = {TensorInfo{DataType::Float32, x}};
+    for (size_t i = 1; i < node.outputs.size(); ++i) {
+        out.push_back(TensorInfo{DataType::Float32, stats});
+    }
+    return out;
+}
+
 std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& node,
     const std::vector<const TensorInfo*>& inputs)
 {
@@ -1514,7 +1691,8 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
         return {TensorInfo{lhs.dtype,
             broadcast_shape(lhs.dims, rhs.dims, node)}};
     }
-    if (op == "Relu" || op == "Sigmoid" || op == "Softmax" || op == "Floor") {
+    if (op == "Relu" || op == "Sigmoid" || op == "Softmax" || op == "Floor" ||
+        op == "Erf" || op == "Sqrt" || op == "Tanh") {
         return {TensorInfo{DataType::Float32, need(0).dims}};
     }
     if (op == "MatMul") {
@@ -1619,6 +1797,15 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
     }
     if (op == "ConvTranspose") {
         return {convtranspose_shape(node, inputs)};
+    }
+    if (op == "IsNaN") {
+        return {TensorInfo{DataType::Bool, need(0).dims}};
+    }
+    if (op == "Squeeze") {
+        return {squeeze_shape(ctx, node, inputs)};
+    }
+    if (op == "LayerNormalization") {
+        return layernorm_shapes(node, inputs);
     }
     fail(node, "unsupported op_type");
 }

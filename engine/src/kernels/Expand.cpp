@@ -2,7 +2,7 @@
 // following NumPy right-alignment rules.
 //
 // Each aligned pair resolves to max(d, s) when either side is one (missing
-// leading axes broadcast as size one). Data is float32 or int64.
+// leading axes broadcast as size one). Data is float32, int64, or bool.
 
 #include "Kernels.hpp"
 
@@ -60,8 +60,8 @@ void Expand(const Node& node, const std::vector<TensorView>& inputs, const std::
     const TensorView& in = inputs[0];
     const TensorView& shape_view = inputs[1];
     const TensorView& out = outputs[0];
-    if (in.dtype != DataType::Float32 && in.dtype != DataType::Int64) {
-        throw InferenceException(context + ": tensors must be float32 or int64");
+    if (in.dtype != DataType::Float32 && in.dtype != DataType::Int64 && in.dtype != DataType::Bool) {
+        throw InferenceException(context + ": tensors must be float32, int64, or bool");
     }
     if (out.dtype != in.dtype) {
         throw InferenceException(context + ": output dtype must match the input dtype");
@@ -126,9 +126,12 @@ void Expand(const Node& node, const std::vector<TensorView>& inputs, const std::
     if (in.dtype == DataType::Float32) {
         ExpandTyped<float>(static_cast<const float*>(in.data), static_cast<float*>(out.data), aligned, out_strides,
             out_count, out_rank);
-    } else {
+    } else if (in.dtype == DataType::Int64) {
         ExpandTyped<int64_t>(static_cast<const int64_t*>(in.data), static_cast<int64_t*>(out.data), aligned,
             out_strides, out_count, out_rank);
+    } else {
+        ExpandTyped<bool>(static_cast<const bool*>(in.data), static_cast<bool*>(out.data), aligned, out_strides,
+            out_count, out_rank);
     }
 }
 

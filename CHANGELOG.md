@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `sizes` input; DOUBLE constants narrowed to float32. 13 exports, converted to
   opset 18, match `ONNX_RUNTIME` within 1e-3 scaled. New
   `native_model_zoo_parity_test` runs a manifest of local exports.
+- `NATIVE` backend: ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and
+  TimeSformer. New ops Erf, LayerNormalization, Sqrt, Squeeze, Tanh and IsNaN;
+  1-D/3-D Conv; linear Resize with every ONNX coordinate transform (absent
+  attributes now take the ONNX defaults); Shape `start`/`end`; BOOL constants;
+  symbolic input dims fixed per load through `input_sizes`. All six match
+  `ONNX_RUNTIME` within 3e-5 scaled.
 
 ### Fixed (NATIVE)
 - The loader accepts identical repeated value-info entries, which torch 2.12

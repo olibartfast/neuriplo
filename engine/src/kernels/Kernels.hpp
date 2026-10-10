@@ -141,5 +141,21 @@ void AveragePool(const Node& node, const std::vector<TensorView>& inputs, const 
 // output_padding, and an optional rank-1 bias.
 void ConvTranspose(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
+// Elementwise erf, sqrt, and tanh; float32.
+void Erf(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+void Sqrt(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+void Tanh(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise NaN test; float32 input, bool output.
+void IsNaN(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Drop size-1 axes; float32, int64, or bool data.
+void Squeeze(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Normalize over the trailing axes from `axis`, then scale and shift; optional
+// Mean and InvStdDev outputs.
+void LayerNormalization(const Node& node, const std::vector<TensorView>& inputs,
+    const std::vector<TensorView>& outputs);
+
 } // namespace kernels
 } // namespace engine

@@ -18,6 +18,9 @@ One tier per phase; each ends with its families loading and matching
 ## Tier 2 — Transformer encoders
 
 - [T-5] Erf, LayerNormalization, Sqrt, Squeeze, Tanh, IsNaN.
+- [T-5a] Non-operator gaps the survey surfaced: symbolic dims ([D-8]), linear
+  Resize ([D-9]), BOOL constants ([D-10]), dtype-preserving Reshape
+  ([D-11]), 3-D Conv ([D-12]), evaluator coverage ([D-13]), Expand on bool.
 
 ## Tier 3 — DETR family
 
