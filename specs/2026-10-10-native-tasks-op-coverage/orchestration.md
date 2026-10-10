@@ -64,6 +64,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - R1 — rename the backend `NATIVE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
 - R2 — rename the backend `NEURIPLO_ENGINE` → `NERT`, Neuriplo Engine Runtime (maintainer, 2026-10-10)
 - D1 — main README: NERT row and status (maintainer, 2026-10-10); after R2
+- P3f — RF-DETR and RF-DETR-Seg end to end (goal-scoped)
 
 ### Packet P3a — elementwise math
 
@@ -175,6 +176,36 @@ R2 integrates, against the README that PR #45 introduced.
 - **Acceptance (once, final action):**
   `grep -c "NERT" Readme.md && grep -q "specs/roadmap.md#nert-track" Readme.md && grep -q "## NERT Track" specs/roadmap.md && git diff --stat`
 - **Budget:** 15 turns. Tier: `haiku`.
+
+### Packet P3f — RF-DETR and RF-DETR-Seg end to end
+
+The operator tiers are in, but RF-DETR's load stops on attribute and dtype
+policies the op survey could not see (first: ConstantOfShape with a FLOAT
+`value`). This packet is goal-scoped: both exports load and match
+`ONNX_RUNTIME`.
+
+- **Writable:** `engine/src/**`, `engine/include/engine/**`,
+  `engine/test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp` (append or
+  adjust tests for what changes). Nothing else.
+- **Required final state:**
+  1. `rfdetr` (1x3x560x560) and `rfdetr_seg` (1x3x432x432), the opset-18
+     conversions in `~/.cache/neuriplo-op-inventory/op18/`, load on NERT and
+     match ONNX_RUNTIME on the model-zoo parity test with `atol 1e-3`
+     (scaled per element).
+  2. Each gap closed generally, at opset-18 semantics, not for the one
+     node: for example ConstantOfShape takes a float32, int64 or bool
+     `value`. A gap that would need a design change (a new dtype, dynamic
+     shapes, a graph rewrite) is not worked around: stop and report it.
+  3. Each change has a hand-computed unit test; no existing test is weakened.
+  4. clang-format 18.1.3 (`cf18-shim`) only on files under
+     `engine/src/kernels/` that change; other files edited by hand.
+- **Acceptance (once, final action):** build `build-nert` with
+  `-DDEFAULT_BACKEND=NERT -DNEURIPLO_BACKENDS=ONNX_RUNTIME`, `ctest -R
+  "^engine_|NertInferTest"`, then the model-zoo parity test on
+  `~/.cache/neuriplo-op-inventory/tier3_parity.manifest` (rfdetr and
+  rfdetr_seg, `parity`, seeded input), then the 18.1.3 format check.
+- **Budget:** 80 turns. Tier: `opus` (judgement: deciding which gaps are
+  general and which need design).
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
@@ -424,3 +455,4 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 10 | P3d | worker (`sonnet`) | aborted: session usage limit hit before any edit (worktree clean) | — | Re-dispatch after the limit resets, after R2 |
 | 11 | R2 | worker (`sonnet`, worktree `wip/native-r2`) | fail: environment, planner-owned (after the develop merge `versions.env` pins ONNX Runtime 1.28.0, not installed; planner installed it with `scripts/setup_onnx_runtime.sh`) | planner re-score pass: 13/13, docs, format (18.1.3), no leftover names; integration gate on ORT 1.28.0 pass with ResNet-18 2.24e-05 and YOLO26 IoU 0.999999; `act --dryrun` of job `nert` green | Library target `neuriplo_engine` and the C API's `neuriplo_engine_*` symbols untouched, as required. Deviation: worker edited with `sed -i` |
 | 12 | D1 | worker (`haiku`, worktree `wip/native-d1`) | pass | pass: links resolve (`engine/README.md`, `#nert-track`) | Accepted deviation: the status note names YOLO11 segmentation and pose only, matching the evidence (no YOLO11 detection row), instead of the packet's broader wording |
+| 13 | P3d | worker (`sonnet`, worktree `wip/native-p3d`) | pass | pass: engine 12/12 + NertInferTest, both parities, format (18.1.3). RF-DETR and RF-DETR-Seg load probe then fails on ConstantOfShape with a FLOAT value (not an operator gap: an attribute-policy gap) | Review checked GridSample's unnormalization, reflection bounds and half-to-even rounding. Next: P3f |

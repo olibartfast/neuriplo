@@ -61,6 +61,8 @@ KernelFn FindCpuKernel(const std::string& op_type) {
         {"Clip", &Clip},
         {"Tile", &Tile},
         {"AveragePool", &AveragePool},
+        {"GridSample", &GridSample},
+        {"Einsum", &Einsum},
         {"ConvTranspose", &ConvTranspose},
         {"Erf", &Erf},
         {"Sqrt", &Sqrt},

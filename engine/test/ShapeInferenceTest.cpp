@@ -2453,3 +2453,84 @@ TEST_F(EngineShapesNegative, RangeFloatLimitNotConstantNamesNode)
     EXPECT_FALSE(message.empty()) << "unresolved limit did not throw";
     EXPECT_NE(message.find("range_bad"), std::string::npos) << message;
 }
+
+// GridSample output is [N,C,Ho,Wo] from X and the grid.
+TEST_F(EngineShapes, GridSampleOutputShape)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3, 8, 8}}});
+    graph.inputs.push_back(
+        {"g", engine::TensorInfo{engine::DataType::Float32, {2, 5, 7, 2}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.nodes.push_back(make_graph_node("gs", "GridSample", {"x", "g"}, {"y"}));
+    graph.nodes.back().attributes.emplace_back("mode", std::string("bilinear"));
+
+    const engine::InferredShapes shapes = engine::InferShapes(
+        graph, {{"x", {2, 3, 8, 8}}, {"g", {2, 5, 7, 2}}});
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 3, 5, 7}));
+}
+
+// Einsum "bchw,bnc->bnhw" derives its dims from the label sizes.
+TEST_F(EngineShapes, EinsumOutputShape)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"a", engine::TensorInfo{engine::DataType::Float32, {2, 3, 4, 5}}});
+    graph.inputs.push_back(
+        {"b", engine::TensorInfo{engine::DataType::Float32, {2, 6, 3}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.nodes.push_back(make_graph_node("es", "Einsum", {"a", "b"}, {"y"}));
+    graph.nodes.back().attributes.emplace_back(
+        "equation", std::string("bchw,bnc->bnhw"));
+
+    const engine::InferredShapes shapes = engine::InferShapes(
+        graph, {{"a", {2, 3, 4, 5}}, {"b", {2, 6, 3}}});
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 6, 4, 5}));
+}
+
+// An Einsum label bound to two different sizes fails, naming the node.
+TEST_F(EngineShapesNegative, EinsumLabelSizeMismatchNamesNode)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"a", engine::TensorInfo{engine::DataType::Float32, {2, 3}}});
+    graph.inputs.push_back(
+        {"b", engine::TensorInfo{engine::DataType::Float32, {4, 5}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.nodes.push_back(make_graph_node("es_bad", "Einsum", {"a", "b"}, {"y"}));
+    graph.nodes.back().attributes.emplace_back("equation", std::string("ij,jk->ik"));
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"a", {2, 3}}, {"b", {4, 5}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "label mismatch did not throw";
+    EXPECT_NE(message.find("es_bad"), std::string::npos) << message;
+    EXPECT_NE(message.find("Einsum"), std::string::npos) << message;
+}
+
+// GridSample mode "bicubic" fails shape inference, naming the node and op.
+TEST_F(EngineShapesNegative, GridSampleBicubicNamesNode)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 1, 4, 4}}});
+    graph.inputs.push_back(
+        {"g", engine::TensorInfo{engine::DataType::Float32, {1, 2, 2, 2}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.nodes.push_back(make_graph_node("gs_bad", "GridSample", {"x", "g"}, {"y"}));
+    graph.nodes.back().attributes.emplace_back("mode", std::string("bicubic"));
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 1, 4, 4}}, {"g", {1, 2, 2, 2}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "bicubic did not throw";
+    EXPECT_NE(message.find("gs_bad"), std::string::npos) << message;
+    EXPECT_NE(message.find("GridSample"), std::string::npos) << message;
+}

@@ -2089,6 +2089,130 @@ std::vector<TensorInfo> layernorm_shapes(const Node& node,
     return out;
 }
 
+TensorInfo gridsample_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || inputs[1] == nullptr) {
+        fail(node, "GridSample requires X and grid inputs");
+    }
+    const std::string mode = attr_str(node, "mode", "bilinear");
+    if (mode != "bilinear" && mode != "nearest") {
+        fail(node, "GridSample mode must be 'bilinear' or 'nearest'");
+    }
+    const std::string padding = attr_str(node, "padding_mode", "zeros");
+    if (padding != "zeros" && padding != "border" && padding != "reflection") {
+        fail(node, "GridSample padding_mode must be 'zeros', 'border' or "
+            "'reflection'");
+    }
+    const int64_t corners = attr_int(node, "align_corners", 0);
+    if (corners != 0 && corners != 1) {
+        fail(node, "GridSample align_corners must be 0 or 1");
+    }
+    const TensorInfo& x = *inputs[0];
+    const TensorInfo& grid = *inputs[1];
+    if (x.dtype != DataType::Float32 || grid.dtype != DataType::Float32) {
+        fail(node, "GridSample inputs must be Float32");
+    }
+    if (x.dims.size() != 4) {
+        fail(node, "GridSample X must be rank 4 (NCHW)");
+    }
+    if (grid.dims.size() != 4 || grid.dims[3] != 2) {
+        fail(node, "GridSample grid must have shape [N,Ho,Wo,2]");
+    }
+    if (grid.dims[0] != x.dims[0]) {
+        fail(node, "GridSample X and grid batch sizes differ");
+    }
+    return TensorInfo{DataType::Float32,
+        {x.dims[0], x.dims[1], grid.dims[1], grid.dims[2]}};
+}
+
+// Einsum: output dims from the label sizes bound by the operands.
+TensorInfo einsum_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    const std::string raw = attr_str(node, "equation", "");
+    std::string text;
+    for (const char c : raw) {
+        if (c != ' ') {
+            text.push_back(c);
+        }
+    }
+    if (text.empty()) {
+        fail(node, "Einsum requires an 'equation' attribute");
+    }
+    if (text.find('.') != std::string::npos) {
+        fail(node, "Einsum equation must not use an ellipsis");
+    }
+    const size_t arrow = text.find("->");
+    const bool has_output = arrow != std::string::npos;
+    const std::string lhs = has_output ? text.substr(0, arrow) : text;
+    std::vector<std::string> subs;
+    size_t start = 0;
+    while (true) {
+        const size_t comma = lhs.find(',', start);
+        subs.push_back(lhs.substr(start,
+            comma == std::string::npos ? std::string::npos : comma - start));
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    if (subs.size() > 2) {
+        fail(node, "Einsum supports at most two operands");
+    }
+    if (subs.size() != inputs.size()) {
+        fail(node, "Einsum operand count does not match the equation");
+    }
+    std::map<char, int64_t> sizes;
+    std::map<char, int> counts;
+    for (size_t i = 0; i < subs.size(); ++i) {
+        if (inputs[i] == nullptr) {
+            fail(node, "missing required input");
+        }
+        if (inputs[i]->dtype != DataType::Float32) {
+            fail(node, "Einsum inputs must be Float32");
+        }
+        if (inputs[i]->dims.size() != subs[i].size()) {
+            fail(node, "Einsum operand rank does not match its subscript");
+        }
+        for (size_t j = 0; j < subs[i].size(); ++j) {
+            const char c = subs[i][j];
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+                fail(node, "Einsum equation has an invalid character");
+            }
+            ++counts[c];
+            const auto inserted = sizes.emplace(c, inputs[i]->dims[j]);
+            if (!inserted.second && inserted.first->second != inputs[i]->dims[j]) {
+                fail(node, std::string("Einsum label '") + c +
+                    "' is bound to two different sizes");
+            }
+        }
+    }
+    std::string out_labels;
+    if (has_output) {
+        out_labels = text.substr(arrow + 2);
+        for (size_t i = 0; i < out_labels.size(); ++i) {
+            if (sizes.find(out_labels[i]) == sizes.end()) {
+                fail(node, "Einsum output label does not appear in the inputs");
+            }
+            if (out_labels.find(out_labels[i]) != i) {
+                fail(node, "Einsum output label is repeated");
+            }
+        }
+    } else {
+        for (const auto& entry : counts) {
+            if (entry.second == 1) {
+                out_labels.push_back(entry.first);
+            }
+        }
+    }
+    std::vector<int64_t> out;
+    for (const char c : out_labels) {
+        out.push_back(sizes.at(c));
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
 std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& node,
     const std::vector<const TensorInfo*>& inputs)
 {
@@ -2260,6 +2384,12 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
     }
     if (op == "LayerNormalization") {
         return layernorm_shapes(node, inputs);
+    }
+    if (op == "GridSample") {
+        return {gridsample_shape(node, inputs)};
+    }
+    if (op == "Einsum") {
+        return {einsum_shape(node, inputs)};
     }
     fail(node, "unsupported op_type");
 }

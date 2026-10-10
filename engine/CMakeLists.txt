@@ -90,6 +90,8 @@ add_library(neuriplo_engine STATIC
     src/kernels/Pow.cpp
     src/kernels/Tile.cpp
     src/kernels/AveragePool.cpp
+    src/kernels/GridSample.cpp
+    src/kernels/Einsum.cpp
     src/kernels/ConvTranspose.cpp
     src/kernels/Erf.cpp
     src/kernels/Sqrt.cpp
