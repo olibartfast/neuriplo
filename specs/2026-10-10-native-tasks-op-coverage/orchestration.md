@@ -61,7 +61,8 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3c — ReduceSum, Range, Pad (with load-time evaluation)
 - P3d — GridSample, Einsum
 - P3e — int64 and bool graph I/O ([D-14]); written at dispatch
-- R1 — rename the backend `NERT` → `NERT` (maintainer, 2026-10-10)
+- R1 — rename the backend `NATIVE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
+- R2 — rename the backend `NEURIPLO_ENGINE` → `NERT`, Neuriplo Engine Runtime (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -144,6 +145,56 @@ the adapter's marshalling contract.
   passes; the diff is whitespace-only.
 - **Acceptance:** `PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check && git diff --stat`.
 - **Budget:** 10 turns.
+
+### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
+
+Maintainer decision 2026-10-10: `NERT`, Neuriplo Engine Runtime (`NRT` was
+the alternative; rejected because it is AWS Neuron's runtime, `libnrt`). New
+identity: ID `NERT`, display name "NERT (Neuriplo Engine Runtime)",
+directory `backends/nert/`, adapter `NertInfer`. The engine library keeps
+its names: directory `engine/`, CMake target `neuriplo_engine`, namespace
+`engine`. Spec files are planner-owned and already renamed.
+
+- **Writable:** everything under `backends/neuriplo-engine/` (moved with
+  `git mv` to `backends/nert/`), `backends/src/BackendRuntimeRegistry.cpp`,
+  `cmake/NeuriploEngine.cmake` (moved to `cmake/Nert.cmake`),
+  `cmake/BackendRegistry.cmake`, `cmake/LinkBackend.cmake`,
+  `cmake/versions.cmake` (comment), `docs/backends.yaml`,
+  `docs/DEPENDENCY_MANAGEMENT.md` (regenerated only), `engine/README.md`,
+  `engine/test/*.cpp` and `engine/test/CMakeLists.txt` (fixture variable
+  only), `.github/workflows/ci.yml` (the `neuriplo-engine` job only),
+  `CHANGELOG.md` (`[Unreleased]` only). Nothing else.
+- **Mapping (exact):** `NEURIPLO_ENGINE` → `NERT` (backend ID,
+  `USE_NEURIPLO_ENGINE` → `USE_NERT`, `NEURIPLO_BACKEND_NEURIPLO_ENGINE_*` →
+  `NEURIPLO_BACKEND_NERT_*`, module `NeuriploEngine` → `Nert`); display name
+  "Neuriplo Engine" → "NERT (Neuriplo Engine Runtime)";
+  `NeuriploEngineInfer` → `NertInfer`; `NeuriploEngineRuntimeFactory` →
+  `NertRuntimeFactory`; `NeuriploEngineInferTest` → `NertInferTest`; gtest
+  names `NeuriploEngineAndOnnxRuntime*` → `NertAndOnnxRuntime*`;
+  `neuriplo_engine_parity*`, `neuriplo_engine_yolo_parity*`,
+  `neuriplo_engine_model_zoo_parity*` → `nert_parity*`, `nert_yolo_parity*`,
+  `nert_model_zoo_parity*`; `NEURIPLO_ENGINE_FIXTURE` → `NERT_FIXTURE`; CI job
+  `neuriplo-engine` → `nert`, `build-neuriplo-engine` → `build-nert`,
+  `/tmp/neuriplo-engine-fixture` → `/tmp/nert-fixture`, cache scope
+  `docker-NEURIPLO_ENGINE` → `docker-NERT`; prose naming this backend →
+  "NERT".
+- **Must not change:** the CMake library target `neuriplo_engine` (every
+  `target_link_libraries(... neuriplo_engine)` and
+  `set_target_properties(neuriplo_engine ...)` stays), `engine/`, namespace
+  `engine`, `specs/**`, released CHANGELOG sections, and ordinary uses of
+  "native".
+- **Acceptance (once, final action):**
+  ```bash
+  cmake -S . -B build-nert -DDEFAULT_BACKEND=NERT -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
+    && nice -n 10 cmake --build build-nert --parallel 2 \
+    && NERT_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
+       ctest --test-dir build-nert -R "^engine_|NertInferTest" --output-on-failure \
+    && python3 scripts/gen_backend_docs.py --check \
+    && PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check \
+    && ! git grep -nIE "NEURIPLO_ENGINE|NeuriploEngine|neuriplo-engine|neuriplo_engine_(parity|yolo|model_zoo)" -- ':!specs' ':!CHANGELOG.md' \
+    && git status --short
+  ```
+- **Budget:** 60 turns.
 
 ### Packet R1 — rename `NATIVE` to `NEURIPLO_ENGINE`
 
@@ -340,3 +391,4 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 7 | P3c | worker (`sonnet`, worktree `wip/native-p3c`) | pass | pass: engine 12/12 + NeuriploEngineInferTest, both parities; P3c files clean under clang-format 18.1.3 | Review checked the evaluator float lane and Cast branch. Known limit: an empty Range infers dim 0, which planning will reject later |
 | 8 | (CI) | — | — | CI Format Check failed on `YoloParityTest.cpp:228-229` (from R1, attempt 4-5) | Scoreboard defect: local clang-format 21 vs CI 18.1.3. Scoreboard corrected; repair is F1 |
 | 9 | F1 | worker (`haiku`, worktree `wip/native-f1`) | pass | pass: format clean under clang-format 18.1.3 and 21 | Whitespace-only diff in `YoloParityTest.cpp` |
+| 10 | P3d | worker (`sonnet`) | aborted: session usage limit hit before any edit (worktree clean) | — | Re-dispatch after the limit resets, after R2 |
