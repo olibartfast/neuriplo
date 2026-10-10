@@ -235,11 +235,19 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 ### Phase N0 - CPU Reference Spine
 
-- Status: Implemented, hold-lift proposed 2026-10-10 (YOLO26-nano runs on
-  `NATIVE`: 6 confident rows, min IoU 0.999999 vs `ONNX_RUNTIME`; spec
+- Status: Implemented, merge on hold (YOLO26-nano runs on `NATIVE`: 6
+  confident rows, min IoU 0.999999 vs `ONNX_RUNTIME`; spec
   `specs/2026-10-01-yolo26-native/`, branch `feature/native-engine-cpu-spine`
   in review into `develop`). Vision-op coverage was pulled forward onto
   the branch per the 2026-10-01 maintainer gate.
+- Merge gate (maintainer, 2026-10-10): the branch merges into `develop` only
+  once `NATIVE` implements every operator needed by these neuriplo-tasks
+  families: YOLO detection (all supported versions, including SiLU,
+  HardSwish, LeakyRelu, Clip and pooling variants); ViT classification;
+  RT-DETR, D-FINE, DEIM and RF-DETR; ViTPose; Depth Anything V2; VideoMAE,
+  ViViT and TimeSformer; segmentation and pose heads; RAFT; OWLv2 and
+  Grounding DINO. Gaussian splatting and VLM (llama.cpp) are outside the
+  gate. This supersedes the 2026-10-10 hold-lift proposal.
 - Outcome: one classification model runs end to end through `NATIVE` on CPU,
   with outputs matching `ONNX_RUNTIME` on the same file within a recorded
   tolerance.
