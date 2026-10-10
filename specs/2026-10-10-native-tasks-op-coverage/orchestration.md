@@ -63,6 +63,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3e — int64 and bool graph I/O ([D-14]); written at dispatch
 - R1 — rename the backend `NATIVE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
 - R2 — rename the backend `NEURIPLO_ENGINE` → `NERT`, Neuriplo Engine Runtime (maintainer, 2026-10-10)
+- D1 — main README: NERT row and status (maintainer, 2026-10-10); after R2
 
 ### Packet P3a — elementwise math
 
@@ -145,6 +146,35 @@ the adapter's marshalling contract.
   passes; the diff is whitespace-only.
 - **Acceptance:** `PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check && git diff --stat`.
 - **Budget:** 10 turns.
+
+### Packet D1 — main README
+
+Maintainer request 2026-10-10 ("update also the main readme"). Runs after
+R2 integrates, against the README that PR #45 introduced.
+
+- **Writable:** `Readme.md` only.
+- **Read-only:** `engine/README.md`, `specs/roadmap.md`,
+  `specs/2026-10-10-native-tasks-op-coverage/validation.md` (the evidence the
+  status note summarizes), `docs/backends.yaml`.
+- **Required final state:**
+  1. The intro says, in one sentence, that Neuriplo also ships its own
+     runtime, NERT (Neuriplo Engine Runtime), with no vendor SDK underneath.
+  2. "Choosing a Backend" table: a `NERT` row (runtime "NERT (Neuriplo
+     Engine Runtime, first-party)", model format "`.onnx` (opset 18)", best
+     for "Self-contained CPU inference with no vendor SDK; in development").
+  3. Directly under the table, a short NERT status note (at most 6 lines):
+     CPU only; opset-18 models (others convert with `onnx.version_converter`);
+     validated against `ONNX_RUNTIME` on the YOLO families (v5-v12, YOLO11,
+     YOLO26 detection/segmentation/pose) and ViT, ViTPose, Depth Anything V2,
+     VideoMAE, ViViT, TimeSformer; DETR-family, RAFT and open-vocabulary
+     coverage in progress; links to `engine/README.md` and the roadmap's
+     `#nert-track` heading.
+  4. Documentation table: an `engine/README.md` row ("NERT engine: layout,
+     build and parity tests").
+  5. Nothing else in the README changes; the rf-detr layout and tone stay.
+- **Acceptance (once, final action):**
+  `grep -c "NERT" Readme.md && grep -q "specs/roadmap.md#nert-track" Readme.md && grep -q "## NERT Track" specs/roadmap.md && git diff --stat`
+- **Budget:** 15 turns. Tier: `haiku`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
