@@ -2274,3 +2274,182 @@ TEST_F(EngineShapes, GreaterWhereFeedsReshape)
     EXPECT_EQ(shapes.tensors.at("target").dtype, engine::DataType::Int64);
     EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{8, 6, 1}));
 }
+
+namespace {
+
+engine::Node make_graph_node(std::string name, std::string op,
+    std::vector<std::string> in, std::vector<std::string> out)
+{
+    engine::Node n;
+    n.name = std::move(name);
+    n.op_type = std::move(op);
+    n.inputs = std::move(in);
+    n.outputs = std::move(out);
+    return n;
+}
+
+engine::Initializer make_int64_init(
+    std::vector<int64_t> dims, std::vector<int64_t> values)
+{
+    engine::Initializer init;
+    init.dtype = engine::DataType::Int64;
+    init.dims = std::move(dims);
+    init.values = std::move(values);
+    return init;
+}
+
+engine::Initializer make_float_init(
+    std::vector<int64_t> dims, std::vector<float> values)
+{
+    engine::Initializer init;
+    init.dtype = engine::DataType::Float32;
+    init.dims = std::move(dims);
+    init.values = std::move(values);
+    return init;
+}
+
+// Graph with a Range whose limit is Cast(FLOAT)(Cast(INT64)(Gather(Shape(x), 2) / 16)).
+engine::Graph make_float_range_graph(float start, float delta)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 3, 64, 64}}});
+    graph.outputs.push_back({"r", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["two"] = make_int64_init({}, {2});
+    graph.initializers["sixteen"] = make_int64_init({}, {16});
+    graph.initializers["start"] = make_float_init({}, {start});
+    graph.initializers["delta"] = make_float_init({}, {delta});
+    graph.nodes.push_back(make_graph_node("shape", "Shape", {"x"}, {"s"}));
+    graph.nodes.push_back(make_graph_node("gather", "Gather", {"s", "two"}, {"h"}));
+    graph.nodes.push_back(make_graph_node("div", "Div", {"h", "sixteen"}, {"q"}));
+    graph.nodes.push_back(make_graph_node("to_i", "Cast", {"q"}, {"qi"}));
+    graph.nodes.back().attributes.emplace_back("to", int64_t{7});
+    graph.nodes.push_back(make_graph_node("to_f", "Cast", {"qi"}, {"limit"}));
+    graph.nodes.back().attributes.emplace_back("to", int64_t{1});
+    graph.nodes.push_back(
+        make_graph_node("range", "Range", {"start", "limit", "delta"}, {"r"}));
+    return graph;
+}
+
+} // namespace
+
+// The float Range chain of the DETR exporters resolves at load: 64 / 16 = 4.
+TEST_F(EngineShapes, FloatRangeChainFromShapeResolves)
+{
+    const engine::Graph graph = make_float_range_graph(0.0f, 1.0f);
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 64, 64}}});
+    EXPECT_EQ(shapes.tensors.at("r").dtype, engine::DataType::Float32);
+    EXPECT_EQ(shapes.tensors.at("r").dims, (std::vector<int64_t>{4}));
+}
+
+// A Range with start above limit is empty: the rule reports length 0.
+TEST_F(EngineShapes, RangeStartAboveLimitIsEmpty)
+{
+    const engine::Graph graph = make_float_range_graph(9.0f, 1.0f);
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 64, 64}}});
+    EXPECT_EQ(shapes.tensors.at("r").dims, (std::vector<int64_t>{0}));
+}
+
+// Pads assembled from a Shape-derived int64 chain resolve statically.
+TEST_F(EngineShapes, PadWithShapeDerivedPads)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 3, 8}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["zeros"] = make_int64_init({2}, {0, 0});
+    graph.initializers["one"] = make_int64_init({1}, {1});
+    graph.initializers["idx"] = make_int64_init({1}, {1});
+    graph.nodes.push_back(make_graph_node("shape", "Shape", {"x"}, {"s"}));
+    graph.nodes.push_back(make_graph_node("gather", "Gather", {"s", "idx"}, {"g"}));
+    graph.nodes.push_back(make_graph_node("concat", "Concat",
+        {"zeros", "one", "zeros", "g"}, {"pads"}));
+    graph.nodes.back().attributes.emplace_back("axis", int64_t{0});
+    graph.nodes.push_back(make_graph_node("pad", "Pad", {"x", "pads", ""}, {"y"}));
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 3, 8}}});
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 3, 12}));
+}
+
+// An int64 ReduceSum over a Shape vector is evaluated statically and feeds Reshape.
+TEST_F(EngineShapes, Int64ReduceSumFeedsReshape)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3, 4}}});
+    graph.inputs.push_back(
+        {"z", engine::TensorInfo{engine::DataType::Float32, {3, 3}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["axes0"] = make_int64_init({1}, {0});
+    graph.nodes.push_back(make_graph_node("shape", "Shape", {"x"}, {"s"}));
+    graph.nodes.push_back(make_graph_node("sum", "ReduceSum", {"s", "axes0"}, {"total"}));
+    graph.nodes.push_back(make_graph_node("reshape", "Reshape", {"z", "total"}, {"y"}));
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}, {"z", {3, 3}}});
+    EXPECT_EQ(shapes.tensors.at("total").dtype, engine::DataType::Int64);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{9}));
+}
+
+// ReduceSum on float data with keepdims 0 drops the reduced axis.
+TEST_F(EngineShapes, ReduceSumFloatKeepdimsOff)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2, 3, 4}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["axes"] = make_int64_init({1}, {-1});
+    graph.nodes.push_back(make_graph_node("sum", "ReduceSum", {"x", "axes"}, {"y"}));
+    graph.nodes.back().attributes.emplace_back("keepdims", int64_t{0});
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4}}});
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 3}));
+}
+
+// Pad mode "wrap" is rejected, naming the node and the op.
+TEST_F(EngineShapesNegative, PadWrapModeNamesNode)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 4}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["pads"] = make_int64_init({4}, {0, 1, 0, 1});
+    graph.nodes.push_back(make_graph_node("pad_wrap", "Pad", {"x", "pads"}, {"y"}));
+    graph.nodes.back().attributes.emplace_back("mode", std::string("wrap"));
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {1, 4}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "wrap mode did not throw";
+    EXPECT_NE(message.find("pad_wrap"), std::string::npos) << message;
+    EXPECT_NE(message.find("Pad"), std::string::npos) << message;
+}
+
+// A Range with an unresolvable (graph-input-derived) float limit fails at load.
+TEST_F(EngineShapesNegative, RangeFloatLimitNotConstantNamesNode)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.outputs.push_back({"r", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["start"] = make_float_init({}, {0.0f});
+    graph.initializers["delta"] = make_float_init({}, {1.0f});
+    graph.nodes.push_back(
+        make_graph_node("range_bad", "Range", {"start", "x", "delta"}, {"r"}));
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "unresolved limit did not throw";
+    EXPECT_NE(message.find("range_bad"), std::string::npos) << message;
+}

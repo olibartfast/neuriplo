@@ -358,14 +358,16 @@ struct StaticContext {
     size_t current = 0;
 };
 
-// A statically evaluated tensor: int64 shape data or a boolean mask. Float
-// values are never tracked — the supported shape expressions are int64
-// throughout, and anything else fails back to the caller's rejection.
+// A statically evaluated tensor: int64 shape data, a boolean mask, or a
+// float32 scalar/vector (the f64 lane, holding float32-representable values)
+// that only Range operands and the Cast round trip use. Anything else fails
+// back to the caller's rejection.
 struct EvalTensor {
     DataType dtype = DataType::Unknown;
     std::vector<int64_t> dims;
     std::vector<int64_t> i64;
     std::vector<char> boolean;
+    std::vector<double> f64;
 };
 
 int64_t eval_element_count(const std::vector<int64_t>& dims)
@@ -458,6 +460,21 @@ std::optional<EvalTensor> eval_tensor(
         tensor.dtype = DataType::Bool;
         tensor.dims = init_it->second.dims;
         tensor.boolean.assign(values->begin(), values->end());
+        return tensor;
+    }
+    if (init_it != ctx.graph.initializers.end() &&
+        init_it->second.dtype == DataType::Float32) {
+        const auto* values =
+            std::get_if<std::vector<float>>(&init_it->second.values);
+        if (values == nullptr ||
+            eval_element_count(init_it->second.dims) !=
+                static_cast<int64_t>(values->size())) {
+            return std::nullopt;
+        }
+        EvalTensor tensor;
+        tensor.dtype = DataType::Float32;
+        tensor.dims = init_it->second.dims;
+        tensor.f64.assign(values->begin(), values->end());
         return tensor;
     }
     if (init_it != ctx.graph.initializers.end()) {
@@ -588,15 +605,39 @@ std::optional<EvalTensor> eval_node(
         const auto value = node.inputs.size() == 1
             ? eval_tensor(ctx, node.inputs[0], depth)
             : std::nullopt;
-        if (!value.has_value() || attr_int(node, "to", 0) != 7 /*INT64*/) {
+        const int64_t to = attr_int(node, "to", 0);
+        if (!value.has_value() || (to != 7 /*INT64*/ && to != 1 /*FLOAT*/)) {
             return std::nullopt;
+        }
+        EvalTensor out;
+        out.dims = value->dims;
+        if (to == 1) {
+            // Only int64 (or float) sources reach the float lane.
+            if (value->dtype == DataType::Float32) {
+                return value;
+            }
+            if (value->dtype != DataType::Int64) {
+                return std::nullopt;
+            }
+            out.dtype = DataType::Float32;
+            for (const int64_t v : value->i64) {
+                out.f64.push_back(static_cast<double>(static_cast<float>(v)));
+            }
+            return out;
         }
         if (value->dtype == DataType::Int64) {
             return value;
         }
-        EvalTensor out;
         out.dtype = DataType::Int64;
-        out.dims = value->dims;
+        if (value->dtype == DataType::Float32) {
+            for (const double v : value->f64) {
+                if (!std::isfinite(v) || std::fabs(v) >= 9.0e18) {
+                    return std::nullopt;
+                }
+                out.i64.push_back(static_cast<int64_t>(v)); // toward zero
+            }
+            return out;
+        }
         out.i64.assign(value->boolean.begin(), value->boolean.end());
         return out;
     }
@@ -861,6 +902,138 @@ std::optional<EvalTensor> eval_node(
         }
         return out;
     }
+    if (op == "Range") {
+        if (node.inputs.size() != 3) {
+            return std::nullopt;
+        }
+        const auto start = eval_tensor(ctx, node.inputs[0], depth);
+        const auto limit = eval_tensor(ctx, node.inputs[1], depth);
+        const auto delta = eval_tensor(ctx, node.inputs[2], depth);
+        if (!start.has_value() || !limit.has_value() || !delta.has_value() ||
+            start->dtype != limit->dtype || start->dtype != delta->dtype ||
+            eval_element_count(start->dims) != 1 ||
+            eval_element_count(limit->dims) != 1 ||
+            eval_element_count(delta->dims) != 1) {
+            return std::nullopt;
+        }
+        constexpr int64_t kMaxEvalRange = int64_t{1} << 24;
+        EvalTensor out;
+        out.dtype = start->dtype;
+        if (start->dtype == DataType::Int64) {
+            const int64_t a = start->i64[0];
+            const int64_t b = limit->i64[0];
+            const int64_t d = delta->i64[0];
+            if (d == 0) {
+                return std::nullopt;
+            }
+            int64_t count = 0;
+            if (d > 0 && b > a) {
+                count = (b - a + d - 1) / d;
+            } else if (d < 0 && b < a) {
+                count = (a - b + (-d) - 1) / (-d);
+            }
+            if (count > kMaxEvalRange) {
+                return std::nullopt;
+            }
+            for (int64_t i = 0; i < count; ++i) {
+                out.i64.push_back(a + i * d);
+            }
+            out.dims = {count};
+            return out;
+        }
+        if (start->dtype != DataType::Float32) {
+            return std::nullopt;
+        }
+        const double a = start->f64[0];
+        const double b = limit->f64[0];
+        const double d = delta->f64[0];
+        if (d == 0.0 || !std::isfinite(a) || !std::isfinite(b) ||
+            !std::isfinite(d)) {
+            return std::nullopt;
+        }
+        const double span = std::ceil((b - a) / d);
+        if (span > static_cast<double>(kMaxEvalRange)) {
+            return std::nullopt;
+        }
+        const int64_t count = span > 0.0 ? static_cast<int64_t>(span) : 0;
+        for (int64_t i = 0; i < count; ++i) {
+            out.f64.push_back(static_cast<double>(
+                static_cast<float>(a) +
+                static_cast<float>(i) * static_cast<float>(d)));
+        }
+        out.dims = {count};
+        return out;
+    }
+    if (op == "ReduceSum") {
+        if (node.inputs.empty() || node.inputs.size() > 2 ||
+            node.outputs.size() != 1) {
+            return std::nullopt;
+        }
+        const auto data = eval_tensor(ctx, node.inputs[0], depth);
+        const auto out_it = ctx.inferred.find(node.outputs[0]);
+        if (!data.has_value() || data->dtype != DataType::Int64 ||
+            out_it == ctx.inferred.end()) {
+            return std::nullopt;
+        }
+        const int64_t rank = static_cast<int64_t>(data->dims.size());
+        std::vector<int64_t> axes;
+        if (node.inputs.size() == 2 && !node.inputs[1].empty()) {
+            const auto axes_value = eval_tensor(ctx, node.inputs[1], depth);
+            if (!axes_value.has_value() ||
+                axes_value->dtype != DataType::Int64) {
+                return std::nullopt;
+            }
+            axes = axes_value->i64;
+        }
+        std::vector<char> reduced(static_cast<size_t>(rank), 0);
+        if (axes.empty()) {
+            if (attr_int(node, "noop_with_empty_axes", 0) != 0) {
+                EvalTensor same = *data;
+                same.dims = out_it->second.dims;
+                return same;
+            }
+            reduced.assign(static_cast<size_t>(rank), 1);
+        }
+        for (int64_t axis : axes) {
+            if (axis < 0) {
+                axis += rank;
+            }
+            if (axis < 0 || axis >= rank) {
+                return std::nullopt;
+            }
+            reduced[static_cast<size_t>(axis)] = 1;
+        }
+        const std::vector<int64_t> in_strides = eval_strides(data->dims);
+        // Output strides over the kept axes only, in input-axis order.
+        std::vector<int64_t> kept_dims;
+        for (int64_t j = 0; j < rank; ++j) {
+            if (reduced[static_cast<size_t>(j)] == 0) {
+                kept_dims.push_back(data->dims[static_cast<size_t>(j)]);
+            }
+        }
+        const std::vector<int64_t> kept_strides = eval_strides(kept_dims);
+        EvalTensor out;
+        out.dtype = DataType::Int64;
+        out.dims = out_it->second.dims;
+        out.i64.assign(static_cast<size_t>(eval_element_count(kept_dims)), 0);
+        for (int64_t i = 0; i < eval_element_count(data->dims); ++i) {
+            int64_t remaining = i;
+            int64_t offset = 0;
+            size_t kept = 0;
+            for (int64_t j = 0; j < rank; ++j) {
+                const size_t uj = static_cast<size_t>(j);
+                const int64_t coord = remaining / in_strides[uj];
+                remaining %= in_strides[uj];
+                if (reduced[uj] == 0) {
+                    offset += coord * kept_strides[kept];
+                    ++kept;
+                }
+            }
+            out.i64[static_cast<size_t>(offset)] +=
+                data->i64[static_cast<size_t>(i)];
+        }
+        return out;
+    }
     if (op == "ConstantOfShape") {
         if (node.inputs.size() != 1) {
             return std::nullopt;
@@ -997,6 +1170,185 @@ TensorInfo reducemean_shape(const StaticContext& ctx, const Node& node,
         }
     }
     return TensorInfo{DataType::Float32, out};
+}
+
+TensorInfo reducesum_shape(const StaticContext& ctx, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "ReduceSum requires an input");
+    }
+    if (inputs[0]->dtype != DataType::Float32 &&
+        inputs[0]->dtype != DataType::Int64) {
+        fail(node, "ReduceSum data must be Float32 or Int64");
+    }
+    const DataType dtype = inputs[0]->dtype;
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    const bool keepdims = attr_int(node, "keepdims", 1) != 0;
+    const bool noop_empty = attr_int(node, "noop_with_empty_axes", 0) != 0;
+
+    std::vector<int64_t> axes;
+    if (node.inputs.size() > 1 && !node.inputs[1].empty()) {
+        axes = int64_constant(ctx, node, node.inputs[1]);
+    }
+    std::set<int64_t> seen;
+    for (int64_t& axis : axes) {
+        if (axis < 0) {
+            axis += rank;
+        }
+        if (axis < 0 || axis >= rank) {
+            fail(node, "ReduceSum axis is out of range");
+        }
+        if (!seen.insert(axis).second) {
+            fail(node, "ReduceSum axes must be unique");
+        }
+    }
+
+    std::vector<int64_t> out = in;
+    if (axes.empty()) {
+        if (noop_empty) {
+            return TensorInfo{dtype, out};
+        }
+        for (int64_t i = 0; i < rank; ++i) {
+            axes.push_back(i);
+        }
+    }
+    std::sort(axes.begin(), axes.end());
+    if (keepdims) {
+        for (const int64_t axis : axes) {
+            out[static_cast<size_t>(axis)] = 1;
+        }
+    } else {
+        for (auto it = axes.rbegin(); it != axes.rend(); ++it) {
+            out.erase(out.begin() + *it);
+        }
+    }
+    return TensorInfo{dtype, out};
+}
+
+// Read a scalar Float32 Range operand from an initializer or the evaluator's
+// float lane.
+double range_float_scalar(const StaticContext& ctx, const Node& node,
+    const std::string& name)
+{
+    const auto value = eval_tensor(ctx, name, 0);
+    if (!value.has_value() || value->dtype != DataType::Float32 ||
+        value->f64.size() != 1) {
+        fail(node, "input " + quote(name) + " must be a Float32 constant");
+    }
+    return value->f64[0];
+}
+
+TensorInfo range_shape(const StaticContext& ctx, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (node.inputs.size() != 3 || inputs.size() != 3 ||
+        inputs[0] == nullptr || inputs[1] == nullptr || inputs[2] == nullptr) {
+        fail(node, "Range requires start, limit and delta");
+    }
+    const DataType dtype = inputs[0]->dtype;
+    if (inputs[1]->dtype != dtype || inputs[2]->dtype != dtype ||
+        (dtype != DataType::Float32 && dtype != DataType::Int64)) {
+        fail(node, "Range operands must share dtype Float32 or Int64");
+    }
+    for (const TensorInfo* info : inputs) {
+        if (element_count(info->dims) != 1) {
+            fail(node, "Range operands must be scalars");
+        }
+    }
+    int64_t count = 0;
+    if (dtype == DataType::Int64) {
+        const std::vector<int64_t> start =
+            int64_constant(ctx, node, node.inputs[0]);
+        const std::vector<int64_t> limit =
+            int64_constant(ctx, node, node.inputs[1]);
+        const std::vector<int64_t> delta =
+            int64_constant(ctx, node, node.inputs[2]);
+        if (start.size() != 1 || limit.size() != 1 || delta.size() != 1) {
+            fail(node, "Range operands must be scalars");
+        }
+        const int64_t d = delta[0];
+        if (d == 0) {
+            fail(node, "Range delta must be non-zero");
+        }
+        if (d > 0 && limit[0] > start[0]) {
+            count = (limit[0] - start[0] + d - 1) / d;
+        } else if (d < 0 && limit[0] < start[0]) {
+            count = (start[0] - limit[0] + (-d) - 1) / (-d);
+        }
+    } else {
+        const double start = range_float_scalar(ctx, node, node.inputs[0]);
+        const double limit = range_float_scalar(ctx, node, node.inputs[1]);
+        const double delta = range_float_scalar(ctx, node, node.inputs[2]);
+        if (delta == 0.0) {
+            fail(node, "Range delta must be non-zero");
+        }
+        if (!std::isfinite(start) || !std::isfinite(limit) ||
+            !std::isfinite(delta)) {
+            fail(node, "Range operands must be finite");
+        }
+        const double span = std::ceil((limit - start) / delta);
+        if (span > 1.0e12) {
+            fail(node, "Range is too long");
+        }
+        count = span > 0.0 ? static_cast<int64_t>(span) : 0;
+    }
+    return TensorInfo{dtype, {count}};
+}
+
+TensorInfo pad_shape(const StaticContext& ctx, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || node.inputs.size() < 2 ||
+        node.inputs[1].empty()) {
+        fail(node, "Pad requires data and pads");
+    }
+    if (inputs[0]->dtype != DataType::Float32 &&
+        inputs[0]->dtype != DataType::Int64) {
+        fail(node, "Pad data must be Float32 or Int64");
+    }
+    const std::string mode = attr_str(node, "mode", "constant");
+    if (mode != "constant" && mode != "reflect" && mode != "edge") {
+        fail(node, "Pad mode " + quote(mode) + " is not supported");
+    }
+    if (node.inputs.size() > 2 && !node.inputs[2].empty() &&
+        inputs.size() > 2 && inputs[2] != nullptr &&
+        (inputs[2]->dtype != inputs[0]->dtype ||
+            element_count(inputs[2]->dims) != 1)) {
+        fail(node, "Pad constant_value must be a scalar of the data dtype");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const int64_t rank = static_cast<int64_t>(in.size());
+    const std::vector<int64_t> pads =
+        int64_constant(ctx, node, node.inputs[1]);
+
+    std::vector<int64_t> axes;
+    if (node.inputs.size() > 3 && !node.inputs[3].empty()) {
+        axes = int64_constant(ctx, node, node.inputs[3]);
+    } else {
+        for (int64_t i = 0; i < rank; ++i) {
+            axes.push_back(i);
+        }
+    }
+    if (pads.size() != axes.size() * 2) {
+        fail(node, "Pad pads must hold two entries per padded axis");
+    }
+    std::vector<int64_t> out = in;
+    std::set<int64_t> seen;
+    for (size_t k = 0; k < axes.size(); ++k) {
+        const int64_t axis = normalize_axis(node, axes[k], rank, "Pad");
+        if (!seen.insert(axis).second) {
+            fail(node, "Pad axes must be unique");
+        }
+        out[static_cast<size_t>(axis)] += pads[k] + pads[axes.size() + k];
+    }
+    for (const int64_t dim : out) {
+        if (dim <= 0) {
+            fail(node, "Pad produces a non-positive output dim");
+        }
+    }
+    return TensorInfo{inputs[0]->dtype, out};
 }
 
 TensorInfo reshape_shape(const StaticContext& ctx, const Node& node,
@@ -1789,6 +2141,15 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
     }
     if (op == "ReduceMean") {
         return {reducemean_shape(ctx, node, inputs)};
+    }
+    if (op == "ReduceSum") {
+        return {reducesum_shape(ctx, node, inputs)};
+    }
+    if (op == "Range") {
+        return {range_shape(ctx, node, inputs)};
+    }
+    if (op == "Pad") {
+        return {pad_shape(ctx, node, inputs)};
     }
     if (op == "Reshape") {
         return {reshape_shape(ctx, node, inputs)};

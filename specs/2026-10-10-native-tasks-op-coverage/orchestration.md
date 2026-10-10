@@ -39,8 +39,13 @@ cmake -S . -B build-ne -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DBUILD_INFERENCE_ENGIN
   && nice -n 10 cmake --build build-ne --parallel 2 \
   && NEURIPLO_ENGINE_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
      ctest --test-dir build-ne -R "engine_" --output-on-failure \
-  && ./scripts/quality/format.sh --check && git status --short
+  && PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check \
+  && git status --short
 ```
+
+The format check runs clang-format 18.1.3, CI's exact version (`cf18-shim`
+wraps the `clang-format==18.1.3` wheel); the machine's clang-format 21, and
+even 18.1.8, accept lines CI rejects. Corrected after attempt 7.
 
 Integration gate (planner, after merging a packet): the same build in
 `build-parity` (NEURIPLO_ENGINE + ONNX_RUNTIME), `NeuriploEngineInferTest`, ResNet-18 and
@@ -131,6 +136,14 @@ the adapter's marshalling contract.
 - **Acceptance:** the R1 scoreboard (NEURIPLO_ENGINE + ONNX_RUNTIME build,
   `ctest -R "^engine_|NeuriploEngineInferTest"`, docs and format checks).
 - **Budget:** 60 turns.
+
+### Packet F1 — formatting under CI's clang-format
+
+- **Writable:** `backends/neuriplo-engine/test/YoloParityTest.cpp` only.
+- **Required final state:** the format check above (clang-format 18.1.3)
+  passes; the diff is whitespace-only.
+- **Acceptance:** `PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check && git diff --stat`.
+- **Budget:** 10 turns.
 
 ### Packet R1 — rename `NATIVE` to `NEURIPLO_ENGINE`
 
@@ -324,3 +337,5 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 4 | R1 | worker (`sonnet`, worktree `wip/native-r1`) | fail: scoreboard defect (planner-owned filter matched fixture-dependent parity tests) | planner re-score with corrected scoreboard: tests 13/13, docs in sync, no leftover names; format check fails on two moved test files | Review also found: released 0.10.0 CHANGELOG entry renamed; README anchor and two gtest names left. Sent to R1-repair |
 | 5 | R1-repair | worker (`sonnet`, same worktree) | pass | pass: engine 12/12 + NeuriploEngineInferTest, ResNet-18 and YOLO26 parity, docs, format; `act --dryrun` of the renamed CI job green (full local act still blocked by the registry DNS fault noted in Y12; GitHub CI is the real run) | Clean scope; commit `8d6dece` |
 | 6 | P3b | worker (`sonnet`, worktree `wip/native-p3b`) | pass | pass: engine 12/12 + NeuriploEngineInferTest, ResNet-18 and YOLO26 parity, format | Clean scope; review checked the generated Greater/Less comparison lines and the evaluator branches. Deviation: the shape test also routes through And (extra coverage) |
+| 7 | P3c | worker (`sonnet`, worktree `wip/native-p3c`) | pass | pass: engine 12/12 + NeuriploEngineInferTest, both parities; P3c files clean under clang-format 18.1.3 | Review checked the evaluator float lane and Cast branch. Known limit: an empty Range infers dim 0, which planning will reject later |
+| 8 | (CI) | — | — | CI Format Check failed on `YoloParityTest.cpp:228-229` (from R1, attempt 4-5) | Scoreboard defect: local clang-format 21 vs CI 18.1.3. Scoreboard corrected; repair is F1 |
