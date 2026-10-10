@@ -282,6 +282,10 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 ### Phase N3 - Default Backend Migration
 
+- Branch default (maintainer, 2026-10-10): on `feature/nert`,
+  `DEFAULT_BACKEND` is `NERT` (packet D2). The default for `develop` and
+  releases is still this phase's decision.
+
 - Status: Blocked; needs the deprecation-window policy named in
   `specs/mission.md` open questions
 - Outcome: a decision, with migration notes, on whether `NERT` becomes
