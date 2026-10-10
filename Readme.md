@@ -37,36 +37,42 @@ behind the interface is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Quick Start
 
-Four steps on Ubuntu 24.04, using the OpenCV DNN backend (zero setup, CPU: no GPU,
-no CUDA, no extra SDK). NERT is the default backend, but its test suites need a
-provisioned ResNet-18 model (see [engine/README.md](engine/README.md)), so the quick
-start uses OpenCV DNN.
+Four steps on Ubuntu 24.04, using the default backend, NERT (CPU: no GPU, no CUDA,
+no vendor SDK).
 
 ### 1. Install the toolchain
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y cmake build-essential pkg-config \
-  libgoogle-glog-dev libgtest-dev libgmock-dev libopencv-dev
+  libgoogle-glog-dev libgtest-dev libgmock-dev
 ```
 
-OpenCV is needed only by the OpenCV DNN backend. Every other backend configures
-and builds without it.
+OpenCV is needed only by the OpenCV DNN backend.
 
 ### 2. Build
+
+NERT is the default backend, so no `-DDEFAULT_BACKEND` is needed:
 
 ```bash
 git clone https://github.com/olibartfast/neuriplo.git
 cd neuriplo
-cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN
+cmake -S . -B build
 cmake --build build --parallel
 ```
 
 ### 3. Test
 
+NERT's tests run a real ResNet-18 ONNX model, so provision it first. The script
+needs `torch` and `torchvision` installed (it pins torchvision 0.27.0; torch is
+not pinned):
+
 ```bash
-ctest --test-dir build --output-on-failure
+python3 backends/nert/test/provision_parity_fixture.py fixtures
+NERT_FIXTURE=fixtures/resnet18.onnx ctest --test-dir build --output-on-failure
 ```
+
+Without the model those tests fail on purpose rather than skip.
 
 ### 4. Switch backend
 
@@ -78,6 +84,8 @@ Every other backend has a setup script that installs the pinned dependency into
 cmake -S . -B build -DDEFAULT_BACKEND=ONNX_RUNTIME
 cmake --build build --parallel
 ```
+
+OpenCV DNN needs `libopencv-dev` and builds with `-DDEFAULT_BACKEND=OPENCV_DNN`.
 
 ---
 
