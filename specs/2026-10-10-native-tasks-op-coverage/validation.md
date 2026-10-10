@@ -1,26 +1,26 @@
-# Validation — neuriplo-tasks Operator Coverage on the Neuriplo Engine
+# Validation — neuriplo-tasks Operator Coverage on the NERT
 
 Written before each tier is implemented. Nothing is checked unless it ran.
 
 ```text
 # Engine and adapter tests
-cmake -S . -B build-parity -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+cmake -S . -B build-parity -DDEFAULT_BACKEND=NERT -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
   -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release
 cmake --build build-parity --parallel 2
-NEURIPLO_ENGINE_FIXTURE=<resnet18.onnx> ctest --test-dir build-parity -R "engine|NeuriploEngineInfer|parity"
+NERT_FIXTURE=<resnet18.onnx> ctest --test-dir build-parity -R "engine|NertInfer|parity"
 ```
 
 ```text
 # Model-zoo parity: one manifest row per export
 #   name  path  dims[;dims]  parity|e2e|load  atol  [input.bin]
 NEURIPLO_MODEL_ZOO_MANIFEST=<manifest> \
-  build-parity/backends/neuriplo-engine/test/neuriplo_engine_model_zoo_parity_test
+  build-parity/backends/nert/test/nert_model_zoo_parity_test
 ```
 
 - [ ] [V-1] → [R-1]: every tier operator has a hand-computed unit case in
   `engine/test/KernelsTest.cpp`, off-default attributes included, and a
   negative case for a rejected shape.
-- [ ] [V-2] → [R-2], [R-4]: every gated export loads on `NEURIPLO_ENGINE` (`load` rows).
+- [ ] [V-2] → [R-2], [R-4]: every gated export loads on `NERT` (`load` rows).
 - [ ] [V-3] → [R-3]: every gated export matches `ONNX_RUNTIME` (`parity` or
   `e2e` rows), max scaled difference recorded below.
 - [ ] [V-4] → [D-4]: constant folding folds constant-only chains, leaves
@@ -51,7 +51,7 @@ for `parity` rows, `bus.jpg` (640×640, /255) for YOLO rows marked *.
 | YOLO26n-pose | 17 (Ultralytics 8.4) | e2e*, 40 rows | 1.9e-04 |
 
 Every export above was converted to opset 18 ([D-2]) and also loads (`load`
-rows). Existing tests on the same tree: `engine_*` 12/12, `NeuriploEngineInferTest`
+rows). Existing tests on the same tree: `engine_*` 12/12, `NertInferTest`
 9/9, ResNet-18 parity max abs diff 2.2e-05, YOLO26 fixture parity (re-provisioned
 with the pinned script) 6 confident rows, min IoU 0.999999.
 
