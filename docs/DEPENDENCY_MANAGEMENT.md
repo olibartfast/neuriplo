@@ -10,11 +10,11 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | Backend ID | Name | Version | Arch | GPU |
 |---|---|---|---|---|
 | `OPENCV_DNN` | OpenCV DNN | `4.6.0` | x86_64, ARM64 | no |
-| `ONNX_RUNTIME` | ONNX Runtime | `1.19.2` | x86_64, ARM64 | no |
-| `LIBTORCH` | LibTorch | `2.3.0` | x86_64, ARM64 | no |
+| `ONNX_RUNTIME` | ONNX Runtime | `1.28.0` | x86_64, ARM64 | no |
+| `LIBTORCH` | LibTorch | `2.14.0` | x86_64, ARM64 | no |
 | `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
-| `TENSORRT` | TensorRT | `10.14.1.48` | x86_64 only | yes |
-| `OPENVINO` | OpenVINO | `2025.2.0` | x86_64, ARM64 | no |
+| `TENSORRT` | TensorRT | `11.2.1.2` | x86_64 only | yes |
+| `OPENVINO` | OpenVINO | `2026.3.0` | x86_64, ARM64 | no |
 | `GGML` | GGML | `v0.11.0` | x86_64, ARM64 | no |
 | `TVM` | Apache TVM | `0.22.0` | x86_64, ARM64 | no |
 | `MIGRAPHX` | MIGraphX | `2.12.0` | x86_64 only | yes |
@@ -22,7 +22,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `LLAMACPP` | llama.cpp | `b9085` | x86_64, ARM64 | no |
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
-| `DALI` | NVIDIA DALI | `1.50.0` | x86_64 only | yes |
+| `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -37,6 +37,21 @@ backend IDs and their CMake metadata:
 - `versions.env` — pinned dependency versions for all backends.
 - `cmake/versions.cmake` — reads `versions.env` and validates that every
   registered backend has a version entry.
+
+```text
+versions.env                pins one version per dependency
+      |
+      v
+cmake/versions.cmake        reads the pins, checks every registered backend has one
+      |
+      v
+scripts/*.sh                source versions.env, so setup and CMake never disagree
+```
+
+The check runs on every configure (`cmake -S . -B build`) and prints a
+`Backend-Version Validation FAILED` warning naming any registered backend that
+has no version entry. To add a backend, follow
+[Adding an Inference Backend](ADDING_BACKEND.md).
 
 ### Dependency Validation
 
@@ -203,11 +218,11 @@ Per-backend version overrides (default from `versions.env`):
 | Variable | Current value in `versions.env` |
 |---|---|
 | `OPENCV_VERSION` | `4.6.0` |
-| `ONNX_RUNTIME_VERSION` | `1.19.2` |
-| `PYTORCH_VERSION` | `2.3.0` |
+| `ONNX_RUNTIME_VERSION` | `1.28.0` |
+| `PYTORCH_VERSION` | `2.14.0` |
 | `TENSORFLOW_VERSION` | `2.19.0` |
-| `TENSORRT_VERSION` | `10.14.1.48` |
-| `OPENVINO_VERSION` | `2025.2.0` |
+| `TENSORRT_VERSION` | `11.2.1.2` |
+| `OPENVINO_VERSION` | `2026.3.0` |
 | `GGML_VERSION` | `v0.11.0` |
 | `TVM_VERSION` | `0.22.0` |
 | `MIGRAPHX_VERSION` | `2.12.0` |
@@ -215,7 +230,7 @@ Per-backend version overrides (default from `versions.env`):
 | `LLAMACPP_VERSION` | `b9085` |
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
-| `DALI_VERSION` | `1.50.0` |
+| `DALI_VERSION` | `2.2.0` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
@@ -226,11 +241,11 @@ to export:
 <!-- GEN:env-variables -->
 ```bash
 export DEPENDENCY_ROOT="$HOME/dependencies"
-export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.19.2"
+export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.28.0"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
-export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-10.14.1.48"
-export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2025.2.0"
+export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-11.2.1.2"
+export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2026.3.0"
 export GGML_DIR="$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="$DEPENDENCY_ROOT/tvm"
 export MIGRAPHX_ROOT="/opt/rocm"
@@ -317,14 +332,14 @@ this release that the local driver supports when CUDA is wanted. Without an
 existing variant, no driver capability reported by `nvidia-smi` means CPU is
 selected, even if `nvcc` is installed. An existing CUDA build with no detected
 driver instead requires an explicit variant decision; failed CUDA download
-probes do not silently switch to CPU. Which CUDA builds exist differs per release — 2.3.0 ships
-`cu118` and `cu121` but no `cu120` — so the choice is made against what the
+probes do not silently switch to CPU. Which CUDA builds exist differs per release — 2.14.0 ships
+`cu126`, `cu130` and `cu132` but no `cu128` or `cu131` — so the choice is made against what the
 server actually publishes rather than derived from the local CUDA version.
 
 Override it explicitly with `LIBTORCH_VARIANT`:
 
 ```bash
-LIBTORCH_VARIANT=cu121 ./scripts/setup_libtorch.sh   # a specific CUDA build
+LIBTORCH_VARIANT=cu130 ./scripts/setup_libtorch.sh   # a specific CUDA build
 LIBTORCH_VARIANT=cpu   ./scripts/setup_libtorch.sh   # deliberately CPU-only
 ```
 
@@ -476,7 +491,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 |---|---|---|
 | OpenCV DNN | ONNX, Darknet (OpenCV 4.x only) | `scripts/setup_test_models.sh` |
 | ONNX Runtime | ONNX | `scripts/model_downloader.py` |
-| LibTorch | TorchScript (.pt) | `backends/libtorch/test/generate_model.sh` |
+| LibTorch | TorchScript (.pt), AOTInductor (.pt2) | `backends/libtorch/test/generate_model.sh` |
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
 | TensorRT | TensorRT engine (.engine) | converted from ONNX at test time |
 | OpenVINO | IR (.xml / .bin) | `backends/openvino/test/generate_model.sh` |
@@ -539,8 +554,8 @@ GPU support, `/usr/src/googletest`, and glog/gflags development headers. It moun
 host sources and headers read-only, compiles the actual backend inside the image,
 and rejects skipped tests. Results default to `build-release-dali-container/`.
 `TRITON_IMAGE`, `DALI_TEST_OUTPUT_DIR`, `GTEST_SOURCE_DIR`, `GLOG_INCLUDE_DIR`,
-and `GFLAGS_INCLUDE_DIR` override those defaults. The default Triton 25.12 image
-contains DALI 1.51.2; this is separate from the 1.50.0 dependency pin. Do not mix
+and `GFLAGS_INCLUDE_DIR` override those defaults. The default Triton 26.08 image
+contains DALI 2.2.0, matching the dependency pin. Do not mix
 serialized artifacts, custom plugins, and C libraries from different versions.
 
 ## Contributing

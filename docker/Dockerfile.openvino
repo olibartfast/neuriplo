@@ -57,7 +57,8 @@ ENV PYTHONPATH=${OPENVINO_DIR}/python
 RUN echo "Setting up OpenVINO Python tools..." && \
     python3 -m venv "${OPENVINO_DIR}/python_env" && \
     . "${OPENVINO_DIR}/python_env/bin/activate" && \
-    pip install openvino-dev
+    . /tmp/versions.env && \
+    pip install "openvino==${OPENVINO_VERSION}"
 
 # Stage 3: Build application
 FROM openvino_install AS builder
