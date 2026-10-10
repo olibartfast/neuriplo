@@ -18,7 +18,7 @@ target_include_directories(NertInferTest PRIVATE
 
 target_link_libraries(NertInferTest PRIVATE
     neuriplo
-    neuriplo_engine
+    nert::nert
     GTest::gtest
     GTest::gtest_main
 )
@@ -102,7 +102,7 @@ if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
 
     target_link_libraries(nert_parity_test PRIVATE
         neuriplo
-        neuriplo_engine
+        nert::nert
         ${ONNX_RUNTIME_LIBRARY}
         GTest::gtest
         GTest::gtest_main
@@ -149,7 +149,7 @@ if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
 
     target_link_libraries(nert_yolo_parity_test PRIVATE
         neuriplo
-        neuriplo_engine
+        nert::nert
         ${ONNX_RUNTIME_LIBRARY}
         GTest::gtest
         GTest::gtest_main
@@ -187,7 +187,7 @@ if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
     )
     target_link_libraries(nert_model_zoo_parity_test PRIVATE
         neuriplo
-        neuriplo_engine
+        nert::nert
         ${ONNX_RUNTIME_LIBRARY}
         GTest::gtest
         GTest::gtest_main

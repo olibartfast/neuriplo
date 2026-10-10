@@ -16,6 +16,7 @@
 # model_source  How the test model is obtained (markdown, shown verbatim)
 # arch          Host architectures supported: x86_64, arm64, or both
 # gpu           true if a GPU is required at runtime
+# experimental  optional; true marks a backend that is not yet production-ready
 
 backends:
 
@@ -217,12 +218,17 @@ backends:
     arch: [x86_64]
     gpu: true
 
-  # NERT has no external SDK and no vendor Docker image, so it is intentionally absent from the CI per-backend Docker matrix; it is exercised via -DDEFAULT_BACKEND=NERT.
+  # NERT is a first-party experimental backend. Its engine is fetched from
+  # https://github.com/olibartfast/nert at the commit pinned by NERT_VERSION (CMake
+  # FetchContent), so there is no setup script and no vendor Docker image. It is
+  # intentionally absent from the CI per-backend Docker matrix; it is exercised
+  # via -DDEFAULT_BACKEND=NERT. Build against a local checkout with
+  # -DFETCHCONTENT_SOURCE_DIR_NERT=<path>.
   - id: NERT
-    name: NERT (Neuriplo Engine Runtime)
-    version_var: null
+    name: NERT (Neuriplo Engine Runtime, experimental)
+    version_var: NERT_VERSION
     setup_script: null
-    setup_note: "first-party engine — built with the project, no external SDK to install"
+    setup_note: "experimental first-party engine, fetched from olibartfast/nert by CMake at the pinned commit; no script needed"
     dir_var: null
     dir_default: null
     dockerfile: null
@@ -231,3 +237,4 @@ backends:
     model_source: "fixture exported by the ResNet-18 provisioning step (plan.md [T-27a])"
     arch: [x86_64, arm64]
     gpu: false
+    experimental: true
