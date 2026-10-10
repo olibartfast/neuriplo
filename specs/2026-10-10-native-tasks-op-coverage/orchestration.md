@@ -165,7 +165,35 @@ Fresh worker, same worktree, continuing from the R1 diff.
 
 ### Packet P3b — comparison and logic
 
-Written at dispatch (after P3a integrates), against the head it starts from.
+- **Starting revision:** `9da8ec5`.
+- **Writable:** new `engine/src/kernels/{Greater,Less,And,Not}.cpp`; modify
+  `engine/src/kernels/Kernels.hpp`, `engine/src/kernels/CpuKernels.cpp`,
+  `engine/CMakeLists.txt` (source list), `engine/src/ModelLoader.cpp`
+  (allowlist + accepted-ops message only), `engine/src/ShapeInference.cpp`
+  (`compute_outputs` cases and the static evaluator `eval_node` only),
+  `engine/test/KernelsTest.cpp` and `engine/test/ShapeInferenceTest.cpp`
+  (append tests only). Nothing else.
+- **Required final state:**
+  1. Greater and Less: two inputs sharing float32 or int64 dtype, NumPy
+     multidirectional broadcasting, bool output. And: two bool inputs,
+     broadcasting, bool output. Not: one bool input, bool output. House
+     style: `Equal.cpp`.
+  2. Loader admits all four with no attributes; shape rules give Bool with
+     the broadcast shape (Not: input dims).
+  3. The static evaluator (`eval_node`) resolves Greater/Less over int64
+     operands to a bool `EvalTensor`, and And/Not over bool operands, the
+     way it already handles Equal, so shape subgraphs that compare shape
+     values stay load-time constants.
+  4. Tests: a hand-computed broadcast case per op, an int64 case for Greater
+     and Less, a negative dtype case naming the op, and one
+     `TEST_F(EngineShapes, ...)` proving Greater over a Shape-derived int64
+     value resolves statically (feeding Where or a Cast to int64 that feeds
+     a Reshape).
+  5. clang-format only on new kernel files; existing files edited by hand.
+- **Acceptance:** the packet scoreboard at the top of this file, with
+  `-DDEFAULT_BACKEND=NEURIPLO_ENGINE`, build dir `build-ne`, and ctest filter
+  `^engine_`.
+- **Budget:** 40 turns.
 
 ### Packet P3c — ReduceSum, Range, Pad
 
