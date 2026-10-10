@@ -385,6 +385,52 @@ adapter (`backends/nert/`) and switches to the pinned dependency in R4.
   clang-format 18.1.3 check over the copied scope; `git status --short`.
 - **Budget:** 60 turns. Tier: `sonnet`.
 
+### Packet R4 — consume NERT as a pinned dependency; ready `feature/nert` to merge
+
+Maintainer decisions 2026-10-10: (1) consume NERT through CMake FetchContent
+pinned in `versions.env`; (2) the merge gate is lifted: `feature/nert`
+merges into `develop` after R4, and tiers 4-5 continue in `olibartfast/nert`;
+(3) `DEFAULT_BACKEND` stays `OPENCV_DNN` on `develop` (D2's default change is
+reverted); (4) NERT is labelled experimental.
+
+- **Writable:** `engine/**` (removed with `git rm -r`), `cmake/**`,
+  `CMakeLists.txt` (default backend only), `versions.env`, `docs/backends.yaml`,
+  `docs/DEPENDENCY_MANAGEMENT.md` (regenerated only), `docs/*.md` (references to
+  `engine/` and to NERT's status), `Readme.md`, `CHANGELOG.md` (`[Unreleased]`),
+  `.github/workflows/ci.yml` (job `nert` only), `backends/nert/test/CMakeLists.txt`.
+- **Required final state:**
+  1. `engine/` is gone from Neuriplo. `versions.env` pins `NERT_VERSION` to
+     `81b6b1f824655403742e727853afe05261dae5d0` (`olibartfast/nert` main);
+     `cmake/Nert.cmake` fetches `https://github.com/olibartfast/nert.git` at
+     that commit with `FetchContent` when NERT is enabled, links the adapter
+     against `nert::nert` (or the `neuriplo_engine` alias), keeps the
+     position-independent property, and leaves NERT's own tests off. The
+     standard `FETCHCONTENT_SOURCE_DIR_NERT=<path>` override (local `../nert`)
+     works and is documented. The backend registry and `docs/backends.yaml`
+     use `NERT_VERSION` as NERT's version variable; docs regenerated.
+  2. `DEFAULT_BACKEND` defaults to `OPENCV_DNN` again.
+  3. README: the quick start builds OpenCV DNN, the default, as it did before
+     D2/D3 (with `libopencv-dev` and a plain ctest); the backend table marks
+     `NERT` "Experimental: ..." like the GGML and TVM rows; the NERT status
+     note says experimental and points to `olibartfast/nert`; the
+     documentation table's `engine/README.md` row points to the NERT
+     repository instead. Other docs that mention `engine/` paths point to the
+     NERT repository.
+  4. CI job `nert`: the engine's own `engine_*` suites now run in NERT's CI,
+     so this job runs `NertInferTest` and the two parity tests; its fetch of
+     NERT goes through the pin.
+  5. CHANGELOG `[Unreleased]`: the NERT entries are introduced as an
+     experimental backend, consumed from `olibartfast/nert` at `NERT_VERSION`.
+- **Acceptance (once):** configure with
+  `-DFETCHCONTENT_SOURCE_DIR_NERT=/home/oli/repos/nert -DDEFAULT_BACKEND=NERT
+  -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON`, build,
+  `ctest -R NertInferTest` with `NERT_FIXTURE`, the parity binaries with their
+  fixtures, `gen_backend_docs.py --check`, the 18.1.3 format check, `test !
+  -e engine`, `grep -q 'set(DEFAULT_BACKEND "OPENCV_DNN"' CMakeLists.txt`.
+  The planner then configures without the override (network fetch at the
+  pin) and runs `act --dryrun` on job `nert`.
+- **Budget:** 60 turns. Tier: `sonnet`.
+
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
 Maintainer decision 2026-10-10: `NERT`, Neuriplo Engine Runtime (`NRT` was

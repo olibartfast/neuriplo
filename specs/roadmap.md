@@ -247,7 +247,12 @@ does not change how `OPENCV_DNN` is built or pinned.
   RT-DETR, D-FINE, DEIM and RF-DETR; ViTPose; Depth Anything V2; VideoMAE,
   ViViT and TimeSformer; segmentation and pose heads; RAFT; OWLv2 and
   Grounding DINO. Gaussian splatting and VLM (llama.cpp) are outside the
-  gate. This supersedes the 2026-10-10 hold-lift proposal. Backlog and
+  gate. This supersedes the 2026-10-10 hold-lift proposal.
+- Gate lifted (maintainer, 2026-10-10, later the same day): NERT moved to its
+  own repository, `olibartfast/nert`; `feature/nert` merges into `develop`
+  once Neuriplo consumes NERT as a pinned dependency (packet R4), with NERT
+  labelled experimental and `DEFAULT_BACKEND` left at `OPENCV_DNN`. RAFT,
+  OWLv2 and Grounding DINO coverage continues in the NERT repository. Backlog and
   evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tiers 1-2 of 5 done
   2026-10-10: YOLO families and transformer encoders).
 - Outcome: one classification model runs end to end through `NERT` on CPU,
