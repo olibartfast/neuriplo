@@ -1,6 +1,6 @@
-# Neuriplo Engine
+# NERT (Neuriplo Engine Runtime)
 
-The first-party ONNX inference engine, exposed as the `NEURIPLO_ENGINE` backend.
+The first-party ONNX inference engine, exposed as the `NERT` backend.
 
 It is an interpreter: each model load parses the ONNX graph, infers tensor
 shapes for the requested input, plans a single arena allocation, then executes
@@ -19,7 +19,7 @@ agreement rather than re-derive operator semantics.
 Nothing under `engine/` includes or links the backend abstraction
 (`include/neuriplo/`, `backends/src/`, `src/`). A build guard enforces this
 boundary; the adapter that exposes the engine through `InferenceInterface`
-lives in `backends/neuriplo-engine/` instead.
+lives in `backends/nert/` instead.
 
 ## Layout
 
@@ -34,12 +34,12 @@ lives in `backends/neuriplo-engine/` instead.
 
 ## Build and test
 
-Configure with the NEURIPLO_ENGINE backend selected and engine tests enabled:
+Configure with the NERT backend selected and engine tests enabled:
 
 ```bash
-cmake -S . -B build-neuriplo-engine -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DBUILD_INFERENCE_ENGINE_TESTS=ON \
-  && cmake --build build-neuriplo-engine \
-  && ctest --test-dir build-neuriplo-engine -R engine
+cmake -S . -B build-nert -DDEFAULT_BACKEND=NERT -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+  && cmake --build build-nert \
+  && ctest --test-dir build-nert -R engine
 ```
 
 Elementwise parity against ONNX Runtime uses a separate tree with both
@@ -47,7 +47,7 @@ backends enabled, which provisions a deterministic ResNet-18 fixture and
 compares the two outputs:
 
 ```bash
-cmake -S . -B build-parity -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+cmake -S . -B build-parity -DDEFAULT_BACKEND=NERT -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
   -DBUILD_INFERENCE_ENGINE_TESTS=ON \
   && cmake --build build-parity \
   && ctest --test-dir build-parity -R parity

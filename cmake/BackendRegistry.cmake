@@ -18,7 +18,7 @@ set(NEURIPLO_BACKEND_IDS
     EXECUTORCH
     LITERT
     DALI
-    NEURIPLO_ENGINE
+    NERT
 )
 
 set(NEURIPLO_BACKEND_OPENCV_DNN_MODULE OpenCVdnn)
@@ -200,6 +200,6 @@ set(NEURIPLO_BACKEND_DALI_VERSION_VAR DALI_VERSION)
 # First-party backend. MODULE and TEST_DIR follow the shared shape; VERSION_VAR
 # is the declared no-external-SDK token that validate_backend_versions()
 # understands, so no versions.env entry is needed.
-set(NEURIPLO_BACKEND_NEURIPLO_ENGINE_MODULE NeuriploEngine)
-set(NEURIPLO_BACKEND_NEURIPLO_ENGINE_TEST_DIR backends/neuriplo-engine/test)
-set(NEURIPLO_BACKEND_NEURIPLO_ENGINE_VERSION_VAR NEURIPLO_NO_EXTERNAL_SDK)
+set(NEURIPLO_BACKEND_NERT_MODULE Nert)
+set(NEURIPLO_BACKEND_NERT_TEST_DIR backends/nert/test)
+set(NEURIPLO_BACKEND_NERT_VERSION_VAR NEURIPLO_NO_EXTERNAL_SDK)

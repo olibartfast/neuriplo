@@ -15,10 +15,10 @@
 // InferenceInterface contract. Runs on the CPU reference spine only: the
 // device layer currently supplies just CpuDevice(), so a GPU request is
 // rejected rather than silently downgraded.
-class NeuriploEngineInfer : public InferenceInterface {
+class NertInfer : public InferenceInterface {
   public:
-    NeuriploEngineInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
-                        const std::vector<std::vector<int64_t>>& input_sizes = {});
+    NertInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
+              const std::vector<std::vector<int64_t>>& input_sizes = {});
 
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;

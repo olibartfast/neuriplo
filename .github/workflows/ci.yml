@@ -474,13 +474,13 @@ jobs:
             "
 
   # =============================================================
-  # NEURIPLO_ENGINE Backend (specs/2026-10-01-yolo26-native, Y12)
+  # NERT Backend (specs/2026-10-01-yolo26-native, Y12)
   # First-party engine: no vendor SDK of its own, so no Docker image.
   # Its parity harnesses need ONNX Runtime plus the pinned torch export
   # stack, hence this runs inside the onnx-runtime builder image.
   # =============================================================
-  neuriplo-engine:
-    name: "NEURIPLO_ENGINE"
+  nert:
+    name: "NERT"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -502,15 +502,15 @@ jobs:
             docker buildx build \
               --file docker/Dockerfile.onnx-runtime \
               --target builder \
-              --tag neuriplo-lint:NEURIPLO_ENGINE \
+              --tag neuriplo-lint:NERT \
               --load \
               --cache-from type=gha,scope=docker-ONNX_RUNTIME \
-              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-NEURIPLO_ENGINE' || '' }} \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-NERT' || '' }} \
               .
 
-      - name: Provision torch stack, build NEURIPLO_ENGINE, run engine + parity tests
+      - name: Provision torch stack, build NERT, run engine + parity tests
         run: |
-          docker run --rm neuriplo-lint:NEURIPLO_ENGINE bash -c '
+          docker run --rm neuriplo-lint:NERT bash -c '
             set -euo pipefail
             apt-get update >/dev/null && apt-get install -y python3 python3-pip libgl1 libglib2.0-0 >/dev/null
             python3 -m pip install --break-system-packages --quiet \
@@ -519,20 +519,20 @@ jobs:
             python3 -m pip install --break-system-packages --quiet \
               "onnx==1.22.0" "onnxscript==0.7.0" "ultralytics==8.4.113" pillow
             cd /app
-            rm -rf build-neuriplo-engine
+            rm -rf build-nert
             # The engine and adapter tests take the ResNet fixture via
-            # NEURIPLO_ENGINE_FIXTURE (fail, never skip); provision it once
+            # NERT_FIXTURE (fail, never skip); provision it once
             # up front so configure sees it. The parity targets re-provision
             # into the build tree themselves at build time.
-            python3 backends/neuriplo-engine/test/provision_parity_fixture.py /tmp/neuriplo-engine-fixture
-            cmake -S . -B build-neuriplo-engine \
-              -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+            python3 backends/nert/test/provision_parity_fixture.py /tmp/nert-fixture
+            cmake -S . -B build-nert \
+              -DDEFAULT_BACKEND=NERT -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
               -DBUILD_INFERENCE_ENGINE_TESTS=ON \
-              -DNEURIPLO_ENGINE_FIXTURE=/tmp/neuriplo-engine-fixture/resnet18.onnx \
+              -DNERT_FIXTURE=/tmp/nert-fixture/resnet18.onnx \
               -DONNX_RUNTIME_DIR=/opt/onnxruntime >/dev/null
-            cmake --build build-neuriplo-engine --target neuriplo_engine_parity_fixture neuriplo_engine_yolo_parity_fixture --parallel
-            cmake --build build-neuriplo-engine --parallel
-            ctest --test-dir build-neuriplo-engine -R "engine_|NeuriploEngineInferTest|neuriplo_engine_parity|neuriplo_engine_yolo_parity" --output-on-failure
+            cmake --build build-nert --target nert_parity_fixture nert_yolo_parity_fixture --parallel
+            cmake --build build-nert --parallel
+            ctest --test-dir build-nert -R "engine_|NertInferTest|nert_parity|nert_yolo_parity" --output-on-failure
           '
 
   # =============================================================

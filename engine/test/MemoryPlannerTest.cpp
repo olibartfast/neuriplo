@@ -9,7 +9,7 @@
 //
 // The per-shape seam ([V-13], plan half) is proven hermetically on a loaded
 // two-Conv graph planned at two spatial sizes; the fixture case plans the
-// opset-18 ResNet-18 export resolved via NEURIPLO_ENGINE_FIXTURE (env var or
+// opset-18 ResNet-18 export resolved via NERT_FIXTURE (env var or
 // CMake cache variable) and a missing fixture FAILS — never skipped or mocked.
 
 #include "engine/Graph.hpp"
@@ -189,7 +189,7 @@ bool ranges_overlap(const engine::BufferAssignment& a, const engine::BufferAssig
     return a.offset < b.offset + b.size && b.offset < a.offset + a.size;
 }
 
-const char* fixture_env_name() { return "NEURIPLO_ENGINE_FIXTURE"; }
+const char* fixture_env_name() { return "NERT_FIXTURE"; }
 
 } // namespace
 
