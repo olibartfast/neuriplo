@@ -37,8 +37,10 @@ behind the interface is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Quick Start
 
-Four steps on Ubuntu 24.04, using the default backend (OpenCV DNN, CPU: no GPU,
-no CUDA, no extra SDK).
+Four steps on Ubuntu 24.04, using the OpenCV DNN backend (zero setup, CPU: no GPU,
+no CUDA, no extra SDK). NERT is the default backend, but its test suites need a
+provisioned ResNet-18 model (see [engine/README.md](engine/README.md)), so the quick
+start uses OpenCV DNN.
 
 ### 1. Install the toolchain
 
@@ -123,8 +125,8 @@ and examples.
 
 | ID | Runtime | Model format | Best for |
 |----|---------|--------------|----------|
-| `OPENCV_DNN` (default) | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference |
-| `NERT` | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Self-contained CPU inference with no vendor SDK; in development |
+| `OPENCV_DNN` | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference |
+| `NERT` (default) | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Self-contained CPU inference with no vendor SDK; in development |
 | `ONNX_RUNTIME` | ONNX Runtime | `.onnx` | General CPU/GPU inference, many execution providers |
 | `TENSORRT` | TensorRT | `.engine` | Production on NVIDIA GPUs |
 | `OPENVINO` | OpenVINO | IR (`.xml` + `.bin`) | Intel CPUs and GPUs |
@@ -175,7 +177,7 @@ architecture and GPU support, and model sources are in
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `-DDEFAULT_BACKEND=<ID>` | `OPENCV_DNN` | Backend compiled in and used by `setup_inference_engine` |
+| `-DDEFAULT_BACKEND=<ID>` | `NERT` | Backend compiled in and used by `setup_inference_engine` |
 | `-DNEURIPLO_BACKENDS="A;B"` | `DEFAULT_BACKEND` | Compile several backends into one library |
 | `-DNEURIPLO_PLUGIN_BACKENDS="A;B"` | empty | Build backends as runtime-loaded plugins |
 | `-DBUILD_INFERENCE_ENGINE_TESTS=ON/OFF` | `ON` | Build the test suites |
