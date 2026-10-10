@@ -105,7 +105,10 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 Routed to the strongest worker tier (`opus`): it changes an engine API and
 the adapter's marshalling contract.
 
-- **Starting revision:** the branch head after P3d integrates.
+- **Starting revision:** `b88fbce` (after P3f/P3g).
+- **Survey facts:** RT-DETR v4, D-FINE/DEIM and DEIMv2 take `images` float32
+  `[N,3,640,640]` and `orig_target_sizes` int64 `[N,2]`, and return `labels`
+  int64 `[N,300]`, `boxes` float32 `[N,300,4]`, `scores` float32 `[N,300]`.
 - **Writable:** `engine/include/engine/Executor.hpp`, `engine/src/Executor.cpp`,
   `engine/src/ModelLoader.cpp` (graph input/output element types only),
   `engine/src/ShapeInference.cpp` (`InferShapes` input dtypes only),
@@ -130,9 +133,10 @@ the adapter's marshalling contract.
      returns int64 outputs as `int64_t` and bool outputs as `uint8_t`
      `TensorElement`s (raw path: `TensorDtype::INT64` / `UINT8`), matching
      `HostTensorConverter`'s convention.
-  5. `ModelZooParityTest` fills int64 inputs with a value per input given in
-     the manifest (new optional token `name=value` style, or a documented
-     default), and compares int64/bool outputs exactly.
+  5. `ModelZooParityTest` fills every int64 input with one value given by an
+     optional manifest token `int64=<v>` after the input file (default 1;
+     use `-` for "no input file"), and `parity` compares int64/bool outputs
+     exactly.
   6. Tests: loader positives for INT64/BOOL graph I/O replacing the three
      negative tests that asserted rejection (keep one rejection for an
      unsupported type such as INT32); an executor test running a graph with
