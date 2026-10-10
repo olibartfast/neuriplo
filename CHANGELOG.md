@@ -18,6 +18,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--path-file` names the pointer file it writes.
 
 ### Changed
+- TensorRT pinned to 11.2.1.2 (four-part NVIDIA version) with a new
+  `TENSORRT_CUDA_VERSION=13.3`: TensorRT 11.2.1.2 is published for CUDA 13.3
+  and 12.9 only, and runs on the 13.4 toolkit through minor-version
+  compatibility. `Dockerfile.tensorrt` now builds on
+  `nvcr.io/nvidia/tensorrt:26.08-py3` and links its system TensorRT into
+  `/opt/tensorrt`. `setup_tensorrt.sh` downloads TensorRT 11's renamed
+  `TensorRT-Enterprise-*.tar.zst` archive.
+- OpenVINO tooling uses the `openvino` wheel pinned to `OPENVINO_VERSION` and
+  its `ovc` converter. `openvino-dev` and `mo` ended at 2024.6 and crash
+  against the 2026.3 runtime.
+- ONNX Runtime 1.28 GPU archives are fetched under their new
+  `-gpu_cuda<major>-` names. They install to the unchanged
+  `onnxruntime-*-gpu-<ver>` path.
 - LibTorch pinned to 2.14.0 (was 2.3.0). Builds that enable LibTorch now
   compile as C++20, because LibTorch >= 2.10 headers require it. Builds
   without LibTorch stay C++17.

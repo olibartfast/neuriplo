@@ -13,7 +13,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `ONNX_RUNTIME` | ONNX Runtime | `1.28.0` | x86_64, ARM64 | no |
 | `LIBTORCH` | LibTorch | `2.14.0` | x86_64, ARM64 | no |
 | `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
-| `TENSORRT` | TensorRT | `11.2.1` | x86_64 only | yes |
+| `TENSORRT` | TensorRT | `11.2.1.2` | x86_64 only | yes |
 | `OPENVINO` | OpenVINO | `2026.3.0` | x86_64, ARM64 | no |
 | `GGML` | GGML | `v0.11.0` | x86_64, ARM64 | no |
 | `TVM` | Apache TVM | `0.22.0` | x86_64, ARM64 | no |
@@ -221,7 +221,7 @@ Per-backend version overrides (default from `versions.env`):
 | `ONNX_RUNTIME_VERSION` | `1.28.0` |
 | `PYTORCH_VERSION` | `2.14.0` |
 | `TENSORFLOW_VERSION` | `2.19.0` |
-| `TENSORRT_VERSION` | `11.2.1` |
+| `TENSORRT_VERSION` | `11.2.1.2` |
 | `OPENVINO_VERSION` | `2026.3.0` |
 | `GGML_VERSION` | `v0.11.0` |
 | `TVM_VERSION` | `0.22.0` |
@@ -244,7 +244,7 @@ export DEPENDENCY_ROOT="$HOME/dependencies"
 export ONNX_RUNTIME_DIR="$DEPENDENCY_ROOT/onnxruntime-linux-x64-gpu-1.28.0"
 export LIBTORCH_DIR="$DEPENDENCY_ROOT/libtorch"
 export TENSORFLOW_DIR="$DEPENDENCY_ROOT/tensorflow"
-export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-11.2.1"
+export TENSORRT_DIR="$DEPENDENCY_ROOT/TensorRT-11.2.1.2"
 export OPENVINO_DIR="$DEPENDENCY_ROOT/openvino_2026.3.0"
 export GGML_DIR="$DEPENDENCY_ROOT/ggml"
 export TVM_DIR="$DEPENDENCY_ROOT/tvm"
