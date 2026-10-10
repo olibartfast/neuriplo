@@ -9,7 +9,8 @@
 
 One C++ interface over many inference runtimes: ONNX Runtime, TensorRT,
 OpenVINO, LibTorch, ExecuTorch, LiteRT, llama.cpp and more, plus NVIDIA DALI for
-GPU preprocessing.
+GPU preprocessing. Neuriplo also ships its own runtime, NERT (Neuriplo Engine
+Runtime), with no vendor SDK underneath.
 
 Write your application once against `InferenceInterface`, then pick the runtime
 that fits your model and hardware at build time, without rewriting code around
@@ -123,6 +124,7 @@ and examples.
 | ID | Runtime | Model format | Best for |
 |----|---------|--------------|----------|
 | `OPENCV_DNN` (default) | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference |
+| `NERT` | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Self-contained CPU inference with no vendor SDK; in development |
 | `ONNX_RUNTIME` | ONNX Runtime | `.onnx` | General CPU/GPU inference, many execution providers |
 | `TENSORRT` | TensorRT | `.engine` | Production on NVIDIA GPUs |
 | `OPENVINO` | OpenVINO | IR (`.xml` + `.bin`) | Intel CPUs and GPUs |
@@ -136,6 +138,13 @@ and examples.
 | `DALI` | NVIDIA DALI | `.dali` pipeline | GPU preprocessing in front of a model backend |
 | `GGML` | GGML | GGML | Experimental: returns placeholder output |
 | `TVM` | Apache TVM | compiled module | Experimental: returns placeholder output |
+
+> **NERT status:** CPU only. Loads opset-18 ONNX models (convert others with
+> `onnx.version_converter`). Outputs match `ONNX_RUNTIME` on YOLO (v5–v10, v12
+> detection; YOLO11 segmentation and pose; YOLO26 detection, segmentation and
+> pose) and on ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and TimeSformer.
+> DETR-family, RAFT and open-vocabulary coverage in progress. See
+> [engine/README.md](engine/README.md) and [the roadmap](specs/roadmap.md#nert-track).
 
 Several backends can be compiled into one library (`-DNEURIPLO_BACKENDS`), or
 built as runtime-loaded plugins (`-DNEURIPLO_PLUGIN_BACKENDS`); see
@@ -183,6 +192,7 @@ architecture and GPU support, and model sources are in
 |----------|--------|
 | **[docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md)** | Per-backend setup, model formats, Docker workflows, version validation |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Adapter, Bridge, Abstract Factory, Decorator and State design of the backend layer |
+| **[engine/README.md](engine/README.md)** | NERT engine: layout, build and parity tests |
 | **[docs/C_API.md](docs/C_API.md)** | Stable C ABI and C++ wrapper for third-party applications |
 | **[docs/ADDING_BACKEND.md](docs/ADDING_BACKEND.md)** | Implementing and registering a new backend |
 | **[docs/PLUGIN_BACKENDS.md](docs/PLUGIN_BACKENDS.md)** | Multi-backend builds and the plugin ABI |
