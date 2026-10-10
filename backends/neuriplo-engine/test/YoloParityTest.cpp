@@ -225,8 +225,8 @@ TEST(YoloParityTest, NeuriploEngineAndOnnxRuntimeConfidentRowsAgree) {
     std::cout << "YOLO_PARITY_MAX_SCORE_DIFF=" << max_score_diff << std::endl;
 
     EXPECT_FALSE(native_rows.empty())
-        << "zero confident NEURIPLO_ENGINE rows: the image did not produce confident detections "
-        << "(score > " << kConfidenceThreshold << ")";
+        << "zero confident NEURIPLO_ENGINE rows: the image did not produce confident detections " << "(score > "
+        << kConfidenceThreshold << ")";
     EXPECT_FALSE(ort_rows.empty())
         << "zero confident ONNX_RUNTIME rows: the image did not produce confident detections " << "(score > "
         << kConfidenceThreshold << ")";
