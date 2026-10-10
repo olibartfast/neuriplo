@@ -217,16 +217,16 @@ backends:
     arch: [x86_64]
     gpu: true
 
-  # NEURIPLO_ENGINE has no external SDK and no vendor Docker image, so it is intentionally absent from the CI per-backend Docker matrix; it is exercised via -DDEFAULT_BACKEND=NEURIPLO_ENGINE.
-  - id: NEURIPLO_ENGINE
-    name: Neuriplo Engine
+  # NERT has no external SDK and no vendor Docker image, so it is intentionally absent from the CI per-backend Docker matrix; it is exercised via -DDEFAULT_BACKEND=NERT.
+  - id: NERT
+    name: NERT (Neuriplo Engine Runtime)
     version_var: null
     setup_script: null
     setup_note: "first-party engine — built with the project, no external SDK to install"
     dir_var: null
     dir_default: null
     dockerfile: null
-    test_exe: NeuriploEngineInferTest
+    test_exe: NertInferTest
     model_format: ONNX
     model_source: "fixture exported by the ResNet-18 provisioning step (plan.md [T-27a])"
     arch: [x86_64, arm64]

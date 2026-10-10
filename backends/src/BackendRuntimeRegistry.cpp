@@ -42,8 +42,8 @@
 #ifdef USE_DALI
 #include "DALIRuntimeFactory.hpp"
 #endif
-#ifdef USE_NEURIPLO_ENGINE
-#include "NeuriploEngineRuntimeFactory.hpp"
+#ifdef USE_NERT
+#include "NertRuntimeFactory.hpp"
 #endif
 
 #include <cstring>
@@ -105,8 +105,8 @@ std::vector<BackendRuntimeRegistration> build_registrations() {
     // pipeline can chain decode/resize/normalize ahead of a model. force_gpu.
     registrations.push_back({"DALI", "NVIDIA DALI", &make_factory<DALIRuntimeFactory>, true});
 #endif
-#ifdef USE_NEURIPLO_ENGINE
-    registrations.push_back({"NEURIPLO_ENGINE", "Neuriplo Engine", &make_factory<NeuriploEngineRuntimeFactory>, false});
+#ifdef USE_NERT
+    registrations.push_back({"NERT", "NERT (Neuriplo Engine Runtime)", &make_factory<NertRuntimeFactory>, false});
 #endif
     return registrations;
 }

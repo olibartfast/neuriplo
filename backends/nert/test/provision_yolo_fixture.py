@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Provision the YOLO NEURIPLO_ENGINE<->ONNX_RUNTIME parity fixture (packet Y4).
+"""Provision the YOLO NERT<->ONNX_RUNTIME parity fixture (packet Y4).
 
 Exports Ultralytics ``yolo26n`` with NMS embedded to
 ``<output_dir>/yolo26n.onnx`` (opset 18, ``imgsz=640``) and verifies the
-emitted graph against the operators the first-party neuriplo engine
+emitted graph against the operators the first-party NERT
 implements. This mirrors ``provision_parity_fixture.py`` (ResNet-18) but
 takes its output directory as an argument and never writes to the old
 hard-coded ``/workspace/`` path.
@@ -52,7 +52,7 @@ IMAGE_MODEL_NAME = "bus.jpg"
 INPUT_TENSOR_NAME = "yolo26n_input.bin"
 TENSOR_ELEMENTS = 1 * 3 * 640 * 640
 
-# Operators the neuriplo engine implements (the 31-op allowlist in
+# Operators the NERT implements (the 31-op allowlist in
 # engine/src/ModelLoader.cpp: allowed_attributes()). The fixture must use
 # only these so the same file runs through both backends.
 # Note: "Constant" is admitted here because the loader folds Constant nodes
@@ -242,7 +242,7 @@ def main():
 
     unsupported = sorted(op_set - SUPPORTED_OPS)
     if unsupported:
-        fail(f"graph contains op(s) the neuriplo engine does not implement: {unsupported}")
+        fail(f"graph contains op(s) the NERT does not implement: {unsupported}")
 
     # Packet Y11: real photo + deterministic tensor, both into the build tree.
     if os.path.exists(image_path):
