@@ -2,7 +2,7 @@
 
 One tier per phase; each ends with its families loading and matching
 `ONNX_RUNTIME` through the model-zoo parity test ([V-3]). Branch:
-`feature/native-engine-cpu-spine`.
+`feature/nert`.
 
 ## Tier 1 — YOLO completion
 

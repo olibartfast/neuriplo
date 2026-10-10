@@ -1,6 +1,6 @@
 # Requirements — neuriplo-tasks Operator Coverage on the NERT
 
-Maintainer decision (2026-10-10): `feature/native-engine-cpu-spine` merges into
+Maintainer decision (2026-10-10): `feature/nert` merges into
 `develop` only once `NERT` implements every operator needed by these
 neuriplo-tasks families (recorded as the merge gate in `specs/roadmap.md`,
 Phase N0):

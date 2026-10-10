@@ -237,8 +237,8 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 - Status: Implemented, merge on hold (YOLO26-nano runs on `NERT`: 6
   confident rows, min IoU 0.999999 vs `ONNX_RUNTIME`; spec
-  `specs/2026-10-01-yolo26-native/`, branch `feature/native-engine-cpu-spine`
-  in review into `develop`). Vision-op coverage was pulled forward onto
+  `specs/2026-10-01-yolo26-native/`, branch `feature/nert`
+  draft PR #46 into `develop`; was #39 on `feature/native-engine-cpu-spine`). Vision-op coverage was pulled forward onto
   the branch per the 2026-10-01 maintainer gate.
 - Merge gate (maintainer, 2026-10-10): the branch merges into `develop` only
   once `NERT` implements every operator needed by these neuriplo-tasks
@@ -258,7 +258,7 @@ does not change how `OPENCV_DNN` is built or pinned.
   accelerated kernel exists, and produces the reference kernels those kernels
   will be validated against.
 - Spec: `specs/2026-09-17-native-engine-cpu-spine/`
-  Branch: `feature/native-engine-cpu-spine`
+  Branch: `feature/nert`
 
 ### Phase N1 - CUDA Device Layer
 
