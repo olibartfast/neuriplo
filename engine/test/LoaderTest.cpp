@@ -7,7 +7,7 @@
 //
 // Positives run on real fixture bytes (the reference ResNet-18 export, with
 // external weight data) when the fixture is resolvable via the
-// NEURIPLO_NATIVE_FIXTURE environment variable or CMake cache variable. A
+// NEURIPLO_ENGINE_FIXTURE environment variable or CMake cache variable. A
 // missing fixture FAILS the test — never skipped or mocked — so acceptance
 // cannot silently pass without the real bytes. The hermetic cases are
 // hand-encoded model bytes and keep CI green without torch or ONNX. The field
@@ -321,7 +321,7 @@ std::string load_error_message(const std::string& bytes,
     return "<no ModelLoadException thrown>";
 }
 
-const char* fixture_env_name() { return "NEURIPLO_NATIVE_FIXTURE"; }
+const char* fixture_env_name() { return "NEURIPLO_ENGINE_FIXTURE"; }
 
 } // namespace
 

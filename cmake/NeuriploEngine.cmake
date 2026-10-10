@@ -1,24 +1,24 @@
-# NATIVE backend module — the first-party engine, no external SDK.
+# NEURIPLO_ENGINE backend module — the first-party engine, no external SDK.
 #
 # The engine is built as a standalone static library (neuriplo_engine) so it
 # stays decoupled from the backend abstraction layer; the adapter in
-# backends/native/src is the only place the two meet and is compiled into the
+# backends/neuriplo-engine/src is the only place the two meet and is compiled into the
 # neuriplo target alongside the other backend sources.
 #
 # The adapter's link against neuriplo_engine is attached in
-# cmake/LinkBackend.cmake's NATIVE branch: the neuriplo target is created after
+# cmake/LinkBackend.cmake's NEURIPLO_ENGINE branch: the neuriplo target is created after
 # this module is included, so target_link_libraries() cannot run here.
 
-set(NATIVE_SOURCES
-    ${INFER_ROOT}/native/src/NativeInfer.cpp
+set(NEURIPLO_ENGINE_SOURCES
+    ${INFER_ROOT}/neuriplo-engine/src/NeuriploEngineInfer.cpp
 )
 
-# Append NATIVE sources to the main sources
-list(APPEND SOURCES ${NATIVE_SOURCES})
+# Append NEURIPLO_ENGINE sources to the main sources
+list(APPEND SOURCES ${NEURIPLO_ENGINE_SOURCES})
 
-# Add compile definition to indicate NATIVE backend usage. BackendRuntimeRegistry
-# uses this to include and register NativeRuntimeFactory.
-add_compile_definitions(USE_NATIVE)
+# Add compile definition to indicate NEURIPLO_ENGINE backend usage. BackendRuntimeRegistry
+# uses this to include and register NeuriploEngineRuntimeFactory.
+add_compile_definitions(USE_NEURIPLO_ENGINE)
 
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../engine" engine)
 

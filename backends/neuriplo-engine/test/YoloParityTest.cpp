@@ -1,4 +1,4 @@
-#include "NativeInfer.hpp"
+#include "NeuriploEngineInfer.hpp"
 #include "ORTInfer.hpp"
 
 #include <algorithm>
@@ -120,12 +120,12 @@ std::vector<float> flatten_floats(const std::vector<std::vector<TensorElement>>&
 
 } // namespace
 
-// Packet Y11: the identical real-image tensor through NATIVE and
+// Packet Y11: the identical real-image tensor through NEURIPLO_ENGINE and
 // ONNX_RUNTIME. Confidence-gated comparison: confident rows only (score >
 // 0.25), matched one-to-one by class and IoU. Replaces the Y9 noise-input
 // elementwise gates: background TopK tie selection is backend-noise-dependent
 // and is explicitly out of scope.
-TEST(YoloParityTest, NativeAndOnnxRuntimeConfidentRowsAgree) {
+TEST(YoloParityTest, NeuriploEngineAndOnnxRuntimeConfidentRowsAgree) {
     const std::string fixture = resolve_env(kFixtureEnv);
     ASSERT_FALSE(fixture.empty()) << kFixtureEnv
                                   << " is not set; the YOLO parity fixture must be provisioned before this test runs";
@@ -143,15 +143,15 @@ TEST(YoloParityTest, NativeAndOnnxRuntimeConfidentRowsAgree) {
 
     std::vector<float> native_output;
     try {
-        NativeInfer native(fixture, /*use_gpu=*/false);
+        NeuriploEngineInfer native(fixture, /*use_gpu=*/false);
         auto [outputs, shapes] = native.get_infer_results(input);
-        ASSERT_EQ(outputs.size(), 1u) << "NATIVE returned " << outputs.size() << " outputs, expected 1";
-        ASSERT_EQ(shapes.size(), 1u) << "NATIVE returned " << shapes.size() << " shapes, expected 1";
+        ASSERT_EQ(outputs.size(), 1u) << "NEURIPLO_ENGINE returned " << outputs.size() << " outputs, expected 1";
+        ASSERT_EQ(shapes.size(), 1u) << "NEURIPLO_ENGINE returned " << shapes.size() << " shapes, expected 1";
         ASSERT_EQ(outputs[0].size(), kOutputElements)
-            << "NATIVE returned " << outputs[0].size() << " elements, expected " << kOutputElements;
+            << "NEURIPLO_ENGINE returned " << outputs[0].size() << " elements, expected " << kOutputElements;
         native_output = flatten_floats(outputs);
     } catch (const std::exception& ex) {
-        FAIL() << "NATIVE inference failed: " << ex.what();
+        FAIL() << "NEURIPLO_ENGINE inference failed: " << ex.what();
     }
 
     std::vector<float> ort_output;
@@ -174,7 +174,7 @@ TEST(YoloParityTest, NativeAndOnnxRuntimeConfidentRowsAgree) {
     std::cout << "YOLO_PARITY_CONFIDENT_ROWS=" << confident_rows_count << std::endl;
 
     // Greedy one-to-one matching: each ORT confident row is matched to the
-    // best-IoU still-unmatched NATIVE confident row of the same class.
+    // best-IoU still-unmatched NEURIPLO_ENGINE confident row of the same class.
     std::vector<bool> native_matched(native_rows.size(), false);
     double min_iou = 0.0;
     double max_score_diff = 0.0;
@@ -196,7 +196,7 @@ TEST(YoloParityTest, NativeAndOnnxRuntimeConfidentRowsAgree) {
             }
         }
         if (best_native < 0 || best_iou < kMinIou) {
-            failures.push_back("no NATIVE match (same class, IoU >= " + std::to_string(kMinIou) +
+            failures.push_back("no NEURIPLO_ENGINE match (same class, IoU >= " + std::to_string(kMinIou) +
                                ") for ORT row; best IoU " + std::to_string(best_iou));
             failures.push_back(dump_row("ORT", o, ort_row));
             continue;
@@ -215,8 +215,8 @@ TEST(YoloParityTest, NativeAndOnnxRuntimeConfidentRowsAgree) {
         if (score_diff > kMaxAllowedAbsDiff) {
             failures.push_back("score diff " + std::to_string(score_diff) + " exceeds " +
                                std::to_string(kMaxAllowedAbsDiff));
-            failures.push_back(
-                dump_row("NATIVE", static_cast<size_t>(best_native), native_rows[static_cast<size_t>(best_native)]));
+            failures.push_back(dump_row("NEURIPLO_ENGINE", static_cast<size_t>(best_native),
+                                        native_rows[static_cast<size_t>(best_native)]));
             failures.push_back(dump_row("ORT", o, ort_row));
         }
     }
@@ -224,14 +224,16 @@ TEST(YoloParityTest, NativeAndOnnxRuntimeConfidentRowsAgree) {
     std::cout << "YOLO_PARITY_MIN_IOU=" << min_iou << std::endl;
     std::cout << "YOLO_PARITY_MAX_SCORE_DIFF=" << max_score_diff << std::endl;
 
-    EXPECT_FALSE(native_rows.empty()) << "zero confident NATIVE rows: the image did not produce confident detections "
-                                      << "(score > " << kConfidenceThreshold << ")";
+    EXPECT_FALSE(native_rows.empty())
+        << "zero confident NEURIPLO_ENGINE rows: the image did not produce confident detections "
+        << "(score > " << kConfidenceThreshold << ")";
     EXPECT_FALSE(ort_rows.empty())
         << "zero confident ONNX_RUNTIME rows: the image did not produce confident detections " << "(score > "
         << kConfidenceThreshold << ")";
-    EXPECT_EQ(native_rows.size(), ort_rows.size()) << "confident-row count mismatch: NATIVE has " << native_rows.size()
-                                                   << ", ONNX_RUNTIME has " << ort_rows.size() << "\n"
-                                                   << dump_rows(native_rows, "NATIVE") << dump_rows(ort_rows, "ORT");
+    EXPECT_EQ(native_rows.size(), ort_rows.size())
+        << "confident-row count mismatch: NEURIPLO_ENGINE has " << native_rows.size() << ", ONNX_RUNTIME has "
+        << ort_rows.size() << "\n"
+        << dump_rows(native_rows, "NEURIPLO_ENGINE") << dump_rows(ort_rows, "ORT");
     EXPECT_TRUE(failures.empty());
 
     for (const std::string& failure : failures) {

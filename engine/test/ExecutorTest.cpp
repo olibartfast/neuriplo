@@ -10,7 +10,7 @@
 //
 // The hermetic graph reuses the hand-rolled protobuf wire encoders from the
 // loader tests: the field numbers mirror ModelLoader.cpp and no public header
-// carries any. The fixture is resolved via NEURIPLO_NATIVE_FIXTURE; a missing
+// carries any. The fixture is resolved via NEURIPLO_ENGINE_FIXTURE; a missing
 // fixture FAILS, never skips.
 
 #include "engine/Executor.hpp"
@@ -175,7 +175,7 @@ engine::Graph load_hermetic_chain(const std::vector<float>& constant, int relu_l
     return engine::LoadGraphFromFile(write_model_bytes("chain.onnx", encode_model(body)));
 }
 
-const char* fixture_env_name() { return "NEURIPLO_NATIVE_FIXTURE"; }
+const char* fixture_env_name() { return "NEURIPLO_ENGINE_FIXTURE"; }
 
 std::string fixture_path() {
     const char* from_env = std::getenv(fixture_env_name());

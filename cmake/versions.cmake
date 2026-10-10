@@ -177,7 +177,7 @@ function(validate_backend_versions)
         list(GET MAPPING_PARTS 1 VERSION_VAR_NAME)
 
         # Get the version value by variable name
-        # First-party backends (e.g. NATIVE) link no external SDK and therefore
+        # First-party backends (e.g. NEURIPLO_ENGINE) link no external SDK and therefore
         # have no version variable in versions.env. This is a declared state,
         # not a missing entry: validate it here so the registry can point at
         # NEURIPLO_NO_EXTERNAL_SDK without tripping the missing-version path.

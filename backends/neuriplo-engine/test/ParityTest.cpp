@@ -1,4 +1,4 @@
-#include "NativeInfer.hpp"
+#include "NeuriploEngineInfer.hpp"
 #include "ORTInfer.hpp"
 
 #include <cmath>
@@ -52,10 +52,10 @@ std::vector<float> flatten_floats(const std::vector<std::vector<TensorElement>>&
 
 } // namespace
 
-// [T-22]/[V-6]: the same file and the same input through NATIVE and
+// [T-22]/[V-6]: the same file and the same input through NEURIPLO_ENGINE and
 // ONNX_RUNTIME, compared elementwise. [A-2] bounds the maximum absolute
 // difference at 1e-4.
-TEST(ParityTest, NativeAndOnnxRuntimeAgreeElementwise) {
+TEST(ParityTest, NeuriploEngineAndOnnxRuntimeAgreeElementwise) {
     const std::string fixture = resolve_fixture();
     ASSERT_FALSE(fixture.empty()) << kFixtureEnv
                                   << " is not set; the parity fixture must be provisioned before this test runs";
@@ -65,15 +65,15 @@ TEST(ParityTest, NativeAndOnnxRuntimeAgreeElementwise) {
 
     std::vector<float> native_output;
     try {
-        NativeInfer native(fixture, /*use_gpu=*/false);
+        NeuriploEngineInfer native(fixture, /*use_gpu=*/false);
         auto [outputs, shapes] = native.get_infer_results(input);
-        ASSERT_EQ(outputs.size(), 1u) << "NATIVE returned " << outputs.size() << " outputs, expected 1";
-        ASSERT_EQ(shapes.size(), 1u) << "NATIVE returned " << shapes.size() << " shapes, expected 1";
+        ASSERT_EQ(outputs.size(), 1u) << "NEURIPLO_ENGINE returned " << outputs.size() << " outputs, expected 1";
+        ASSERT_EQ(shapes.size(), 1u) << "NEURIPLO_ENGINE returned " << shapes.size() << " shapes, expected 1";
         ASSERT_EQ(outputs[0].size(), kOutputElements)
-            << "NATIVE returned " << outputs[0].size() << " elements, expected " << kOutputElements;
+            << "NEURIPLO_ENGINE returned " << outputs[0].size() << " elements, expected " << kOutputElements;
         native_output = flatten_floats(outputs);
     } catch (const std::exception& ex) {
-        FAIL() << "NATIVE inference failed: " << ex.what();
+        FAIL() << "NEURIPLO_ENGINE inference failed: " << ex.what();
     }
 
     std::vector<float> ort_output;
@@ -101,6 +101,6 @@ TEST(ParityTest, NativeAndOnnxRuntimeAgreeElementwise) {
     }
 
     std::cout << "PARITY_MAX_ABS_DIFF=" << max_abs_diff << std::endl;
-    EXPECT_LE(max_abs_diff, kMaxAllowedAbsDiff) << "NATIVE and ONNX_RUNTIME diverged: max absolute difference "
+    EXPECT_LE(max_abs_diff, kMaxAllowedAbsDiff) << "NEURIPLO_ENGINE and ONNX_RUNTIME diverged: max absolute difference "
                                                 << max_abs_diff << " exceeds " << kMaxAllowedAbsDiff;
 }

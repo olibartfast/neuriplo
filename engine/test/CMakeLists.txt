@@ -18,11 +18,11 @@ target_link_libraries(engine_loader_test PRIVATE
 # Fixture resolvable via env var or CMake cache variable of the same name.
 # When unset, fall back to the well-known local export location if it exists;
 # the tests themselves ASSERT (fail, never skip) when the fixture is absent.
-set(NEURIPLO_NATIVE_FIXTURE "" CACHE PATH
+set(NEURIPLO_ENGINE_FIXTURE "" CACHE PATH
     "Path to the opset-18 ResNet-18 ONNX fixture for the engine loader tests")
-if(NOT NEURIPLO_NATIVE_FIXTURE AND EXISTS
+if(NOT NEURIPLO_ENGINE_FIXTURE AND EXISTS
     "/tmp/opencode/resnet18_export/resnet18.onnx")
-    set(NEURIPLO_NATIVE_FIXTURE
+    set(NEURIPLO_ENGINE_FIXTURE
         "/tmp/opencode/resnet18_export/resnet18.onnx")
 endif()
 
@@ -97,12 +97,12 @@ add_test(NAME engine_executor_negative
 # The fixture end-to-end run may take seconds; give it room beyond the default.
 set_tests_properties(engine_executor PROPERTIES TIMEOUT 1800)
 
-if(NEURIPLO_NATIVE_FIXTURE)
+if(NEURIPLO_ENGINE_FIXTURE)
     set_tests_properties(engine_loader engine_loader_negative
         engine_shapes engine_shapes_negative
         engine_plan engine_plan_negative
         engine_executor engine_executor_negative PROPERTIES
-        ENVIRONMENT "NEURIPLO_NATIVE_FIXTURE=${NEURIPLO_NATIVE_FIXTURE}")
+        ENVIRONMENT "NEURIPLO_ENGINE_FIXTURE=${NEURIPLO_ENGINE_FIXTURE}")
 endif()
 
 add_executable(engine_constant_folding_test ConstantFoldingTest.cpp)

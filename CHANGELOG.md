@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- `NATIVE` backend: YOLO26-nano detection coverage (23 ops: Mul/Div/Sub,
+- `NEURIPLO_ENGINE` backend: YOLO26-nano detection coverage (23 ops: Mul/Div/Sub,
   Sigmoid/Cast/Softmax/ReduceMax/Mod/Equal/Where, Concat/Split/Unsqueeze/
   Expand/Transpose/Slice/Gather/GatherElements/Resize/Flatten/Shape/
   ConstantOfShape/TopK), int64/bool intermediate tensors, `Constant` folding,
@@ -15,25 +15,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Validated on a real photo against `ONNX_RUNTIME`: 6 confident rows, min
   IoU 0.999999, max score diff 2.7e-06. Background-tail exact cell selection
   is explicitly out of scope (backend-noise-dependent near-tie selection).
-- `NATIVE` backend: every YOLO family neuriplo-tasks uses (v5–v12, YOLO11 and
+- `NEURIPLO_ENGINE` backend: every YOLO family neuriplo-tasks uses (v5–v12, YOLO11 and
   YOLO26 detection, segmentation and pose). New ops Floor, Identity, Pow, Tile,
   AveragePool and ConvTranspose; load-time constant folding; Resize from a
   `sizes` input; DOUBLE constants narrowed to float32. 13 exports, converted to
   opset 18, match `ONNX_RUNTIME` within 1e-3 scaled. New
-  `native_model_zoo_parity_test` runs a manifest of local exports.
-- `NATIVE` backend: ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and
+  `neuriplo_engine_model_zoo_parity_test` runs a manifest of local exports.
+- `NEURIPLO_ENGINE` backend: ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and
   TimeSformer. New ops Erf, LayerNormalization, Sqrt, Squeeze, Tanh and IsNaN;
   1-D/3-D Conv; linear Resize with every ONNX coordinate transform (absent
   attributes now take the ONNX defaults); Shape `start`/`end`; BOOL constants;
   symbolic input dims fixed per load through `input_sizes`. All six match
   `ONNX_RUNTIME` within 3e-5 scaled.
 
-### Fixed (NATIVE)
+### Fixed (NEURIPLO_ENGINE)
 - The loader accepts identical repeated value-info entries, which torch 2.12
   writes for every tensor; the pinned YOLO26 fixture failed to load without it.
 
 ### Fixed
-- `NATIVE` backend: `GatherElements` now strides the gather axis on the data
+- `NEURIPLO_ENGINE` backend: `GatherElements` now strides the gather axis on the data
   grid (was indices grid; dormant in equal-stride fixtures, proven by a
   hermetic unequal-stride test); unconsumed node outputs get arena buffers;
   `Reshape` kernel implements `-1`/`0` semantics; `Expand` is max-broadcast.
