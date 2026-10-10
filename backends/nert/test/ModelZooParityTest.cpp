@@ -10,6 +10,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <variant>
@@ -20,8 +21,8 @@ namespace {
 constexpr const char* kManifestEnv = "NEURIPLO_MODEL_ZOO_MANIFEST";
 constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 
-// One manifest row: `name  path  dims[;dims...]  mode  atol  [input.bin]`,
-// whitespace separated. `dims` is one `AxBxC` shape per graph input. `mode` is
+// One manifest row: `name  path  dims[;dims...]  mode  atol  [input.bin|-]
+// [int64=<v>]`, whitespace separated. `dims` is one `AxBxC` shape per graph input. `mode` is
 // `parity` (run both backends, compare every output), `e2e` (end-to-end
 // detection output [1,N,C>=6] with the score in column 4: compare only rows ONNX Runtime scores above 0.25,
 // since near-tied background rows select backend-noise-dependent cells), or
@@ -31,9 +32,13 @@ constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 // and box IoU, since near-tied low-score queries order differently between
 // backends; fixed thresholds: box IoU >= 0.99, |score diff| <= 1e-3, mask IoU
 // >= 0.98, and `atol` is ignored), or `load` (NERT must load the model and
-// plan it; nothing runs). The optional input file replaces the seeded input
-// for a single-input model. In `parity` mode each element must satisfy
-// |native - ort| <= atol * (1 + |ort|).
+// plan it; nothing runs). Inputs are generated per graph input dtype: float32
+// inputs get the seeded uniform [0, 1) values, int64 inputs (RT-DETR's
+// orig_target_sizes, token ids) are filled with the `int64=<v>` value (default
+// 1), and bool inputs are filled with false. The optional input file (`-` for
+// none) replaces the seeded values of the first float32 input. In `parity` mode
+// each float element must satisfy |native - ort| <= atol * (1 + |ort|), and
+// int64 / bool outputs must match exactly.
 struct ZooEntry {
     std::string name;
     std::string path;
@@ -41,6 +46,7 @@ struct ZooEntry {
     std::string mode;
     double atol = 1e-4;
     std::string input_file; // optional raw little-endian float32 input
+    int64_t int64_fill = 1; // value for every int64 graph input
 };
 
 std::vector<int64_t> parse_dims(const std::string& text) {
@@ -68,6 +74,18 @@ std::vector<ZooEntry> read_manifest(const std::string& path) {
         if (entry.name.empty()) {
             continue;
         }
+        if (entry.input_file == "-") {
+            entry.input_file.clear();
+        }
+        std::string token;
+        while (fields >> token) {
+            const std::string int64_key = "int64=";
+            if (token.compare(0, int64_key.size(), int64_key) == 0) {
+                entry.int64_fill = std::stoll(token.substr(int64_key.size()));
+            } else {
+                ADD_FAILURE() << "manifest row " << entry.name << ": unknown token " << token;
+            }
+        }
         std::stringstream shape_stream(shapes);
         std::string one;
         while (std::getline(shape_stream, one, ';')) {
@@ -78,24 +96,48 @@ std::vector<ZooEntry> read_manifest(const std::string& path) {
     return entries;
 }
 
-// Deterministic uniform [0, 1) input, identical for both backends.
-std::vector<std::vector<uint8_t>> make_inputs(const std::vector<std::vector<int64_t>>& sizes) {
+// Deterministic inputs, identical for both backends, one per graph input in
+// its own dtype: float32 is seeded uniform [0, 1) (the seed advances over
+// float inputs only, so float-only models see the values they always did),
+// int64 is `int64_fill` everywhere, and bool is all false.
+std::vector<std::vector<uint8_t>> make_inputs(const std::vector<LayerInfo>& layers, int64_t int64_fill) {
     std::vector<std::vector<uint8_t>> inputs;
     uint32_t state = 0x9E3779B9U;
-    for (const auto& dims : sizes) {
+    for (const LayerInfo& layer : layers) {
         size_t count = 1;
-        for (int64_t dim : dims) {
+        for (int64_t dim : layer.shape) {
             count *= static_cast<size_t>(dim);
         }
-        std::vector<uint8_t> bytes(count * sizeof(float));
-        for (size_t i = 0; i < count; ++i) {
-            state = state * 1664525U + 1013904223U;
-            const float value = static_cast<float>(state >> 8) / static_cast<float>(1U << 24);
-            std::memcpy(bytes.data() + i * sizeof(float), &value, sizeof(float));
+        std::vector<uint8_t> bytes;
+        switch (layer.datatype) {
+        case TensorDataType::Int64:
+            bytes.resize(count * sizeof(int64_t));
+            for (size_t i = 0; i < count; ++i) {
+                std::memcpy(bytes.data() + i * sizeof(int64_t), &int64_fill, sizeof(int64_t));
+            }
+            break;
+        case TensorDataType::Bool:
+            bytes.assign(count, 0U);
+            break;
+        default:
+            bytes.resize(count * sizeof(float));
+            for (size_t i = 0; i < count; ++i) {
+                state = state * 1664525U + 1013904223U;
+                const float value = static_cast<float>(state >> 8) / static_cast<float>(1U << 24);
+                std::memcpy(bytes.data() + i * sizeof(float), &value, sizeof(float));
+            }
+            break;
         }
         inputs.push_back(std::move(bytes));
     }
     return inputs;
+}
+
+// An integer or bool element (anything but float) as int64 for exact compare.
+bool is_integral(const TensorElement& element) { return !std::holds_alternative<float>(element); }
+
+int64_t as_int64(const TensorElement& element) {
+    return std::visit([](auto value) { return static_cast<int64_t>(value); }, element);
 }
 
 double as_double(const TensorElement& element) {
@@ -262,18 +304,33 @@ void check_entry(const ZooEntry& entry) {
     }
     ASSERT_TRUE(entry.mode == "parity" || entry.mode == "e2e" || entry.mode == "detr") << "unknown mode " << entry.mode;
 
-    auto inputs = make_inputs(entry.input_sizes);
+    std::unique_ptr<NertInfer> native;
+    try {
+        native = std::make_unique<NertInfer>(entry.path, /*use_gpu=*/false, 1, entry.input_sizes);
+    } catch (const std::exception& ex) {
+        FAIL() << entry.name << ": NERT load failed: " << ex.what();
+    }
+    const std::vector<LayerInfo> layers = native->get_inference_metadata().getInputs();
+    auto inputs = make_inputs(layers, entry.int64_fill);
     if (!entry.input_file.empty()) {
+        size_t target = layers.size();
+        for (size_t i = 0; i < layers.size(); ++i) {
+            if (layers[i].datatype == TensorDataType::Float32) {
+                target = i;
+                break;
+            }
+        }
+        ASSERT_LT(target, layers.size()) << "an input file needs a float32 graph input";
         std::ifstream stream(entry.input_file, std::ios::binary);
         ASSERT_TRUE(stream.good()) << "cannot open input file " << entry.input_file;
-        stream.read(reinterpret_cast<char*>(inputs[0].data()), static_cast<std::streamsize>(inputs[0].size()));
-        ASSERT_EQ(stream.gcount(), static_cast<std::streamsize>(inputs[0].size())) << "input file is truncated";
+        stream.read(reinterpret_cast<char*>(inputs[target].data()),
+                    static_cast<std::streamsize>(inputs[target].size()));
+        ASSERT_EQ(stream.gcount(), static_cast<std::streamsize>(inputs[target].size())) << "input file is truncated";
     }
     std::vector<std::vector<TensorElement>> native_out;
     std::vector<std::vector<int64_t>> native_shapes;
     try {
-        NertInfer native(entry.path, /*use_gpu=*/false, 1, entry.input_sizes);
-        std::tie(native_out, native_shapes) = native.get_infer_results(inputs);
+        std::tie(native_out, native_shapes) = native->get_infer_results(inputs);
     } catch (const std::exception& ex) {
         FAIL() << entry.name << ": NERT failed: " << ex.what();
     }
@@ -326,6 +383,23 @@ void check_entry(const ZooEntry& entry) {
     for (size_t o = 0; o < ort_out.size(); ++o) {
         ASSERT_EQ(native_shapes[o], ort_shapes[o]) << "output " << o << " shape differs";
         ASSERT_EQ(native_out[o].size(), ort_out[o].size()) << "output " << o << " size differs";
+        if (!ort_out[o].empty() && (is_integral(ort_out[o][0]) || is_integral(native_out[o][0]))) {
+            // int64 / bool outputs (labels, masks) compare exactly.
+            size_t mismatches = 0;
+            size_t first = 0;
+            for (size_t i = 0; i < ort_out[o].size(); ++i) {
+                if (!is_integral(native_out[o][i]) || !is_integral(ort_out[o][i]) ||
+                    as_int64(native_out[o][i]) != as_int64(ort_out[o][i])) {
+                    if (mismatches == 0) {
+                        first = i;
+                    }
+                    ++mismatches;
+                }
+            }
+            std::cout << "ZOO " << entry.name << " output" << o << " exact mismatches=" << mismatches << std::endl;
+            EXPECT_EQ(mismatches, 0U) << "output " << o << " differs first at element " << first;
+            continue;
+        }
         double max_ref = 0.0;
         double max_diff = 0.0;
         double max_scaled = 0.0;

@@ -2460,7 +2460,12 @@ InferredShapes InferShapes(const Graph& graph, const ShapeMap& input_dims)
                     " has non-positive dimension " + std::to_string(dim));
             }
         }
-        result.tensors[name] = TensorInfo{DataType::Float32, it->second};
+        // Each graph input keeps its declared dtype (FLOAT, INT64, or BOOL);
+        // a hand-built graph that left it Unknown is treated as float32.
+        const DataType declared = entry.second.dtype == DataType::Unknown
+            ? DataType::Float32
+            : entry.second.dtype;
+        result.tensors[name] = TensorInfo{declared, it->second};
     }
 
     for (const auto& init : graph.initializers) {
