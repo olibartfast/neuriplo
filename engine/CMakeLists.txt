@@ -64,6 +64,10 @@ add_library(neuriplo_engine STATIC
     src/kernels/ReduceMax.cpp
     src/kernels/Mod.cpp
     src/kernels/Equal.cpp
+    src/kernels/Greater.cpp
+    src/kernels/Less.cpp
+    src/kernels/And.cpp
+    src/kernels/Not.cpp
     src/kernels/Where.cpp
     src/kernels/Concat.cpp
     src/kernels/Split.cpp

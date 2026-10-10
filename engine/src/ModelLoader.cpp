@@ -786,6 +786,10 @@ allowed_attributes()
             { "Sigmoid", &kNoAttrs },
             { "Shape", &shape_attrs() },
             { "Equal", &kNoAttrs },
+            { "Greater", &kNoAttrs },
+            { "Less", &kNoAttrs },
+            { "And", &kNoAttrs },
+            { "Not", &kNoAttrs },
             { "Where", &kNoAttrs },
             { "Slice", &kNoAttrs },
             { "Unsqueeze", &kNoAttrs },
@@ -1184,7 +1188,8 @@ Node decode_node(const uint8_t* data, size_t size)
             "Unsqueeze/Expand/Cast/Concat/ConstantOfShape/Gather/"
             "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose/"
             "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose/Erf/Sqrt/Tanh/"
-            "IsNaN/Squeeze/LayerNormalization/Abs/Neg/Exp/Log/Cos/Sin/Clip only)");
+            "IsNaN/Squeeze/LayerNormalization/Abs/Neg/Exp/Log/Cos/Sin/Clip/"
+            "Greater/Less/And/Not only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;

@@ -49,6 +49,18 @@ void Mod(const Node& node, const std::vector<TensorView>& inputs, const std::vec
 // Elementwise comparison with NumPy multidirectional broadcasting; bool output.
 void Equal(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
+// Elementwise a > b comparison with NumPy multidirectional broadcasting; bool output.
+void Greater(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise a < b comparison with NumPy multidirectional broadcasting; bool output.
+void Less(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise logical AND of bool tensors with NumPy multidirectional broadcasting.
+void And(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise logical negation of a bool tensor.
+void Not(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 // Ternary selection with NumPy multidirectional broadcasting across all three.
 void Where(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
