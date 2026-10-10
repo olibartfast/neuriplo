@@ -67,6 +67,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3f — RF-DETR and RF-DETR-Seg end to end (goal-scoped)
 - P3g — DETR comparison mode in the model-zoo test
 - D2 — NERT becomes `DEFAULT_BACKEND` on `feature/nert` (maintainer, 2026-10-10)
+- P3h — RT-DETR v4, D-FINE/DEIM, DEIMv2 end to end (goal-scoped)
 
 ### Packet P3a — elementwise math
 
@@ -264,6 +265,35 @@ releases is decided; this is the branch's default.
   the 18.1.3 format check; `git grep` shows no remaining "default
   (OPENCV_DNN|OpenCV DNN)" claims outside `CHANGELOG.md` and `specs/`.
 - **Budget:** 40 turns. Tier: `sonnet`.
+
+### Packet P3h — RT-DETR v4, D-FINE/DEIM and DEIMv2 end to end
+
+After P3e, D-FINE/DEIM and DEIMv2 load; RT-DETR v4 stops on Slice with a
+negative step. These exports end in their own post-processing: inputs
+`images` float32 `[1,3,640,640]` (RGB, /255, no normalization) and
+`orig_target_sizes` int64 `[1,2]`; outputs `labels` int64 `[1,Q]`, `boxes`
+float32 `[1,Q,4]` (x1, y1, x2, y2 in `orig_target_sizes` pixels), `scores`
+float32 `[1,Q]`, Q = 300, selected by an internal TopK (so [D-16] applies).
+
+- **Writable:** `engine/src/**`, `engine/include/engine/**`,
+  `engine/test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp`,
+  `backends/nert/test/ModelZooParityTest.cpp` (new mode only).
+- **Required final state:**
+  1. Slice accepts negative steps with ONNX clamping semantics, in the shape
+     rule, the evaluator and the kernel; other gaps found on the way are
+     closed generally, or reported if they need a design change (same rule
+     as P3f).
+  2. Model-zoo mode `detr_post`: outputs labels / boxes / scores as above;
+     confident = ORT score > 0.5; the [D-16] matching (same label, box IoU
+     >= 0.99, score difference <= 1e-3, equal confident counts, non-empty).
+     Print `ZOO <name> confident_queries=<n> min_box_iou=<x>
+     max_score_diff=<y>`.
+  3. All three exports pass on `~/.cache/neuriplo-op-inventory/tier3b_detr.manifest`
+     (`bus.jpg`, 640x640, `orig_target_sizes` = 640).
+- **Acceptance (once):** the R2 build (NERT + ONNX_RUNTIME), `ctest -R
+  "^engine_|NertInferTest"`, the model-zoo test on `tier3b_detr.manifest`,
+  the 18.1.3 format check.
+- **Budget:** 80 turns. Tier: `opus`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
@@ -517,3 +547,4 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 14 | P3f | worker (`opus`, worktree `wip/native-p3f`) | fail: both exports load and run, parity misses (RF-DETR 0.54 scaled from a 1e-6 TopK tie on seeded input; RF-DETR-Seg masks 3.2e-3 from decoder amplification) | fast gate pass (13/13, ResNet-18 3.8e-06, YOLO26 IoU 0.999999, format); YOLO + tier 2 regression running | Closed generally: ConstantOfShape float/int64/bool value, Cast to BOOL, empty intermediates (zero dims, zero-byte buffers). Deviation accepted as [D-15]: double accumulation in 7 kernels. Correctly stopped at a numeric limit instead of working around it; scoreboard follow-up is [D-16] / P3g |
 | 15 | P3g | worker (`sonnet`, worktree `wip/native-p3g`) | pass | RF-DETR 5 confident queries, min box IoU 0.999999, score diff 4.7e-08; RF-DETR-Seg 5, IoU 0.999996, 1.7e-06, mask IoU 1.0 (`bus.jpg`, ImageNet-normalized) | Review checked the [D-16] thresholds and the equal-count and non-empty guards |
 | 16 | D2 | worker (`sonnet`, worktree `wip/nert-d2`) | pass | bare configure reports `Default backend: NERT`; 13/13; docs and format clean | Audit: every Neuriplo configure in CI, Dockerfiles and scripts already passes `-DDEFAULT_BACKEND`, so none changed (planner spot-checked the matrix jobs). Minor deviation: `| tail` appended to the final `git status`. CHANGELOG entry still to add (not in D2's writable list) |
+| 17 | P3e | worker (`opus`, worktree `wip/native-p3e`) | pass | pass: 13/13, both parities, format; probe: D-FINE/DEIM and DEIMv2 load with int64 `orig_target_sizes`, RT-DETR v4 stops on a negative Slice step (P3h) | API: `HostTensor`, `HostTensorMap`, `Model::RunTyped`; float `Run` unchanged. Accepted deviations: `RunTyped` instead of a `Run` overload (an overload made an existing call ambiguous); the input file fills the first float32 input |

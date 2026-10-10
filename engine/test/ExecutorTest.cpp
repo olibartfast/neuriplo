@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -121,6 +122,19 @@ std::string encode_initializer(const std::string& name, const std::vector<int64_
     return t;
 }
 
+std::string encode_int64_initializer(const std::string& name, const std::vector<int64_t>& dims,
+                                     const std::vector<int64_t>& values) {
+    std::string t;
+    for (const int64_t dim : dims) {
+        put_varint_field(t, 1, static_cast<uint64_t>(dim));
+    }
+    put_varint_field(t, 2, 7); // INT64
+    put_length_delimited(t, 8, name);
+    const std::string raw(reinterpret_cast<const char*>(values.data()), values.size() * sizeof(int64_t));
+    put_length_delimited(t, 9, raw);
+    return t;
+}
+
 std::string encode_model(const std::string& graph_body) {
     std::string model;
     put_sub(model, 8, encode_opset18());
@@ -173,6 +187,30 @@ engine::Graph load_hermetic_chain(const std::vector<float>& constant, int relu_l
     put_sub(body, 11, encode_value_info("x", 1, {width}));
     put_sub(body, 12, encode_value_info(previous, 1, {width}));
     return engine::LoadGraphFromFile(write_model_bytes("chain.onnx", encode_model(body)));
+}
+
+// A hermetic typed-I/O graph: int64 graph input `ids` [4] and int64 constant
+// `c`; Add(ids, c) -> `sum` (int64 graph output) and Greater(ids, c) -> `flag`
+// (bool graph output).
+engine::Graph load_hermetic_int64_bool(const std::vector<int64_t>& constant) {
+    const int64_t width = static_cast<int64_t>(constant.size());
+    std::string body;
+    put_sub(body, 5, encode_int64_initializer("c", {width}, constant));
+    put_sub(body, 1, encode_node("add0", "Add", {"ids", "c"}, {"sum"}));
+    put_sub(body, 1, encode_node("greater0", "Greater", {"ids", "c"}, {"flag"}));
+    put_sub(body, 11, encode_value_info("ids", 7 /*INT64*/, {width}));
+    put_sub(body, 12, encode_value_info("sum", 7 /*INT64*/, {width}));
+    put_sub(body, 12, encode_value_info("flag", 9 /*BOOL*/, {width}));
+    return engine::LoadGraphFromFile(write_model_bytes("int64_bool.onnx", encode_model(body)));
+}
+
+engine::HostTensor int64_host_tensor(const std::vector<int64_t>& values) {
+    engine::HostTensor host;
+    host.dtype = engine::DataType::Int64;
+    host.dims = {static_cast<int64_t>(values.size())};
+    host.bytes.resize(values.size() * sizeof(int64_t));
+    std::memcpy(host.bytes.data(), values.data(), host.bytes.size());
+    return host;
 }
 
 const char* fixture_env_name() { return "NERT_FIXTURE"; }
@@ -269,6 +307,52 @@ TEST(EngineExecutor, ArenaAllocatedOnceAndReused) {
     EXPECT_EQ(device.counting().release_calls, 1);
 }
 
+TEST(EngineExecutor, TypedRunInt64InputBoolOutput) {
+    const engine::Graph graph = load_hermetic_int64_bool({2, 2, 2, 2});
+    engine::Model model(graph, {{"ids", {4}}}, engine::CpuDevice());
+    EXPECT_EQ(model.shapes().tensors.at("ids").dtype, engine::DataType::Int64);
+
+    const engine::HostTensorMap result = model.RunTyped({{"ids", int64_host_tensor({1, 2, 3, -7})}});
+    ASSERT_EQ(result.size(), 2U);
+
+    const engine::HostTensor& sum = result.at("sum");
+    EXPECT_EQ(sum.dtype, engine::DataType::Int64);
+    EXPECT_EQ(sum.dims, (std::vector<int64_t>{4}));
+    ASSERT_EQ(sum.bytes.size(), 4U * sizeof(int64_t));
+    std::vector<int64_t> sums(4);
+    std::memcpy(sums.data(), sum.bytes.data(), sum.bytes.size());
+    EXPECT_EQ(sums, (std::vector<int64_t>{3, 4, 5, -5}));
+
+    const engine::HostTensor& flag = result.at("flag");
+    EXPECT_EQ(flag.dtype, engine::DataType::Bool);
+    EXPECT_EQ(flag.dims, (std::vector<int64_t>{4}));
+    EXPECT_EQ(flag.bytes, (std::vector<uint8_t>{0, 0, 1, 0}));
+
+    // A second run reuses the arena and sees the new input.
+    const engine::HostTensorMap again = model.RunTyped({{"ids", int64_host_tensor({5, 0, 2, 9})}});
+    EXPECT_EQ(again.at("flag").bytes, (std::vector<uint8_t>{1, 0, 0, 1}));
+}
+
+TEST(EngineExecutor, TypedRunMatchesFloatRun) {
+    const engine::Graph graph = load_hermetic_add_relu({-0.5F, 0.5F});
+    engine::Model model(graph, {{"x", {2}}}, engine::CpuDevice());
+
+    const std::vector<float> input{1.0F, -2.0F};
+    engine::HostTensor host;
+    host.dtype = engine::DataType::Float32;
+    host.dims = {2};
+    host.bytes.resize(input.size() * sizeof(float));
+    std::memcpy(host.bytes.data(), input.data(), host.bytes.size());
+
+    const engine::HostTensorMap typed = model.RunTyped({{"x", host}});
+    const engine::HostTensor& z = typed.at("z");
+    EXPECT_EQ(z.dtype, engine::DataType::Float32);
+    std::vector<float> values(2);
+    ASSERT_EQ(z.bytes.size(), values.size() * sizeof(float));
+    std::memcpy(values.data(), z.bytes.data(), z.bytes.size());
+    EXPECT_EQ(values, model.Run({{"x", input}}).outputs.at("z"));
+}
+
 TEST(EngineExecutor, FixtureResNet18RunsAndIsFinite) {
     const std::string fixture = fixture_path();
     ASSERT_FALSE(fixture.empty()) << "missing fixture: set " << fixture_env_name()
@@ -325,4 +409,36 @@ TEST(EngineExecutorNegative, OpWithoutKernelThrows) {
         EXPECT_NE(message.find(graph.nodes.front().name), std::string::npos) << message;
         EXPECT_NE(message.find(graph.nodes.front().op_type), std::string::npos) << message;
     }
+}
+
+TEST(EngineExecutorNegative, FloatRunRejectsNonFloatGraphInput) {
+    const engine::Graph graph = load_hermetic_int64_bool({2, 2, 2, 2});
+    engine::Model model(graph, {{"ids", {4}}}, engine::CpuDevice());
+    try {
+        model.Run({{"ids", {1.0F, 2.0F, 3.0F, 4.0F}}});
+        FAIL() << "expected InferenceException for a non-float graph input";
+    } catch (const engine::InferenceException& e) {
+        const std::string message = e.what();
+        EXPECT_NE(message.find("ids"), std::string::npos) << message;
+        EXPECT_NE(message.find("int64"), std::string::npos) << message;
+    }
+}
+
+TEST(EngineExecutorNegative, TypedRunRejectsMistypedOrMissizedInput) {
+    const engine::Graph graph = load_hermetic_int64_bool({2, 2, 2, 2});
+    engine::Model model(graph, {{"ids", {4}}}, engine::CpuDevice());
+
+    EXPECT_THROW(model.RunTyped({}), engine::InferenceException);
+
+    engine::HostTensor wrong_dtype = int64_host_tensor({1, 2, 3, 4});
+    wrong_dtype.dtype = engine::DataType::Float32;
+    EXPECT_THROW(model.RunTyped({{"ids", wrong_dtype}}), engine::InferenceException);
+
+    engine::HostTensor short_bytes = int64_host_tensor({1, 2, 3, 4});
+    short_bytes.bytes.resize(3 * sizeof(int64_t));
+    EXPECT_THROW(model.RunTyped({{"ids", short_bytes}}), engine::InferenceException);
+
+    engine::HostTensor wrong_dims = int64_host_tensor({1, 2, 3, 4});
+    wrong_dims.dims = {2, 2};
+    EXPECT_THROW(model.RunTyped({{"ids", wrong_dims}}), engine::InferenceException);
 }

@@ -1420,7 +1420,7 @@ std::pair<std::string, Initializer> fold_constant_node(
 
 std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
     size_t size, const char* kind, bool allow_integer = false,
-    bool allow_bool = false, bool allow_empty = false)
+    bool allow_bool = false, bool allow_empty = false, bool graph_io = false)
 {
     std::string name;
     std::string element; // payload bytes of the (nested) type sub-messages
@@ -1500,9 +1500,10 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
     DataType dtype = DataType::Unknown;
     if (elem_type == kElemType_OnnxFloat) {
         dtype = DataType::Float32;
-    } else if (allow_integer && elem_type == kElemType_OnnxInt64) {
+    } else if ((allow_integer || graph_io) &&
+        elem_type == kElemType_OnnxInt64) {
         dtype = DataType::Int64;
-    } else if (allow_bool && elem_type == kElemType_OnnxBool) {
+    } else if ((allow_bool || graph_io) && elem_type == kElemType_OnnxBool) {
         dtype = DataType::Bool;
     } else if (allow_integer && elem_type == kElemType_OnnxDouble) {
         // value_info only: DOUBLE constants are narrowed to float32 at load,
@@ -1511,7 +1512,10 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
     } else {
         reject(std::string("carries unsupported element type ") +
             quote(elem_type_name(elem_type)) +
-            ((allow_integer || allow_bool)
+            (graph_io
+                    ? " (engine accepts FLOAT, INT64, and BOOL graph inputs "
+                      "and outputs only)"
+                    : (allow_integer || allow_bool)
                     ? " (engine accepts FLOAT compute tensors, INT64 "
                       "constants, and BOOL intermediates only)"
                     : " (engine accepts FLOAT only)"));
@@ -1705,7 +1709,9 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             const auto payload = graph_reader.read_length_delimited();
             graph.inputs.push_back(
                 decode_value_info(payload.first, payload.second,
-                    "graph input"));
+                    "graph input", /*allow_integer=*/false,
+                    /*allow_bool=*/false, /*allow_empty=*/false,
+                    /*graph_io=*/true));
             break;
         }
         case kField_Graph_Output: {
@@ -1715,7 +1721,9 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             const auto payload = graph_reader.read_length_delimited();
             graph.outputs.push_back(
                 decode_value_info(payload.first, payload.second,
-                    "graph output"));
+                    "graph output", /*allow_integer=*/false,
+                    /*allow_bool=*/false, /*allow_empty=*/false,
+                    /*graph_io=*/true));
             break;
         }
         case kField_Graph_ValueInfo: {

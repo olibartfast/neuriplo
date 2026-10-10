@@ -673,7 +673,7 @@ TEST_F(EngineLoader, HermeticFlattenLoads)
 }
 
 // Hermetic positive: intermediate value-info entries may be float32, int64,
-// or bool, while graph inputs/outputs stay float32-only (enforced below).
+// or bool (graph inputs/outputs accept the same three dtypes, below).
 TEST_F(EngineLoader, HermeticBoolValueInfoAccepted)
 {
     std::string body;
@@ -1022,56 +1022,69 @@ TEST_F(EngineLoaderNegative, UnsupportedAttributeNamesNodeAndOpType)
     EXPECT_NE(message.find("leaky"), std::string::npos) << "message: " << message;
 }
 
-// Non-FP32 I/O: INT64 input tensor is rejected by name and element type.
-
-TEST_F(EngineLoaderNegative, NonFloatGraphInputRejected)
+// Graph I/O widened (P3e): INT64 and BOOL graph inputs and outputs load with
+// their declared dtype (RT-DETR's orig_target_sizes / labels, token masks).
+TEST_F(EngineLoader, HermeticInt64AndBoolGraphIoAccepted)
 {
     std::string body;
-    put_sub(body, 1, encode_node("probe_node", "Relu",
-        {"x_int"}, {"y"}, {}));
+    put_sub(body, 1, encode_node("probe_node", "Identity",
+        {"x_int"}, {"y_int"}, {}));
+    put_sub(body, 1, encode_node("probe_bool", "Identity",
+        {"x_bool"}, {"y_bool"}, {}));
     put_sub(body, 11, encode_value_info("x_int", 7 /*INT64*/, {2, 2}));
-    put_sub(body, 12, encode_value_info("y", 1, {2, 2}));
-
-    const std::string message =
-        load_error_message(encode_model(body), "int_in.onnx");
-    EXPECT_NE(message.find("x_int"), std::string::npos) << "message: " << message;
-    EXPECT_NE(message.find("INT64"), std::string::npos) << "message: " << message;
-}
-
-// Non-FP32 I/O: BOOL graph input and INT64/BOOL graph outputs are rejected;
-// graph I/O stays float32-only while bool intermediates are allowed.
-TEST_F(EngineLoaderNegative, BoolGraphInputRejected)
-{
-    std::string body;
-    put_sub(body, 1, encode_node("probe_bool", "Relu",
-        {"x_bool"}, {"y"}, {}));
     put_sub(body, 11, encode_value_info("x_bool", 9 /*BOOL*/, {2, 2}));
-    put_sub(body, 12, encode_value_info("y", 1, {2, 2}));
+    put_sub(body, 12, encode_value_info("y_int", 7 /*INT64*/, {2, 2}));
+    put_sub(body, 12, encode_value_info("y_bool", 9 /*BOOL*/, {2, 2}));
 
-    const std::string message =
-        load_error_message(encode_model(body), "bool_in.onnx");
-    EXPECT_NE(message.find("x_bool"), std::string::npos)
-        << "message: " << message;
-    EXPECT_NE(message.find("BOOL"), std::string::npos) << "message: " << message;
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("int_bool_io.onnx", encode_model(body)));
+    ASSERT_EQ(graph.inputs.size(), 2U);
+    EXPECT_EQ(graph.inputs[0].first, "x_int");
+    EXPECT_EQ(graph.inputs[0].second.dtype, engine::DataType::Int64);
+    EXPECT_EQ(graph.inputs[1].first, "x_bool");
+    EXPECT_EQ(graph.inputs[1].second.dtype, engine::DataType::Bool);
+    ASSERT_EQ(graph.outputs.size(), 2U);
+    EXPECT_EQ(graph.outputs[0].first, "y_int");
+    EXPECT_EQ(graph.outputs[0].second.dtype, engine::DataType::Int64);
+    EXPECT_EQ(graph.outputs[1].first, "y_bool");
+    EXPECT_EQ(graph.outputs[1].second.dtype, engine::DataType::Bool);
+    EXPECT_EQ(graph.inputs[0].second.dims, (std::vector<int64_t>{2, 2}));
 }
 
-TEST_F(EngineLoaderNegative, NonFloatGraphOutputRejected)
+// Graph I/O outside FLOAT/INT64/BOOL (here INT32) is rejected by tensor name
+// and element type, for inputs and outputs alike.
+TEST_F(EngineLoaderNegative, UnsupportedGraphIoTypeRejected)
 {
-    for (const auto& [file, elem, tag] :
-        {std::tuple<std::string, int64_t, std::string>{
-                 "int_out.onnx", 7, "INT64"},
-            std::tuple<std::string, int64_t, std::string>{
-                "bool_out.onnx", 9, "BOOL"}}) {
+    {
+        std::string body;
+        put_sub(body, 1, encode_node("probe_node", "Relu",
+            {"x_i32"}, {"y"}, {}));
+        put_sub(body, 11, encode_value_info("x_i32", 6 /*INT32*/, {2, 2}));
+        put_sub(body, 12, encode_value_info("y", 1, {2, 2}));
+
+        const std::string message =
+            load_error_message(encode_model(body), "i32_in.onnx");
+        EXPECT_NE(message.find("graph input"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find("x_i32"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find("INT32"), std::string::npos)
+            << "message: " << message;
+    }
+    {
         std::string body;
         put_sub(body, 1, encode_node("probe_out", "Relu",
-            {"x"}, {"y_out"}, {}));
+            {"x"}, {"y_i32"}, {}));
         put_sub(body, 11, encode_value_info("x", 1, {2, 2}));
-        put_sub(body, 12, encode_value_info("y_out", elem, {2, 2}));
+        put_sub(body, 12, encode_value_info("y_i32", 6 /*INT32*/, {2, 2}));
 
-        const std::string message = load_error_message(encode_model(body), file);
-        EXPECT_NE(message.find("y_out"), std::string::npos)
+        const std::string message =
+            load_error_message(encode_model(body), "i32_out.onnx");
+        EXPECT_NE(message.find("graph output"), std::string::npos)
             << "message: " << message;
-        EXPECT_NE(message.find(tag), std::string::npos)
+        EXPECT_NE(message.find("y_i32"), std::string::npos)
+            << "message: " << message;
+        EXPECT_NE(message.find("INT32"), std::string::npos)
             << "message: " << message;
     }
 }

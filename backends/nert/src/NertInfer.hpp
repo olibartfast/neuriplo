@@ -27,7 +27,9 @@ class NertInfer : public InferenceInterface {
 
   private:
     // Shared input-marshalling + engine execution path for both output shapes.
-    engine::InferenceResult run_engine(const std::vector<std::vector<uint8_t>>& input_tensors);
+    // Each input byte buffer is read in its graph input's dtype (float32,
+    // int64, or bool); every output comes back in its own dtype.
+    engine::HostTensorMap run_engine(const std::vector<std::vector<uint8_t>>& input_tensors);
 
     engine::Graph graph_;
     std::unique_ptr<engine::Model> model_;

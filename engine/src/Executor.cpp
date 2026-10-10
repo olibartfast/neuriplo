@@ -13,6 +13,7 @@
 #include "engine/Executor.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <string>
 #include <utility>
@@ -28,6 +29,21 @@ int64_t ElementCount(const std::vector<int64_t>& dims) {
         count *= dim;
     }
     return count;
+}
+
+// A dtype's name for error messages.
+const char* DataTypeName(DataType dtype) {
+    switch (dtype) {
+    case DataType::Float32:
+        return "float32";
+    case DataType::Int64:
+        return "int64";
+    case DataType::Bool:
+        return "bool";
+    case DataType::Unknown:
+        break;
+    }
+    return "unknown";
 }
 
 // The inferred shape for `name`, or a failure naming the tensor.
@@ -59,19 +75,35 @@ Model::~Model() {
     }
 }
 
+size_t HostElementSize(DataType dtype) {
+    switch (dtype) {
+    case DataType::Float32:
+        return sizeof(float);
+    case DataType::Int64:
+        return sizeof(int64_t);
+    case DataType::Bool:
+        return sizeof(bool);
+    case DataType::Unknown:
+        break;
+    }
+    return 0;
+}
+
 InferenceResult Model::Run(const std::map<std::string, std::vector<float>>& inputs) {
-    // Every named value resolves to one borrowed view. Graph inputs point at the
-    // caller's vectors and initializers at the graph's stored constants; node
-    // outputs point into the arena.
+    // Graph inputs point at the caller's vectors; Execute binds the rest.
     std::map<std::string, TensorView> views;
 
     for (const auto& entry : graph_.inputs) {
         const std::string& name = entry.first;
+        const TensorInfo& info = ShapeOf(shapes_, name);
+        if (info.dtype != DataType::Float32) {
+            throw InferenceException("executor: graph input '" + name + "' is " + DataTypeName(info.dtype) +
+                                     ", not float32; use RunTyped");
+        }
         const auto provided = inputs.find(name);
         if (provided == inputs.end()) {
             throw InferenceException("executor: missing input '" + name + "'");
         }
-        const TensorInfo& info = ShapeOf(shapes_, name);
         const int64_t expected = ElementCount(info.dims);
         if (static_cast<int64_t>(provided->second.size()) != expected) {
             throw InferenceException("executor: input '" + name + "' has " + std::to_string(provided->second.size()) +
@@ -84,6 +116,100 @@ InferenceResult Model::Run(const std::map<std::string, std::vector<float>>& inpu
         views.emplace(name, std::move(view));
     }
 
+    Execute(views);
+
+    InferenceResult result;
+    for (const auto& entry : graph_.outputs) {
+        const std::string& name = entry.first;
+        const TensorView& view = OutputView(views, name);
+        if (view.dtype != DataType::Float32) {
+            throw InferenceException("executor: graph output '" + name + "' is not float32");
+        }
+        const int64_t count = ElementCount(view.dims);
+        const float* src = static_cast<const float*>(view.data);
+        result.outputs.emplace(name, std::vector<float>(src, src + count));
+    }
+    return result;
+}
+
+HostTensorMap Model::RunTyped(const HostTensorMap& inputs) {
+    std::map<std::string, TensorView> views;
+    // Bool inputs are normalised to 0/1 bytes so kernels may read them as bool.
+    std::map<std::string, std::vector<uint8_t>> bool_inputs;
+
+    for (const auto& entry : graph_.inputs) {
+        const std::string& name = entry.first;
+        const TensorInfo& info = ShapeOf(shapes_, name);
+        const auto provided = inputs.find(name);
+        if (provided == inputs.end()) {
+            throw InferenceException("executor: missing input '" + name + "'");
+        }
+        const HostTensor& host = provided->second;
+        if (host.dtype != info.dtype) {
+            throw InferenceException("executor: input '" + name + "' is " + DataTypeName(host.dtype) + ", expected " +
+                                     DataTypeName(info.dtype));
+        }
+        if (host.dims != info.dims) {
+            throw InferenceException("executor: input '" + name + "' has a shape other than the one the model was " +
+                                     "built for");
+        }
+        const size_t expected = static_cast<size_t>(ElementCount(info.dims)) * HostElementSize(info.dtype);
+        if (host.bytes.size() != expected) {
+            throw InferenceException("executor: input '" + name + "' has " + std::to_string(host.bytes.size()) +
+                                     " bytes, expected " + std::to_string(expected));
+        }
+        TensorView view;
+        view.dtype = info.dtype;
+        view.dims = info.dims;
+        if (info.dtype == DataType::Bool) {
+            std::vector<uint8_t>& normalised = bool_inputs[name];
+            normalised.resize(host.bytes.size());
+            for (size_t i = 0; i < host.bytes.size(); ++i) {
+                normalised[i] = host.bytes[i] != 0 ? 1U : 0U;
+            }
+            view.data = normalised.data();
+        } else {
+            view.data = const_cast<uint8_t*>(host.bytes.data());
+        }
+        views.emplace(name, std::move(view));
+    }
+
+    Execute(views);
+
+    HostTensorMap result;
+    for (const auto& entry : graph_.outputs) {
+        const std::string& name = entry.first;
+        const TensorView& view = OutputView(views, name);
+        const size_t element_size = HostElementSize(view.dtype);
+        if (element_size == 0) {
+            throw InferenceException("executor: graph output '" + name + "' has no host dtype");
+        }
+        HostTensor host;
+        host.dtype = view.dtype;
+        host.dims = view.dims;
+        host.bytes.resize(static_cast<size_t>(ElementCount(view.dims)) * element_size);
+        if (view.dtype == DataType::Bool) {
+            const bool* src = static_cast<const bool*>(view.data);
+            for (size_t i = 0; i < host.bytes.size(); ++i) {
+                host.bytes[i] = src[i] ? 1U : 0U;
+            }
+        } else if (!host.bytes.empty()) {
+            std::memcpy(host.bytes.data(), view.data, host.bytes.size());
+        }
+        result.emplace(name, std::move(host));
+    }
+    return result;
+}
+
+const TensorView& Model::OutputView(const std::map<std::string, TensorView>& views, const std::string& name) {
+    const auto it = views.find(name);
+    if (it == views.end()) {
+        throw InferenceException("executor: graph output '" + name + "' was never produced");
+    }
+    return it->second;
+}
+
+void Model::Execute(std::map<std::string, TensorView>& views) {
     for (const auto& entry : graph_.initializers) {
         const Initializer& init = entry.second;
         TensorView view;
@@ -136,23 +262,6 @@ InferenceResult Model::Run(const std::map<std::string, std::vector<float>>& inpu
 
         kernel(node, node_inputs, node_outputs);
     }
-
-    InferenceResult result;
-    for (const auto& entry : graph_.outputs) {
-        const std::string& name = entry.first;
-        const auto it = views.find(name);
-        if (it == views.end()) {
-            throw InferenceException("executor: graph output '" + name + "' was never produced");
-        }
-        const TensorView& view = it->second;
-        if (view.dtype != DataType::Float32) {
-            throw InferenceException("executor: graph output '" + name + "' is not float32");
-        }
-        const int64_t count = ElementCount(view.dims);
-        const float* src = static_cast<const float*>(view.data);
-        result.outputs.emplace(name, std::vector<float>(src, src + count));
-    }
-    return result;
 }
 
 } // namespace engine

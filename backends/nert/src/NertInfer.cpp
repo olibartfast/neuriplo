@@ -44,6 +44,27 @@ engine::ShapeMap build_input_shapes(const engine::Graph& graph, const std::vecto
     return shapes;
 }
 
+// The backend metadata tag for an engine graph I/O dtype.
+TensorDataType to_tensor_data_type(engine::DataType dtype, const std::string& name) {
+    switch (dtype) {
+    case engine::DataType::Float32:
+        return TensorDataType::Float32;
+    case engine::DataType::Int64:
+        return TensorDataType::Int64;
+    case engine::DataType::Bool:
+        return TensorDataType::Bool;
+    case engine::DataType::Unknown:
+        break;
+    }
+    throw ::ModelLoadException("NERT tensor '" + name + "' has no supported element type");
+}
+
+// The resolved dtype of graph tensor `name`, falling back to its declaration.
+engine::DataType resolved_dtype(const engine::Model& model, const std::string& name, engine::DataType declared) {
+    const auto resolved = model.shapes().tensors.find(name);
+    return resolved != model.shapes().tensors.end() ? resolved->second.dtype : declared;
+}
+
 size_t element_count(const std::vector<int64_t>& dims) {
     size_t count = 1;
     for (int64_t dim : dims) {
@@ -75,61 +96,110 @@ NertInfer::NertInfer(const std::string& model_path, bool use_gpu, size_t batch_s
         const auto resolved = model_->shapes().tensors.find(input.first);
         const std::vector<int64_t>& dims =
             resolved != model_->shapes().tensors.end() ? resolved->second.dims : input.second.dims;
-        inference_metadata_.addInput(input.first, dims, batch_size, TensorDataType::Float32);
+        inference_metadata_.addInput(
+            input.first, dims, batch_size,
+            to_tensor_data_type(resolved_dtype(*model_, input.first, input.second.dtype), input.first));
     }
     for (const auto& output : graph_.outputs) {
         const auto resolved = model_->shapes().tensors.find(output.first);
         const std::vector<int64_t>& dims =
             resolved != model_->shapes().tensors.end() ? resolved->second.dims : output.second.dims;
-        inference_metadata_.addOutput(output.first, dims, batch_size, TensorDataType::Float32);
+        inference_metadata_.addOutput(
+            output.first, dims, batch_size,
+            to_tensor_data_type(resolved_dtype(*model_, output.first, output.second.dtype), output.first));
     }
 
     state_ = BackendState::Ready;
 }
 
-engine::InferenceResult NertInfer::run_engine(const std::vector<std::vector<uint8_t>>& input_tensors) {
+engine::HostTensorMap NertInfer::run_engine(const std::vector<std::vector<uint8_t>>& input_tensors) {
     validate_input(input_tensors);
 
     const auto& inputs = inference_metadata_.getInputs();
-    std::map<std::string, std::vector<float>> engine_inputs;
+    engine::HostTensorMap engine_inputs;
     for (size_t i = 0; i < input_tensors.size(); ++i) {
         const LayerInfo& info = inputs[i];
-        const size_t elements = element_count(info.shape);
-        const size_t expected_bytes = elements * sizeof(float);
+        engine::HostTensor host;
+        host.dtype = model_->shapes().tensors.at(info.name).dtype;
+        host.dims = info.shape;
+        const size_t expected_bytes = element_count(info.shape) * engine::HostElementSize(host.dtype);
         if (input_tensors[i].size() != expected_bytes) {
             throw ::InferenceExecutionException("NERT input '" + info.name + "' expects " +
                                                 std::to_string(expected_bytes) + " bytes, got " +
                                                 std::to_string(input_tensors[i].size()));
         }
-
-        std::vector<float> data(elements);
-        std::memcpy(data.data(), input_tensors[i].data(), expected_bytes);
-        engine_inputs[info.name] = std::move(data);
+        host.bytes = input_tensors[i];
+        engine_inputs.emplace(info.name, std::move(host));
     }
 
     try {
-        return model_->Run(engine_inputs);
+        return model_->RunTyped(engine_inputs);
     } catch (const engine::InferenceException& ex) {
         throw ::InferenceExecutionException(ex.what());
     }
 }
 
+namespace {
+
+const engine::HostTensor& find_output(const engine::HostTensorMap& result, const std::string& name) {
+    const auto output = result.find(name);
+    if (output == result.end()) {
+        throw ::InferenceExecutionException("NERT engine produced no output named '" + name + "'");
+    }
+    return output->second;
+}
+
+// Widen one engine output into TensorElements: float32 as float, int64 as
+// int64_t, and bool as uint8_t (0 or 1), per the HostTensorConverter rule.
+template <typename T, typename Element>
+void append_elements(const engine::HostTensor& host, std::vector<TensorElement>& elements) {
+    const size_t count = host.bytes.size() / sizeof(T);
+    elements.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        T value;
+        std::memcpy(&value, host.bytes.data() + i * sizeof(T), sizeof(T));
+        elements.emplace_back(static_cast<Element>(value));
+    }
+}
+
+TensorDtype to_raw_dtype(engine::DataType dtype) {
+    switch (dtype) {
+    case engine::DataType::Float32:
+        return TensorDtype::FP32;
+    case engine::DataType::Int64:
+        return TensorDtype::INT64;
+    case engine::DataType::Bool:
+        return TensorDtype::UINT8;
+    case engine::DataType::Unknown:
+        break;
+    }
+    throw ::InferenceExecutionException("NERT output has no supported element type");
+}
+
+} // namespace
+
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
 NertInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
-    const engine::InferenceResult result = run_engine(input_tensors);
+    const engine::HostTensorMap result = run_engine(input_tensors);
 
     std::vector<std::vector<TensorElement>> output_tensors;
     std::vector<std::vector<int64_t>> shapes;
     for (const LayerInfo& info : inference_metadata_.getOutputs()) {
-        const auto output = result.outputs.find(info.name);
-        if (output == result.outputs.end()) {
-            throw ::InferenceExecutionException("NERT engine produced no output named '" + info.name + "'");
-        }
+        const engine::HostTensor& output = find_output(result, info.name);
 
         std::vector<TensorElement> elements;
-        elements.reserve(output->second.size());
-        for (float value : output->second) {
-            elements.emplace_back(value);
+        switch (output.dtype) {
+        case engine::DataType::Float32:
+            append_elements<float, float>(output, elements);
+            break;
+        case engine::DataType::Int64:
+            append_elements<int64_t, int64_t>(output, elements);
+            break;
+        case engine::DataType::Bool:
+            append_elements<uint8_t, uint8_t>(output, elements);
+            break;
+        case engine::DataType::Unknown:
+            throw ::InferenceExecutionException("NERT output '" + info.name + "' has no supported element type");
         }
         output_tensors.push_back(std::move(elements));
         shapes.push_back(info.shape);
@@ -139,21 +209,20 @@ NertInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
 }
 
 std::vector<RawOutputTensor> NertInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
-    const engine::InferenceResult result = run_engine(input_tensors);
+    engine::HostTensorMap result = run_engine(input_tensors);
 
     std::vector<RawOutputTensor> outputs;
     outputs.reserve(inference_metadata_.getOutputs().size());
     for (const LayerInfo& info : inference_metadata_.getOutputs()) {
-        const auto output = result.outputs.find(info.name);
-        if (output == result.outputs.end()) {
+        const auto output = result.find(info.name);
+        if (output == result.end()) {
             throw ::InferenceExecutionException("NERT engine produced no output named '" + info.name + "'");
         }
 
         RawOutputTensor raw;
-        raw.dtype = TensorDtype::FP32;
+        raw.dtype = to_raw_dtype(output->second.dtype);
         raw.shape = info.shape;
-        raw.bytes.resize(output->second.size() * sizeof(float));
-        std::memcpy(raw.bytes.data(), output->second.data(), raw.bytes.size());
+        raw.bytes = std::move(output->second.bytes);
         outputs.push_back(std::move(raw));
     }
 
