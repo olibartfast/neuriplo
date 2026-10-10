@@ -129,6 +129,27 @@ void Identity(const Node& node, const std::vector<TensorView>& inputs, const std
 // Elementwise float32 base^exponent with NumPy multidirectional broadcasting.
 void Pow(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
+// Elementwise absolute value; float32 or int64.
+void Abs(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise negation; float32 or int64.
+void Neg(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise natural exponential; float32.
+void Exp(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise natural logarithm; float32.
+void Log(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise cosine; float32.
+void Cos(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise sine; float32.
+void Sin(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Clamp float32 data to optional scalar min/max inputs.
+void Clip(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 // Repeat the input along each axis by the int64 repeats input; float32, int64,
 // or bool data.
 void Tile(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);

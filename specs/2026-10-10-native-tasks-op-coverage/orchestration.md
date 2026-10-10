@@ -110,3 +110,4 @@ Written at dispatch. Survey: GridSample 4-D, bilinear, `padding_mode` zeros,
 | --- | --- | --- | --- | --- | --- |
 | 1 | T1 | orchestrator (not delegated) | pass | pass: 13 YOLO exports | Implemented before the orchestration rule; commit `fbefc95` |
 | 2 | T2 | orchestrator (not delegated) | pass after two orchestrator fixes | pass: 6 transformer exports + YOLO regression | Implemented before the rule; the YOLO regression rerun caught two defects (empty initializers, empty Resize scales), fixed by the orchestrator |
+| 3 | P3a | worker (`sonnet`, worktree `wip/native-p3a`) | pass on the worker's second run (the first build failed on a typo in its own generated `Abs.cpp`; deviation: acceptance run twice) | pass: engine 12/12, NativeInferTest, ResNet-18 and YOLO26 parity, format | Diff inside the writable list; planner review found no defects |
