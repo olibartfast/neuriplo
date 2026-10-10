@@ -309,10 +309,15 @@ float32 `[N,3,H,W]` with symbolic H, W (fixed per load, [D-8]); output
 other tier-4 needs (AveragePool, GridSample, Pad, Range, ReduceSum, Sqrt,
 Tanh, Tile) exist.
 
-- **Starting revision:** the branch head after P3h integrates.
-- **Writable:** `engine/src/**`, `engine/include/engine/**`,
-  `engine/test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp`,
-  `backends/nert/test/ModelZooParityTest.cpp` (input-file handling only).
+- **Retargeted after R3/R4:** the engine lives in `olibartfast/nert`. Engine
+  work happens in a NERT worktree (`../nert-w-p4a`, branch `wip/p4a` from
+  `main`); the comparison-test change in a Neuriplo worktree
+  (`../neuriplo-w-p4a`, from `feature/nert`). The parity run builds Neuriplo
+  with `-DFETCHCONTENT_SOURCE_DIR_NERT=../nert-w-p4a`.
+- **Writable:** NERT `src/**`, `include/engine/**`,
+  `test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp`, `CHANGELOG.md`;
+  Neuriplo `backends/nert/test/ModelZooParityTest.cpp` (input-file handling
+  only).
 - **Required final state:**
   1. InstanceNormalization (opset 6 semantics: per-instance, per-channel
      normalization over spatial axes with `epsilon`, scale and bias per
