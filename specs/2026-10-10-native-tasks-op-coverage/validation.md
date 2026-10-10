@@ -89,3 +89,14 @@ Tier 3 (2026-10-10, [D-16], real image `bus.jpg`):
 | DEIMv2 | 1x3x640x640, /255; sizes 640 | 5 | 1.0 | 3.0e-07 |
 
 Tier 3 status: complete. Tiers 4-5 continue in `olibartfast/nert`.
+
+Tier 4 (2026-10-10, real image pair `bus.jpg` 256×320 in [-1,1] and a 4 px
+shifted copy; `parity`, atol 1e-3 scaled). Manifest input column extended to
+accept several `;`-separated files, filling the float32 graph inputs in order.
+
+| Export | Input | Mode | Max scaled diff |
+| --- | --- | --- | --- |
+| RAFT-large (torchvision) | 1x3x256x320;1x3x256x320 | parity | 6.1e-05 |
+
+Tier 4 status: complete (Phase A of `olibartfast/nert`
+`specs/2026-10-10-raft-open-vocab`). Tier 5 continues in `olibartfast/nert`.
