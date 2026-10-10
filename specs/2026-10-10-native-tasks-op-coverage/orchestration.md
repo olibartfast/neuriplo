@@ -197,8 +197,46 @@ Fresh worker, same worktree, continuing from the R1 diff.
 
 ### Packet P3c — ReduceSum, Range, Pad
 
-Written at dispatch. Must extend the load-time evaluator, because the DETR
-exports compute Range limits and Pad amounts from shape subgraphs.
+- **Starting revision:** `8dc80eb`.
+- **Writable:** new `engine/src/kernels/{ReduceSum,Range,Pad}.cpp`; modify
+  `Kernels.hpp`, `CpuKernels.cpp`, `engine/CMakeLists.txt`,
+  `engine/src/ModelLoader.cpp` (allowlist, attribute maps, attribute
+  policy, accepted-ops message), `engine/src/ShapeInference.cpp` (shape
+  rules, `compute_outputs`, the static evaluator), `engine/test/KernelsTest.cpp`
+  and `engine/test/ShapeInferenceTest.cpp` (append only).
+- **Survey facts the packet is written against:** DEIMv2 and RF-DETR compute
+  a Range `limit` as `Cast(to FLOAT)` of an int64 shape expression
+  (`Shape(images)[2] / 16`), with float32 constant start and delta; other
+  Range sites take int64 operands. RT-DETR v4 and D-FINE compute Pad `pads`
+  as int64 from `Cast`/`Reshape` chains; `mode` is `constant`, the
+  constant-value input omitted. ReduceSum takes axes as an input
+  (`keepdims` 0 or 1) on float32 data, and on int64 data inside a shape
+  subgraph.
+- **Required final state:**
+  1. ReduceSum (opset 18): data float32 or int64; optional int64 axes input
+     resolved at load; `keepdims` (default 1); `noop_with_empty_axes`
+     (default 0: no axes reduces everything; 1: identity).
+  2. Range: scalar start, limit, delta of one dtype (float32 or int64);
+     output 1-D of length max(ceil((limit - start) / delta), 0); values
+     start + i*delta. Shape inference resolves the three operands at load.
+  3. Pad (opset 18): data float32 or int64; int64 `pads` input (2 x number
+     of padded axes), optional scalar `constant_value` (default 0), optional
+     int64 `axes` input; attribute `mode` in constant, reflect, edge (`wrap`
+     rejected at load). Negative pads crop. Pads resolved at load.
+  4. Evaluator: a float lane in `EvalTensor` (values as double) fed by
+     float32 initializers and `Cast` to FLOAT of an int64 value, so Range's
+     float operands resolve; Range and ReduceSum evaluate over int64; Cast
+     to INT64 of a float lane value truncates toward zero as ONNX does.
+  5. Tests: hand-computed kernel cases (Pad in each mode plus a negative
+     pad, Range float and int64 including an empty result, ReduceSum with
+     and without keepdims and with noop_with_empty_axes); `EngineShapes`
+     tests rebuilding the two surveyed chains (float Range limit from a
+     Shape-derived int64 through Cast, Pad amounts from a Shape-derived
+     chain) and asserting the resolved output dims; a negative case for
+     Pad `mode` `wrap` at load.
+  6. clang-format only on new kernel files.
+- **Acceptance:** the scoreboard at the top of this file.
+- **Budget:** 60 turns.
 
 ### Packet P3d — GridSample, Einsum
 
