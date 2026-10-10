@@ -868,6 +868,43 @@ TEST_F(EngineLoader, HermeticSliceTopKLoads)
     ASSERT_EQ(graph.nodes[1].attributes.size(), 3U);
 }
 
+// Hermetic positive: Cast `to` may also be BOOL (9).
+TEST_F(EngineLoader, HermeticCastToBoolLoads)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("cast_b", "Cast", {"x"}, {"b"},
+                      {encode_attribute_int("to", 9)}));
+    put_sub(body, 1, encode_node("cast_f", "Cast", {"b"}, {"y"},
+                      {encode_attribute_int("to", 1)}));
+    put_sub(body, 11, encode_value_info("x", 1, {4}));
+    put_sub(body, 12, encode_value_info("y", 1, {4}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("cast_bool.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 2U);
+    EXPECT_EQ(std::get<std::int64_t>(graph.nodes[0].attributes.front().value),
+        9);
+}
+
+// Hermetic positive: an intermediate value_info entry may record a zero dim
+// (an empty tensor, such as the leading slice of a shape vector); graph
+// inputs and outputs still reject it (ZeroDimensionRejected).
+TEST_F(EngineLoader, ValueInfoZeroDimensionLoads)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+    put_sub(body, 13, encode_value_info("empty", 7 /*INT64*/, {0}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("vi_zero_dim.onnx", encode_model(body)));
+    const auto it = graph.tensors.find("empty");
+    ASSERT_NE(it, graph.tensors.end());
+    EXPECT_EQ(it->second.dims, (std::vector<std::int64_t>{0}));
+    EXPECT_EQ(it->second.dtype, engine::DataType::Int64);
+}
+
 // Hermetic positive: ConstantOfShape carries an INT64 tensor `value`; Shape,
 // Equal, and Where take no attributes.
 TEST_F(EngineLoader, HermeticConstantOfShapeEqualWhereShapeLoads)
@@ -1254,26 +1291,89 @@ TEST_F(EngineLoaderNegative, TopKNonConstantKRejectedAtLoad)
     EXPECT_NE(message.find("TopK"), std::string::npos) << "message: " << message;
 }
 
-// ConstantOfShape whose `value` is not an INT64 tensor rejects.
+// ConstantOfShape `value` (opset 18) may be a FLOAT, INT64, or BOOL
+// one-element tensor, or absent (float32 zero). Converted from the former
+// ConstantOfShapeFloatValueRejected: FLOAT is now accepted, and each tensor
+// element type decodes into its own Attribute alternative.
 
-TEST_F(EngineLoaderNegative, ConstantOfShapeFloatValueRejected)
+TEST_F(EngineLoader, HermeticConstantOfShapeFloatBoolAndAbsentValueLoad)
 {
-    const std::vector<float> fill{0.0F};
+    const std::vector<float> fill{2.5F};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {3}));
+    put_sub(body, 1, encode_node("cos_f", "ConstantOfShape", {"cshape"},
+                      {"ff"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(1 /*FLOAT*/, {1},
+                              raw_bytes_float(fill)))}));
+    put_sub(body, 1, encode_node("cos_b", "ConstantOfShape", {"cshape"},
+                      {"fb"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(9 /*BOOL*/, {1},
+                              std::string(1, '\x01')))}));
+    put_sub(body, 1, encode_node("cos_d", "ConstantOfShape", {"cshape"},
+                      {"fd"}, {}));
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("cos_values.onnx", encode_model(body)));
+    ASSERT_EQ(graph.nodes.size(), 4U);
+    ASSERT_EQ(graph.nodes[0].attributes.size(), 1U);
+    EXPECT_EQ(std::get<float>(graph.nodes[0].attributes.front().value), 2.5F);
+    ASSERT_EQ(graph.nodes[1].attributes.size(), 1U);
+    EXPECT_TRUE(std::get<bool>(graph.nodes[1].attributes.front().value));
+    EXPECT_TRUE(graph.nodes[2].attributes.empty());
+}
+
+// ConstantOfShape whose `value` is a DOUBLE tensor (outside FLOAT, INT64,
+// BOOL) rejects with node + op context.
+
+TEST_F(EngineLoaderNegative, ConstantOfShapeDoubleValueRejected)
+{
+    const double fill = 0.5;
     std::string body;
     put_sub(body, 5, encode_initializer_int64("cshape", {1}, {3}));
     put_sub(body, 1, encode_node("cos_bad", "ConstantOfShape", {"cshape"},
                       {"fill"},
                       {encode_attribute_tensor("value",
-                          encode_constant_tensor(1 /*FLOAT*/, {1},
+                          encode_constant_tensor(11 /*DOUBLE*/, {1},
+                              std::string(reinterpret_cast<const char*>(&fill),
+                                  sizeof(fill))))}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+
+    const std::string message =
+        load_error_message(encode_model(body), "cos_double.onnx");
+    EXPECT_NE(message.find("cos_bad"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("ConstantOfShape"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("DOUBLE"), std::string::npos)
+        << "message: " << message;
+}
+
+// ConstantOfShape whose `value` tensor carries two elements rejects.
+
+TEST_F(EngineLoaderNegative, ConstantOfShapeTwoElementValueRejected)
+{
+    const std::vector<float> fill{1.0F, 2.0F};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {3}));
+    put_sub(body, 1, encode_node("cos_two", "ConstantOfShape", {"cshape"},
+                      {"fill"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(1 /*FLOAT*/, {2},
                               raw_bytes_float(fill)))}));
     put_sub(body, 11, encode_value_info("x", 1, {2}));
     put_sub(body, 12, encode_value_info("y", 1, {2}));
 
     const std::string message =
-        load_error_message(encode_model(body), "cos_float.onnx");
-    EXPECT_NE(message.find("cos_bad"), std::string::npos)
+        load_error_message(encode_model(body), "cos_two.onnx");
+    EXPECT_NE(message.find("cos_two"), std::string::npos)
         << "message: " << message;
-    EXPECT_NE(message.find("ConstantOfShape"), std::string::npos)
+    EXPECT_NE(message.find("exactly one element"), std::string::npos)
         << "message: " << message;
 }
 
@@ -1314,4 +1414,33 @@ TEST_F(EngineLoaderNegative, UnsupportedAttributeOnNewOp)
         << "message: " << message;
     EXPECT_NE(message.find("Mul"), std::string::npos) << "message: " << message;
     EXPECT_NE(message.find("alpha"), std::string::npos) << "message: " << message;
+}
+
+// A negative dim_value in an intermediate value_info entry still rejects.
+
+TEST_F(EngineLoaderNegative, ValueInfoNegativeDimensionRejected)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+    std::string dim_msg;
+    put_varint_field(dim_msg, 1, static_cast<uint64_t>(int64_t{-3}));
+    std::string shape;
+    put_sub(shape, 1, dim_msg);
+    std::string tensor_type;
+    put_varint_field(tensor_type, 1, 7);
+    put_sub(tensor_type, 2, shape);
+    std::string type_proto;
+    put_sub(type_proto, 1, tensor_type);
+    std::string vi;
+    put_length_delimited(vi, 1, "neg");
+    put_sub(vi, 2, type_proto);
+    put_sub(body, 13, vi);
+
+    const std::string message =
+        load_error_message(encode_model(body), "vi_neg_dim.onnx");
+    EXPECT_NE(message.find("neg"), std::string::npos) << "message: " << message;
+    EXPECT_NE(message.find("non-fixed"), std::string::npos)
+        << "message: " << message;
 }

@@ -46,6 +46,24 @@ const Attribute* find_attr(const Node& node, const std::string& name)
     return nullptr;
 }
 
+// ConstantOfShape's output element type follows its `value` attribute: INT64,
+// FLOAT, or BOOL; an absent `value` means float32 zero (opset 18). Any other
+// attribute kind is a node-local failure.
+DataType constantofshape_dtype(const Node& node)
+{
+    const Attribute* attr = find_attr(node, "value");
+    if (attr == nullptr || std::holds_alternative<float>(attr->value)) {
+        return DataType::Float32;
+    }
+    if (std::holds_alternative<int64_t>(attr->value)) {
+        return DataType::Int64;
+    }
+    if (std::holds_alternative<bool>(attr->value)) {
+        return DataType::Bool;
+    }
+    fail(node, "ConstantOfShape 'value' must be an INT64, FLOAT, or BOOL scalar");
+}
+
 int64_t attr_int(const Node& node, const std::string& name, int64_t fallback)
 {
     const Attribute* a = find_attr(node, name);
@@ -606,11 +624,29 @@ std::optional<EvalTensor> eval_node(
             ? eval_tensor(ctx, node.inputs[0], depth)
             : std::nullopt;
         const int64_t to = attr_int(node, "to", 0);
-        if (!value.has_value() || (to != 7 /*INT64*/ && to != 1 /*FLOAT*/)) {
+        if (!value.has_value() ||
+            (to != 7 /*INT64*/ && to != 1 /*FLOAT*/ && to != 9 /*BOOL*/)) {
             return std::nullopt;
         }
         EvalTensor out;
         out.dims = value->dims;
+        if (to == 9) {
+            // Any nonzero element converts to true.
+            if (value->dtype == DataType::Bool) {
+                return value;
+            }
+            out.dtype = DataType::Bool;
+            if (value->dtype == DataType::Int64) {
+                for (const int64_t v : value->i64) {
+                    out.boolean.push_back(static_cast<char>(v != 0));
+                }
+            } else {
+                for (const double v : value->f64) {
+                    out.boolean.push_back(static_cast<char>(v != 0.0));
+                }
+            }
+            return out;
+        }
         if (to == 1) {
             // Only int64 (or float) sources reach the float lane.
             if (value->dtype == DataType::Float32) {
@@ -1049,18 +1085,24 @@ std::optional<EvalTensor> eval_node(
             }
         }
         const Attribute* attr = find_attr(node, "value");
-        if (attr == nullptr) {
-            return std::nullopt;
-        }
-        const int64_t* fill = std::get_if<int64_t>(&attr->value);
-        if (fill == nullptr) {
-            return std::nullopt;
-        }
         EvalTensor out;
-        out.dtype = DataType::Int64;
         out.dims = shape->i64;
-        out.i64.assign(static_cast<size_t>(eval_element_count(out.dims)),
-            *fill);
+        const size_t count = static_cast<size_t>(eval_element_count(out.dims));
+        if (attr == nullptr) {
+            out.dtype = DataType::Float32;
+            out.f64.assign(count, 0.0);
+        } else if (const int64_t* i = std::get_if<int64_t>(&attr->value)) {
+            out.dtype = DataType::Int64;
+            out.i64.assign(count, *i);
+        } else if (const float* f = std::get_if<float>(&attr->value)) {
+            out.dtype = DataType::Float32;
+            out.f64.assign(count, static_cast<double>(*f));
+        } else if (const bool* b = std::get_if<bool>(&attr->value)) {
+            out.dtype = DataType::Bool;
+            out.boolean.assign(count, static_cast<char>(*b));
+        } else {
+            return std::nullopt;
+        }
         return out;
     }
     return std::nullopt;
@@ -1680,6 +1722,9 @@ TensorInfo cast_shape(const Node& node,
     if (to == 7) {
         return TensorInfo{DataType::Int64, inputs[0]->dims};
     }
+    if (to == 9) {
+        return TensorInfo{DataType::Bool, inputs[0]->dims};
+    }
     fail(node, "Cast 'to' names an unsupported element type");
 }
 
@@ -1844,7 +1889,7 @@ TensorInfo constantofshape_shape(const StaticContext& ctx, const Node& node,
             fail(node, "ConstantOfShape shape values must be non-negative");
         }
     }
-    return TensorInfo{DataType::Int64, shape};
+    return TensorInfo{constantofshape_dtype(node), shape};
 }
 
 TensorInfo shape_shape(const Node& node,

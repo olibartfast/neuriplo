@@ -1,4 +1,5 @@
-// ReduceMean: mean over the requested axes with float32 accumulation.
+// ReduceMean: mean over the requested axes; sums accumulate in double and the
+// mean rounds once to float32.
 
 #include "Kernels.hpp"
 
@@ -156,7 +157,7 @@ void ReduceMean(const Node& node, const std::vector<TensorView>& inputs, const s
         }
     }
 
-    std::fill(y, y + outCount, 0.0f);
+    std::vector<double> acc(static_cast<std::size_t>(outCount), 0.0);
     for (int64_t i = 0; i < inCount; ++i) {
         int64_t remaining = i;
         int64_t outOffset = 0;
@@ -168,12 +169,12 @@ void ReduceMean(const Node& node, const std::vector<TensorView>& inputs, const s
                 outOffset += coord * outStride[static_cast<std::size_t>(outAxis[uj])];
             }
         }
-        y[outOffset] += x[i];
+        acc[static_cast<std::size_t>(outOffset)] += static_cast<double>(x[i]);
     }
 
     const int64_t groupSize = inCount / outCount;
     for (int64_t i = 0; i < outCount; ++i) {
-        y[i] /= static_cast<float>(groupSize);
+        y[i] = static_cast<float>(acc[static_cast<std::size_t>(i)] / static_cast<double>(groupSize));
     }
 }
 

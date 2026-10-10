@@ -25,8 +25,14 @@ constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 // `parity` (run both backends, compare every output), `e2e` (end-to-end
 // detection output [1,N,C>=6] with the score in column 4: compare only rows ONNX Runtime scores above 0.25,
 // since near-tied background rows select backend-noise-dependent cells), or
-// `load` (NERT must load the model and plan it; nothing runs). The optional
-// input file replaces the seeded input for a single-input model. Each element must satisfy
+// `detr` (DETR-family decoder: output 0 boxes [1,Q,4] as cxcywh, output 1 class
+// logits [1,Q,C], optional output 2 mask logits [1,Q,H,W]; only queries with
+// sigmoid(max logit) > 0.5 are compared, greedily matched one-to-one by class
+// and box IoU, since near-tied low-score queries order differently between
+// backends; fixed thresholds: box IoU >= 0.99, |score diff| <= 1e-3, mask IoU
+// >= 0.98, and `atol` is ignored), or `load` (NERT must load the model and
+// plan it; nothing runs). The optional input file replaces the seeded input
+// for a single-input model. In `parity` mode each element must satisfy
 // |native - ort| <= atol * (1 + |ort|).
 struct ZooEntry {
     std::string name;
@@ -96,6 +102,151 @@ double as_double(const TensorElement& element) {
     return std::visit([](auto value) { return static_cast<double>(value); }, element);
 }
 
+struct DetrQuery {
+    size_t index = 0;
+    double score = 0.0;
+    size_t cls = 0;
+};
+
+std::vector<DetrQuery> confident_queries(const std::vector<TensorElement>& logits, size_t queries, size_t classes) {
+    std::vector<DetrQuery> result;
+    for (size_t q = 0; q < queries; ++q) {
+        double best = as_double(logits[q * classes]);
+        size_t best_class = 0;
+        for (size_t c = 1; c < classes; ++c) {
+            const double value = as_double(logits[q * classes + c]);
+            if (value > best) {
+                best = value;
+                best_class = c;
+            }
+        }
+        const double score = 1.0 / (1.0 + std::exp(-best));
+        if (score > 0.5) {
+            result.push_back({q, score, best_class});
+        }
+    }
+    return result;
+}
+
+double box_iou(const std::vector<TensorElement>& a, size_t ia, const std::vector<TensorElement>& b, size_t ib) {
+    auto corners = [](const std::vector<TensorElement>& v, size_t i, double out[4]) {
+        const double cx = as_double(v[i * 4]);
+        const double cy = as_double(v[i * 4 + 1]);
+        const double w = as_double(v[i * 4 + 2]);
+        const double h = as_double(v[i * 4 + 3]);
+        out[0] = cx - w / 2;
+        out[1] = cy - h / 2;
+        out[2] = cx + w / 2;
+        out[3] = cy + h / 2;
+    };
+    double ba[4];
+    double bb[4];
+    corners(a, ia, ba);
+    corners(b, ib, bb);
+    const double iw = std::max(0.0, std::min(ba[2], bb[2]) - std::max(ba[0], bb[0]));
+    const double ih = std::max(0.0, std::min(ba[3], bb[3]) - std::max(ba[1], bb[1]));
+    const double inter = iw * ih;
+    const double area_a = std::max(0.0, ba[2] - ba[0]) * std::max(0.0, ba[3] - ba[1]);
+    const double area_b = std::max(0.0, bb[2] - bb[0]) * std::max(0.0, bb[3] - bb[1]);
+    const double uni = area_a + area_b - inter;
+    return uni > 0.0 ? inter / uni : 0.0;
+}
+
+double mask_iou(const std::vector<TensorElement>& a, const std::vector<TensorElement>& b, size_t qa, size_t qb,
+                size_t pixels) {
+    size_t inter = 0;
+    size_t uni = 0;
+    for (size_t p = 0; p < pixels; ++p) {
+        const bool ma = as_double(a[qa * pixels + p]) > 0.0;
+        const bool mb = as_double(b[qb * pixels + p]) > 0.0;
+        inter += (ma && mb) ? 1U : 0U;
+        uni += (ma || mb) ? 1U : 0U;
+    }
+    return uni == 0 ? 1.0 : static_cast<double>(inter) / static_cast<double>(uni);
+}
+
+void check_detr(const ZooEntry& entry, const std::vector<std::vector<TensorElement>>& native_out,
+                const std::vector<std::vector<int64_t>>& native_shapes,
+                const std::vector<std::vector<TensorElement>>& ort_out,
+                const std::vector<std::vector<int64_t>>& ort_shapes) {
+    ASSERT_GE(ort_out.size(), 2U) << "detr needs boxes and class logits";
+    ASSERT_EQ(ort_shapes[0].size(), 3U);
+    ASSERT_EQ(ort_shapes[0][2], 4);
+    ASSERT_EQ(ort_shapes[1].size(), 3U);
+    for (size_t o = 0; o < ort_out.size(); ++o) {
+        ASSERT_EQ(native_shapes[o], ort_shapes[o]) << "output " << o << " shape differs";
+        ASSERT_EQ(native_out[o].size(), ort_out[o].size()) << "output " << o << " size differs";
+    }
+    const size_t queries = static_cast<size_t>(ort_shapes[1][1]);
+    const size_t classes = static_cast<size_t>(ort_shapes[1][2]);
+    const bool has_masks = ort_out.size() >= 3;
+    size_t pixels = 0;
+    if (has_masks) {
+        ASSERT_EQ(ort_shapes[2].size(), 4U);
+        pixels = static_cast<size_t>(ort_shapes[2][2] * ort_shapes[2][3]);
+    }
+
+    std::vector<DetrQuery> ort_conf = confident_queries(ort_out[1], queries, classes);
+    const std::vector<DetrQuery> native_conf = confident_queries(native_out[1], queries, classes);
+    std::stable_sort(ort_conf.begin(), ort_conf.end(),
+                     [](const DetrQuery& x, const DetrQuery& y) { return x.score > y.score; });
+
+    double min_box_iou = 1.0;
+    double max_score_diff = 0.0;
+    double min_mask_iou = 1.0;
+    std::string failure;
+    std::vector<bool> used(native_conf.size(), false);
+    for (const DetrQuery& oq : ort_conf) {
+        double best_iou = -1.0;
+        size_t best = native_conf.size();
+        for (size_t n = 0; n < native_conf.size(); ++n) {
+            if (used[n] || native_conf[n].cls != oq.cls) {
+                continue;
+            }
+            const double iou = box_iou(ort_out[0], oq.index, native_out[0], native_conf[n].index);
+            if (iou > best_iou) {
+                best_iou = iou;
+                best = n;
+            }
+        }
+        if (best == native_conf.size()) {
+            if (failure.empty()) {
+                failure = "ORT query " + std::to_string(oq.index) + " has no unmatched NERT query of class " +
+                          std::to_string(oq.cls);
+            }
+            continue;
+        }
+        used[best] = true;
+        const DetrQuery& nq = native_conf[best];
+        const double score_diff = std::fabs(nq.score - oq.score);
+        min_box_iou = std::min(min_box_iou, best_iou);
+        max_score_diff = std::max(max_score_diff, score_diff);
+        if (best_iou < 0.99 && failure.empty()) {
+            failure = "ORT query " + std::to_string(oq.index) + " box IoU " + std::to_string(best_iou) + " < 0.99";
+        }
+        if (score_diff > 1e-3 && failure.empty()) {
+            failure = "ORT query " + std::to_string(oq.index) + " score diff " + std::to_string(score_diff) + " > 1e-3";
+        }
+        if (has_masks) {
+            const double miou = mask_iou(ort_out[2], native_out[2], oq.index, nq.index, pixels);
+            min_mask_iou = std::min(min_mask_iou, miou);
+            if (miou < 0.98 && failure.empty()) {
+                failure = "ORT query " + std::to_string(oq.index) + " mask IoU " + std::to_string(miou) + " < 0.98";
+            }
+        }
+    }
+    std::cout << "ZOO " << entry.name << " confident_queries=" << ort_conf.size() << " min_box_iou=" << min_box_iou
+              << " max_score_diff=" << max_score_diff;
+    if (has_masks) {
+        std::cout << " min_mask_iou=" << min_mask_iou;
+    }
+    std::cout << std::endl;
+
+    EXPECT_GT(ort_conf.size(), 0U) << "no confident queries; the input is not a real image";
+    EXPECT_EQ(ort_conf.size(), native_conf.size()) << "confident query counts differ";
+    EXPECT_TRUE(failure.empty()) << failure;
+}
+
 void check_entry(const ZooEntry& entry) {
     SCOPED_TRACE(entry.name);
     ASSERT_TRUE(std::filesystem::exists(entry.path)) << "model does not exist: " << entry.path;
@@ -109,7 +260,7 @@ void check_entry(const ZooEntry& entry) {
         }
         return;
     }
-    ASSERT_TRUE(entry.mode == "parity" || entry.mode == "e2e") << "unknown mode " << entry.mode;
+    ASSERT_TRUE(entry.mode == "parity" || entry.mode == "e2e" || entry.mode == "detr") << "unknown mode " << entry.mode;
 
     auto inputs = make_inputs(entry.input_sizes);
     if (!entry.input_file.empty()) {
@@ -144,6 +295,10 @@ void check_entry(const ZooEntry& entry) {
     }
 
     ASSERT_EQ(native_out.size(), ort_out.size()) << "output count differs";
+    if (entry.mode == "detr") {
+        check_detr(entry, native_out, native_shapes, ort_out, ort_shapes);
+        return;
+    }
     if (entry.mode == "e2e") {
         ASSERT_EQ(ort_shapes[0].size(), 3U);
         ASSERT_GE(ort_shapes[0][2], 6);

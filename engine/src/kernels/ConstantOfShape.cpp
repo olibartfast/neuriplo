@@ -1,13 +1,15 @@
-// ConstantOfShape: fill an int64 tensor of the requested shape.
+// ConstantOfShape: fill a tensor of the requested shape with one value.
 //
 // The shape arrives as a rank-1 int64 input whose values must be non-negative;
-// the output shape equals those values. The fill value is the scalar int64
-// `value` attribute the loader pinned.
+// the output shape equals those values. The fill value is the scalar `value`
+// attribute the loader pinned: an int64, float32, or bool scalar, which also
+// fixes the output dtype. An absent `value` fills float32 zero (opset 18).
 
 #include "Kernels.hpp"
 
 #include <cstdint>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace engine {
@@ -27,8 +29,7 @@ int64_t ElementCount(const std::vector<int64_t>& dims, const std::string& contex
 
 } // namespace
 
-void ConstantOfShape(const Node& node, const std::vector<TensorView>& inputs,
-    const std::vector<TensorView>& outputs) {
+void ConstantOfShape(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs) {
     const std::string context = "ConstantOfShape (node '" + node.name + "')";
     if (inputs.size() != 1 || outputs.size() != 1) {
         throw InferenceException(context + ": expected a shape input and one output");
@@ -53,25 +54,13 @@ void ConstantOfShape(const Node& node, const std::vector<TensorView>& inputs,
         }
     }
 
-    int64_t fill = 0;
-    bool have_value = false;
+    const Attribute* value = nullptr;
     for (const Attribute& attr : node.attributes) {
         if (attr.name == "value") {
-            const int64_t* value = std::get_if<int64_t>(&attr.value);
-            if (value == nullptr) {
-                throw InferenceException(context + ": ConstantOfShape 'value' must be an int64 scalar");
-            }
-            fill = *value;
-            have_value = true;
+            value = &attr;
         }
     }
-    if (!have_value) {
-        throw InferenceException(context + ": ConstantOfShape requires a 'value' attribute");
-    }
 
-    if (out.dtype != DataType::Int64) {
-        throw InferenceException(context + ": ConstantOfShape output must be int64");
-    }
     if (out.dims != shape) {
         throw InferenceException(context + ": output shape does not match the shape input");
     }
@@ -82,10 +71,39 @@ void ConstantOfShape(const Node& node, const std::vector<TensorView>& inputs,
     if (out_count > 0 && out.data == nullptr) {
         throw InferenceException(context + ": null output buffer");
     }
-    int64_t* y = static_cast<int64_t*>(out.data);
-    for (int64_t i = 0; i < out_count; ++i) {
-        y[i] = fill;
+
+    if (value == nullptr || std::holds_alternative<float>(value->value)) {
+        const float fill = value == nullptr ? 0.0f : std::get<float>(value->value);
+        if (out.dtype != DataType::Float32) {
+            throw InferenceException(context + ": ConstantOfShape output must be float32 for a float value");
+        }
+        float* y = static_cast<float*>(out.data);
+        for (int64_t i = 0; i < out_count; ++i) {
+            y[i] = fill;
+        }
+        return;
     }
+    if (const int64_t* fill = std::get_if<int64_t>(&value->value)) {
+        if (out.dtype != DataType::Int64) {
+            throw InferenceException(context + ": ConstantOfShape output must be int64 for an int64 value");
+        }
+        int64_t* y = static_cast<int64_t*>(out.data);
+        for (int64_t i = 0; i < out_count; ++i) {
+            y[i] = *fill;
+        }
+        return;
+    }
+    if (const bool* fill = std::get_if<bool>(&value->value)) {
+        if (out.dtype != DataType::Bool) {
+            throw InferenceException(context + ": ConstantOfShape output must be bool for a bool value");
+        }
+        bool* y = static_cast<bool*>(out.data);
+        for (int64_t i = 0; i < out_count; ++i) {
+            y[i] = *fill;
+        }
+        return;
+    }
+    throw InferenceException(context + ": ConstantOfShape 'value' must be an int64, float, or bool scalar");
 }
 
 } // namespace kernels

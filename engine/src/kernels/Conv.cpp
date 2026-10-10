@@ -5,7 +5,8 @@
 // bias is [M]. Each output spatial dim is
 //   o = floor((in + pad_begin + pad_end - dilation*(k-1) - 1)/stride) + 1,
 // and ceil(in/stride) for the SAME_* auto_pad modes. 1-D and 2-D run as 3-D
-// with unit leading axes. Naive, float32, single-threaded, one output tensor.
+// with unit leading axes. Naive, float32 data with double accumulation (each
+// output rounds once to float32), single-threaded, one output tensor.
 
 #include "Kernels.hpp"
 
@@ -259,7 +260,7 @@ void Conv(const Node& node, const std::vector<TensorView>& inputs, const std::ve
             for (int64_t od = 0; od < o3[0]; ++od) {
                 for (int64_t oh = 0; oh < o3[1]; ++oh) {
                     for (int64_t ow = 0; ow < o3[2]; ++ow) {
-                        float acc = biasValue;
+                        double acc = static_cast<double>(biasValue);
                         for (int64_t kc = 0; kc < channelsPerGroup; ++kc) {
                             const float* xChannel = xData + (n * inChannels + channelBase + kc) * inPlane;
                             const float* wChannel = wData + (m * channelsPerGroup + kc) * kPlane;
@@ -280,12 +281,12 @@ void Conv(const Node& node, const std::vector<TensorView>& inputs, const std::ve
                                         if (iw < 0 || iw >= in3[2]) {
                                             continue;
                                         }
-                                        acc += xRow[iw] * wRow[kw];
+                                        acc += static_cast<double>(xRow[iw]) * static_cast<double>(wRow[kw]);
                                     }
                                 }
                             }
                         }
-                        yPlane[(od * o3[1] + oh) * o3[2] + ow] = acc;
+                        yPlane[(od * o3[1] + oh) * o3[2] + ow] = static_cast<float>(acc);
                     }
                 }
             }

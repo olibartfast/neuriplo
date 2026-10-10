@@ -2,8 +2,8 @@
 //
 // A 1-D lhs is promoted to [1,K] and a 1-D rhs to [K,1]; the promoted axis is
 // dropped from the result. Remaining batch dimensions broadcast like NumPy, and
-// A's last axis contracts with B's second-to-last. Naive, float32,
-// single-threaded.
+// A's last axis contracts with B's second-to-last. Naive, float32 data with
+// double accumulation (each output rounds once to float32), single-threaded.
 
 #include "Kernels.hpp"
 
@@ -155,17 +155,16 @@ void MatMul(const Node& node, const std::vector<TensorView>& inputs, const std::
             coords[j] = remaining / fullStrides[j];
             remaining %= fullStrides[j];
         }
-        const std::vector<int64_t> batchCoords(coords.begin(),
-                                               coords.begin() + static_cast<std::ptrdiff_t>(batchRank));
+        const std::vector<int64_t> batchCoords(coords.begin(), coords.begin() + static_cast<std::ptrdiff_t>(batchRank));
         const int64_t mi = coords[fullDims.size() - 2];
         const int64_t ni = coords[fullDims.size() - 1];
         const int64_t aBase = BroadcastOffset(batchA, batchOut, batchCoords) * matSizeA + mi * k;
         const int64_t bBase = BroadcastOffset(batchB, batchOut, batchCoords) * matSizeB + ni;
-        float acc = 0.0f;
+        double acc = 0.0;
         for (int64_t kk = 0; kk < k; ++kk) {
-            acc += ap[aBase + kk] * bp[bBase + kk * n];
+            acc += static_cast<double>(ap[aBase + kk]) * static_cast<double>(bp[bBase + kk * n]);
         }
-        y[index] = acc;
+        y[index] = static_cast<float>(acc);
     }
 }
 

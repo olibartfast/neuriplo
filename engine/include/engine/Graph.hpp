@@ -55,15 +55,18 @@ struct TensorInfo {
 
 // An operator attribute value. Covers the kinds the supported operators use:
 // integer and float scalars, strings, and integer or float lists. Other kinds
-// are rejected at load.
+// are rejected at load. A one-element tensor attribute (ConstantOfShape's
+// `value`) keeps its element type in the alternative it decodes to: INT64 as
+// int64_t, FLOAT as float, BOOL as bool.
 struct Attribute {
     std::string name;
     std::variant<
-        int64_t,                   // int/int64/bool scalars
-        float,                     // float scalar
+        int64_t,                   // int/int64 scalars, INT64 tensor scalar
+        float,                     // float scalar, FLOAT tensor scalar
         std::string,               // string scalar (auto_pad)
         std::vector<int64_t>,      // ints list (pads, strides, dilations, ...)
-        std::vector<float>         // float list
+        std::vector<float>,        // float list
+        bool                       // BOOL tensor scalar
         >
         value;
 

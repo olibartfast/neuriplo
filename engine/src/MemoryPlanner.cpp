@@ -133,17 +133,21 @@ MemoryPlan PlanMemory(const Graph& graph, const InferredShapes& shapes) {
             throw ModelLoadException("memory plan: no inferred shape for tensor '" + name + "'");
         }
 
+        // A zero dim is an empty tensor (the leading slice of a shape vector,
+        // say): it plans a zero-byte buffer, which never overlaps another. A
+        // negative dim or an element type with no size is still rejected.
         int64_t elements = 1;
-        bool non_positive = false;
+        bool negative = false;
         for (const int64_t dim : shape->second.dims) {
-            if (dim <= 0) {
-                non_positive = true;
+            if (dim < 0) {
+                negative = true;
                 break;
             }
             elements *= dim;
         }
-        const int64_t size = elements * dtype_bytes(shape->second.dtype);
-        if (non_positive || size <= 0) {
+        const int64_t element_bytes = dtype_bytes(shape->second.dtype);
+        const int64_t size = elements * element_bytes;
+        if (negative || element_bytes <= 0 || size < 0) {
             throw ModelLoadException("memory plan: non-positive size for tensor '" + name + "'");
         }
 
