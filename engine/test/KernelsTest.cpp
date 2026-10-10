@@ -3,7 +3,8 @@
 // Expand, Transpose, Slice, Gather, GatherElements, Resize, Flatten, Shape,
 // ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool,
 // ConvTranspose, Erf, Sqrt, Tanh, IsNaN, Squeeze, LayerNormalization, Abs,
-// Neg, Exp, Log, Cos, Sin, Clip, Greater, Less, And, and Not.
+// Neg, Exp, Log, Cos, Sin, Clip, Greater, Less, And, Not, ReduceSum, Range,
+// and Pad.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -3333,4 +3334,178 @@ TEST(EngineKernelsNegative, GreaterRejectsMixedDtypes) {
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("Greater"), std::string::npos) << error.what();
     }
+}
+
+// Runs Pad over a [1,n] float row with the given mode, pads, and optional constant.
+std::vector<float> RunPad(const std::string& mode, std::vector<float> in, std::vector<int64_t> pads,
+                          std::vector<int64_t> outDims, const std::vector<float>* constant) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Pad");
+    EXPECT_NE(kernel, nullptr);
+    int64_t outCount = 1;
+    for (int64_t dim : outDims) {
+        outCount *= dim;
+    }
+    std::vector<float> out(static_cast<std::size_t>(outCount), -1.0f);
+    engine::Node node = MakeNode("pad0", "Pad");
+    node.attributes.emplace_back("mode", std::string(mode));
+    std::vector<float> constantCopy = constant != nullptr ? *constant : std::vector<float>{};
+    std::vector<engine::TensorView> inputs = {FloatView(in, {1, static_cast<int64_t>(in.size())}),
+                                              Int64View(pads, {static_cast<int64_t>(pads.size())})};
+    if (constant != nullptr) {
+        inputs.push_back(FloatView(constantCopy, {}));
+    }
+    std::vector<engine::TensorView> outputs = {FloatView(out, outDims)};
+    kernel(node, inputs, outputs);
+    return out;
+}
+
+// Pad constant mode fills with the constant_value input.
+TEST(EngineKernels, PadConstantWithValue) {
+    const std::vector<float> value = {9.0f};
+    EXPECT_EQ(RunPad("constant", {1.0f, 2.0f, 3.0f}, {0, 1, 0, 2}, {1, 6}, &value),
+              (std::vector<float>{9.0f, 1.0f, 2.0f, 3.0f, 9.0f, 9.0f}));
+}
+
+// Pad constant mode defaults to zero when constant_value is omitted.
+TEST(EngineKernels, PadConstantDefaultZero) {
+    EXPECT_EQ(RunPad("constant", {1.0f, 2.0f}, {0, 1, 0, 1}, {1, 4}, nullptr),
+              (std::vector<float>{0.0f, 1.0f, 2.0f, 0.0f}));
+}
+
+// Pad reflect mirrors around the edge element without repeating it.
+TEST(EngineKernels, PadReflect) {
+    EXPECT_EQ(RunPad("reflect", {1.0f, 2.0f, 3.0f, 4.0f}, {0, 2, 0, 1}, {1, 7}, nullptr),
+              (std::vector<float>{3.0f, 2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 3.0f}));
+}
+
+// Pad edge repeats the border element.
+TEST(EngineKernels, PadEdge) {
+    EXPECT_EQ(RunPad("edge", {1.0f, 2.0f, 3.0f, 4.0f}, {0, 2, 0, 1}, {1, 7}, nullptr),
+              (std::vector<float>{1.0f, 1.0f, 1.0f, 2.0f, 3.0f, 4.0f, 4.0f}));
+}
+
+// Negative pads crop the input.
+TEST(EngineKernels, PadNegativeCrops) {
+    EXPECT_EQ(RunPad("constant", {1.0f, 2.0f, 3.0f, 4.0f, 5.0f}, {0, -1, 0, -2}, {1, 2}, nullptr),
+              (std::vector<float>{2.0f, 3.0f}));
+}
+
+// Pad rejects an unknown mode, naming the op.
+TEST(EngineKernelsNegative, PadRejectsWrapMode) {
+    try {
+        RunPad("wrap", {1.0f, 2.0f}, {0, 1, 0, 1}, {1, 4}, nullptr);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Pad"), std::string::npos) << error.what();
+    }
+}
+
+// Range over float32: ceil((2.5 - 0) / 0.5) == 5 elements.
+TEST(EngineKernels, RangeFloat32) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Range");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> start = {0.0f};
+    std::vector<float> limit = {2.5f};
+    std::vector<float> delta = {0.5f};
+    std::vector<float> out(5, -1.0f);
+    engine::Node node = MakeNode("range0", "Range");
+    std::vector<engine::TensorView> inputs = {FloatView(start, {}), FloatView(limit, {}), FloatView(delta, {})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {5})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 0.5f, 1.0f, 1.5f, 2.0f}));
+}
+
+// Range over int64 with a negative delta: ceil((4 - 10) / -3) == 2 elements.
+TEST(EngineKernels, RangeInt64NegativeDelta) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Range");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> start = {10};
+    std::vector<int64_t> limit = {4};
+    std::vector<int64_t> delta = {-3};
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("range1", "Range");
+    std::vector<engine::TensorView> inputs = {Int64View(start, {}), Int64View(limit, {}), Int64View(delta, {})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{10, 7}));
+}
+
+// Range rejects a zero delta, naming the op.
+TEST(EngineKernelsNegative, RangeRejectsZeroDelta) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Range");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> start = {0};
+    std::vector<int64_t> limit = {4};
+    std::vector<int64_t> delta = {0};
+    std::vector<int64_t> out(1, 0);
+    engine::Node node = MakeNode("range_bad", "Range");
+    std::vector<engine::TensorView> inputs = {Int64View(start, {}), Int64View(limit, {}), Int64View(delta, {})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {1})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Range"), std::string::npos) << error.what();
+    }
+}
+
+// ReduceSum over axis 1 of [2,3] with the default keepdims == 1.
+TEST(EngineKernels, ReduceSumKeepdimsDefault) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceSum");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(2, 0.0f);
+    std::vector<int64_t> axes = {1};
+    engine::Node node = MakeNode("rsum0", "ReduceSum");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{6.0f, 15.0f}));
+}
+
+// ReduceSum over axis -2 (axis 0) with keepdims == 0 on int64 data.
+TEST(EngineKernels, ReduceSumInt64KeepdimsZeroNegativeAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceSum");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {1, 2, 3, 4, 5, 6};
+    std::vector<int64_t> out(3, 0);
+    std::vector<int64_t> axes = {-2};
+    engine::Node node = MakeNode("rsum1", "ReduceSum");
+    node.attributes.emplace_back("keepdims", int64_t{0});
+    std::vector<engine::TensorView> inputs = {Int64View(in, {2, 3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{5, 7, 9}));
+}
+
+// ReduceSum with an empty axes input and noop_with_empty_axes == 1 copies the input.
+TEST(EngineKernels, ReduceSumNoopWithEmptyAxes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceSum");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(6, 0.0f);
+    std::vector<int64_t> axes;
+    engine::Node node = MakeNode("rsum2", "ReduceSum");
+    node.attributes.emplace_back("noop_with_empty_axes", int64_t{1});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3}), Int64View(axes, {0})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, in);
 }

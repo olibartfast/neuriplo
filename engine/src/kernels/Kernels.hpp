@@ -190,5 +190,15 @@ void Squeeze(const Node& node, const std::vector<TensorView>& inputs, const std:
 void LayerNormalization(const Node& node, const std::vector<TensorView>& inputs,
     const std::vector<TensorView>& outputs);
 
+// Sum over the given axes (or all axes when none are supplied); float32 or int64.
+void ReduceSum(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// 1-D arithmetic sequence from scalar start, limit, delta; float32 or int64.
+void Range(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Constant, reflect, or edge padding from the int64 pads input; negative pads
+// crop; float32 or int64 data.
+void Pad(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 } // namespace kernels
 } // namespace engine

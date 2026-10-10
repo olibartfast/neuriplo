@@ -62,6 +62,9 @@ add_library(neuriplo_engine STATIC
     src/kernels/Cast.cpp
     src/kernels/Softmax.cpp
     src/kernels/ReduceMax.cpp
+    src/kernels/ReduceSum.cpp
+    src/kernels/Range.cpp
+    src/kernels/Pad.cpp
     src/kernels/Mod.cpp
     src/kernels/Equal.cpp
     src/kernels/Greater.cpp

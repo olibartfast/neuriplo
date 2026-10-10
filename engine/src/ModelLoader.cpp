@@ -582,6 +582,14 @@ const std::unordered_map<std::string, AttrSlot>& reducemean_attrs()
     return k;
 }
 
+const std::unordered_map<std::string, AttrSlot>& pad_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "mode", AttrSlot::Str },
+    };
+    return k;
+}
+
 const std::unordered_map<std::string, AttrSlot>& reshape_attrs()
 {
     static const std::unordered_map<std::string, AttrSlot> k = {
@@ -774,6 +782,9 @@ allowed_attributes()
             { "Conv", &conv_attrs() },
             { "MaxPool", &maxpool_attrs() },
             { "ReduceMean", &reducemean_attrs() },
+            { "ReduceSum", &reducemean_attrs() },
+            { "Range", &kNoAttrs },
+            { "Pad", &pad_attrs() },
             { "Reshape", &reshape_attrs() },
             { "Gemm", &gemm_attrs() },
             { "Flatten", &flatten_attrs() },
@@ -1076,6 +1087,18 @@ void validate_attr_policy(Node& node)
         }
         return;
     }
+    if (node.op_type == "Pad") {
+        const Attribute* mode = lookup("mode");
+        if (mode != nullptr) {
+            const std::string* v = std::get_if<std::string>(&mode->value);
+            if (v == nullptr ||
+                (*v != "constant" && *v != "reflect" && *v != "edge")) {
+                throw ModelLoadException(prefix + ": Pad 'mode' must be one of "
+                    "'constant', 'reflect', 'edge' here");
+            }
+        }
+        return;
+    }
     if (node.op_type == "Resize") {
         // nearest or linear, the four plain coordinate transforms, no
         // antialiasing. cubic_coeff_a and extrapolation_value only matter for
@@ -1189,7 +1212,7 @@ Node decode_node(const uint8_t* data, size_t size)
             "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose/"
             "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose/Erf/Sqrt/Tanh/"
             "IsNaN/Squeeze/LayerNormalization/Abs/Neg/Exp/Log/Cos/Sin/Clip/"
-            "Greater/Less/And/Not only)");
+            "Greater/Less/And/Not/ReduceSum/Range/Pad only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;

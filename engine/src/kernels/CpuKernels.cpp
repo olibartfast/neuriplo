@@ -68,6 +68,9 @@ KernelFn FindCpuKernel(const std::string& op_type) {
         {"IsNaN", &IsNaN},
         {"Squeeze", &Squeeze},
         {"LayerNormalization", &LayerNormalization},
+        {"ReduceSum", &ReduceSum},
+        {"Range", &Range},
+        {"Pad", &Pad},
     };
     const auto it = table.find(op_type);
     return it == table.end() ? nullptr : it->second;
