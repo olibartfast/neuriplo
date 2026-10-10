@@ -143,3 +143,7 @@ Out:
   load. Owner: maintainer.
 - [Q-4] The model zoo is large local exports, not CI fixtures. Which subset,
   if any, is provisioned in CI? Owner: maintainer.
+- [Q-5] Rename the engine namespace `engine` and include prefix `engine/` to
+  `nert` now that NERT is its own repository? Recommendation: yes, in one
+  breaking NERT 0.2 release with the matching adapter change. Owner:
+  maintainer.

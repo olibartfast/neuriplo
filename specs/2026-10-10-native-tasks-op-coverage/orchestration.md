@@ -70,6 +70,8 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3h — RT-DETR v4, D-FINE/DEIM, DEIMv2 end to end (goal-scoped)
 - P4a — RAFT end to end (tier 4, goal-scoped); after P3h
 - D3 — README quick start builds NERT, the branch default (maintainer, 2026-10-10)
+- R3 — NERT becomes its own repository, `olibartfast/nert` in `../nert` (maintainer, 2026-10-10)
+- R4 — Neuriplo consumes NERT as a pinned dependency; after R3
 
 ### Packet P3a — elementwise math
 
@@ -343,6 +345,45 @@ OpenCV DNN (a planner decision in the D2 packet); that decision is reversed.
 - **Acceptance:** `! grep -n "DEFAULT_BACKEND=OPENCV_DNN" Readme.md | grep -i "quick" ; sed -n '/## Quick Start/,/## Using/p' Readme.md`
   reviewed by the planner.
 - **Budget:** 10 turns. Tier: `sonnet`.
+
+### Packet R3 — NERT as a standalone repository
+
+Maintainer decision 2026-10-10: NERT moves to its own public repository,
+`olibartfast/nert`, checked out at `/home/oli/repos/nert`. The planner
+created it with `engine/`'s full history (`git subtree split --prefix=engine`,
+33 commits, branch `main`) and an empty GitHub remote. Neuriplo keeps the
+adapter (`backends/nert/`) and switches to the pinned dependency in R4.
+
+- **Writable:** everything in `/home/oli/repos/nert` except `.git`.
+- **Decisions fixed by the planner:** library target `nert` with aliases
+  `nert::nert` and `neuriplo_engine` (so Neuriplo's `add_subdirectory` /
+  `FetchContent` consumption keeps linking `neuriplo_engine` during R4);
+  `project(nert VERSION 0.1.0)`; namespace `engine` and include paths
+  `engine/*.hpp` unchanged (renaming them is [Q-5]); MIT licence, copied.
+- **Required final state:**
+  1. Standalone build: `cmake -S . -B build && cmake --build build` builds
+     the library and, when top-level (option `NERT_BUILD_TESTS`, default ON
+     top-level, OFF when consumed; `BUILD_INFERENCE_ENGINE_TESTS` still
+     honoured), the tests; `NERT_FIXTURE` selects the ResNet-18 model.
+  2. Install and package: `cmake --install` installs headers, the library
+     and `nertConfig.cmake` + `nertConfigVersion.cmake` exporting
+     `nert::nert`; a consumer `find_package(nert 0.1 REQUIRED)` links.
+  3. Repository files: `README.md` (what NERT is, status, build, test with
+     fixture provisioning, how Neuriplo consumes it, link to Neuriplo),
+     `LICENSE`, `CHANGELOG.md` (0.1.0 unreleased), `.clang-format` and the
+     format-check scope copied from Neuriplo for these files,
+     `.gitignore`, `tools/provision_resnet18.py` (copied from Neuriplo's
+     `backends/nert/test/provision_parity_fixture.py`), and a GitHub
+     Actions workflow that builds, provisions the fixture, runs ctest and
+     the clang-format 18 check.
+  4. Comments that describe Neuriplo's layering (the build guard against
+     `include/neuriplo/`, "wired via engine/CMakeLists.txt") are updated for
+     a standalone repository; behaviour of the engine is unchanged.
+- **Acceptance (once):** fresh standalone configure + build + `ctest` with
+  `NERT_FIXTURE`; `cmake --install` into a scratch prefix and a scratch
+  consumer project using `find_package(nert)` configures and builds; the
+  clang-format 18.1.3 check over the copied scope; `git status --short`.
+- **Budget:** 60 turns. Tier: `sonnet`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
