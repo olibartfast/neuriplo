@@ -4,7 +4,7 @@
 // ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool,
 // ConvTranspose, Erf, Sqrt, Tanh, IsNaN, Squeeze, LayerNormalization, Abs,
 // Neg, Exp, Log, Cos, Sin, Clip, Greater, Less, And, Not, ReduceSum, Range,
-// and Pad.
+// Pad, GridSample, and Einsum.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -3508,4 +3508,158 @@ TEST(EngineKernels, ReduceSumNoopWithEmptyAxes) {
     kernel(node, inputs, outputs);
 
     EXPECT_EQ(out, in);
+}
+
+namespace {
+
+// Run GridSample on a 2x2 input {1,2,3,4} and the given grid points.
+std::vector<float> RunGridSample(const std::vector<std::pair<std::string, std::string>>& strs, int64_t align,
+                                 std::vector<float> grid) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("GridSample");
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f};
+    const int64_t points = static_cast<int64_t>(grid.size() / 2);
+    std::vector<float> out(static_cast<size_t>(points), -1.0f);
+    engine::Node node = MakeNode("gs", "GridSample");
+    for (const auto& kv : strs) {
+        node.attributes.emplace_back(kv.first, kv.second);
+    }
+    node.attributes.emplace_back("align_corners", align);
+    std::vector<engine::TensorView> inputs = {FloatView(in, {1, 1, 2, 2}), FloatView(grid, {1, 1, points, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 1, points})};
+    kernel(node, inputs, outputs);
+    return out;
+}
+
+void ExpectNear(const std::vector<float>& actual, const std::vector<float>& expected) {
+    ASSERT_EQ(actual.size(), expected.size());
+    for (size_t i = 0; i < actual.size(); ++i) {
+        EXPECT_NEAR(actual[i], expected[i], 1e-5f) << "index " << i;
+    }
+}
+
+}  // namespace
+
+// Bilinear, align_corners 0: (0.25, 0.25) maps to pixel (0.75, 0.75), weights .0625/.1875/.1875/.5625.
+TEST(EngineKernels, GridSampleBilinearAlignCornersZero) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    ExpectNear(RunGridSample({{"mode", "bilinear"}}, 0, {0.25f, 0.25f}), {3.25f});
+}
+
+// Bilinear, align_corners 1: (0.5, -0.5) maps to pixel (0.75, 0.25), giving 2.25.
+TEST(EngineKernels, GridSampleBilinearAlignCornersOne) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    ExpectNear(RunGridSample({}, 1, {0.5f, -0.5f}), {2.25f});
+}
+
+// Nearest: pixel (0.75, 0.75) rounds to (1, 1) = 4; pixel (0.5, 0.5) rounds half to even to (0, 0) = 1.
+TEST(EngineKernels, GridSampleNearest) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    ExpectNear(RunGridSample({{"mode", "nearest"}}, 0, {0.25f, 0.25f, 0.0f, 0.0f}), {4.0f, 1.0f});
+}
+
+// x = -2 (align_corners 0) is pixel (-1.5, 0.5): zeros gives 0 (both neighbours outside).
+TEST(EngineKernels, GridSamplePaddingZeros) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    ExpectNear(RunGridSample({{"padding_mode", "zeros"}}, 0, {-2.0f, 0.0f}), {0.0f});
+}
+
+// Border clamps to column 0: mean of rows (1, 3) = 2.
+TEST(EngineKernels, GridSamplePaddingBorder) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    ExpectNear(RunGridSample({{"padding_mode", "border"}}, 0, {-2.0f, 0.0f}), {2.0f});
+}
+
+// Reflection about -0.5 maps x pixel -1.5 to 0.5, so the sample is (0.5, 0.5) = 2.5.
+TEST(EngineKernels, GridSamplePaddingReflection) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    ExpectNear(RunGridSample({{"padding_mode", "reflection"}}, 0, {-2.0f, 0.0f}), {2.5f});
+}
+
+// Einsum "bchw,bnc->bnhw": n0 selects channel 0 = {1,2}, n1 sums both channels = {4,6}.
+TEST(EngineKernels, EinsumBchwBncToBnhw) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Einsum");
+    ASSERT_NE(kernel, nullptr);
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> w = {1.0f, 0.0f, 1.0f, 1.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("es", "Einsum");
+    node.attributes.emplace_back("equation", std::string("bchw,bnc->bnhw"));
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 2, 1, 2}), FloatView(w, {1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 2, 1, 2})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 2.0f, 4.0f, 6.0f}));
+}
+
+// Einsum "ij,jk->ik" is a matrix product.
+TEST(EngineKernels, EinsumMatrixProduct) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Einsum");
+    ASSERT_NE(kernel, nullptr);
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> b = {5.0f, 6.0f, 7.0f, 8.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("es", "Einsum");
+    node.attributes.emplace_back("equation", std::string("ij, jk -> ik"));
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 2}), FloatView(b, {2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{19.0f, 22.0f, 43.0f, 50.0f}));
+}
+
+// Einsum "ii->" is the trace; implicit "ii" also sums the diagonal.
+TEST(EngineKernels, EinsumTrace) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Einsum");
+    ASSERT_NE(kernel, nullptr);
+    for (const char* equation : {"ii->", "ii"}) {
+        std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f};
+        std::vector<float> out(1, 0.0f);
+        engine::Node node = MakeNode("es", "Einsum");
+        node.attributes.emplace_back("equation", std::string(equation));
+        std::vector<engine::TensorView> inputs = {FloatView(a, {2, 2})};
+        std::vector<engine::TensorView> outputs = {FloatView(out, {})};
+        kernel(node, inputs, outputs);
+        EXPECT_EQ(out, (std::vector<float>{5.0f})) << equation;
+    }
+}
+
+// Einsum "ij->ji" transposes.
+TEST(EngineKernels, EinsumTranspose) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Einsum");
+    ASSERT_NE(kernel, nullptr);
+    std::vector<float> a = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> out(6, 0.0f);
+    engine::Node node = MakeNode("es", "Einsum");
+    node.attributes.emplace_back("equation", std::string("ij->ji"));
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3, 2})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 4.0f, 2.0f, 5.0f, 3.0f, 6.0f}));
+}
+
+// Einsum with an ellipsis is rejected, naming the op.
+TEST(EngineKernelsNegative, EinsumRejectsEllipsis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Einsum");
+    ASSERT_NE(kernel, nullptr);
+    std::vector<float> a = {1.0f, 2.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("es_bad", "Einsum");
+    node.attributes.emplace_back("equation", std::string("...i->...i"));
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Einsum"), std::string::npos) << error.what();
+    }
+}
+
+// GridSample mode "bicubic" is rejected, naming the op.
+TEST(EngineKernelsNegative, GridSampleRejectsBicubic) {
+    ASSERT_NE(engine::CpuDevice().kernels().find("GridSample"), nullptr);
+    try {
+        RunGridSample({{"mode", "bicubic"}}, 0, {0.0f, 0.0f});
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("GridSample"), std::string::npos) << error.what();
+    }
 }

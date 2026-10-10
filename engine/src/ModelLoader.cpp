@@ -735,6 +735,24 @@ const std::unordered_map<std::string, AttrSlot>& averagepool_attrs()
     return k;
 }
 
+const std::unordered_map<std::string, AttrSlot>& gridsample_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "mode", AttrSlot::Str },
+        { "padding_mode", AttrSlot::Str },
+        { "align_corners", AttrSlot::Int },
+    };
+    return k;
+}
+
+const std::unordered_map<std::string, AttrSlot>& einsum_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "equation", AttrSlot::Str },
+    };
+    return k;
+}
+
 // output_shape is deliberately absent: an explicit output size is a load
 // rejection rather than a second padding rule.
 const std::unordered_map<std::string, AttrSlot>& convtranspose_attrs()
@@ -836,6 +854,8 @@ allowed_attributes()
             { "IsNaN", &kNoAttrs },
             { "Squeeze", &kNoAttrs },
             { "LayerNormalization", &layernorm_attrs() },
+            { "GridSample", &gridsample_attrs() },
+            { "Einsum", &einsum_attrs() },
         };
     return kOps;
 }
@@ -1136,6 +1156,49 @@ void validate_attr_policy(Node& node)
         }
         return;
     }
+    if (node.op_type == "GridSample") {
+        const Attribute* mode = lookup("mode");
+        if (mode != nullptr) {
+            const std::string* v = std::get_if<std::string>(&mode->value);
+            if (v == nullptr || (*v != "bilinear" && *v != "nearest")) {
+                throw ModelLoadException(prefix + ": GridSample 'mode' must be "
+                    "'bilinear' or 'nearest' here");
+            }
+        }
+        const Attribute* padding = lookup("padding_mode");
+        if (padding != nullptr) {
+            const std::string* v = std::get_if<std::string>(&padding->value);
+            if (v == nullptr ||
+                (*v != "zeros" && *v != "border" && *v != "reflection")) {
+                throw ModelLoadException(prefix + ": GridSample 'padding_mode' "
+                    "must be one of 'zeros', 'border', 'reflection' here");
+            }
+        }
+        const Attribute* corners = lookup("align_corners");
+        if (corners != nullptr) {
+            const int64_t v = need_int(corners);
+            if (v != 0 && v != 1) {
+                throw ModelLoadException(prefix +
+                    ": GridSample 'align_corners' must be 0 or 1 here");
+            }
+        }
+        return;
+    }
+    if (node.op_type == "Einsum") {
+        const Attribute* equation = lookup("equation");
+        const std::string* v = equation == nullptr
+            ? nullptr : std::get_if<std::string>(&equation->value);
+        if (v == nullptr) {
+            throw ModelLoadException(
+                prefix + ": Einsum requires a string 'equation' attribute");
+        }
+        if (v->find("...") != std::string::npos ||
+            v->find('.') != std::string::npos) {
+            throw ModelLoadException(
+                prefix + ": Einsum equation must not use an ellipsis here");
+        }
+        return;
+    }
     if (node.op_type == "Mod") {
         // Surveyed fixture: integer remainder (fmod=0, trunc-based, result
         // takes the dividend's sign), never float fmod.
@@ -1212,7 +1275,7 @@ Node decode_node(const uint8_t* data, size_t size)
             "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose/"
             "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose/Erf/Sqrt/Tanh/"
             "IsNaN/Squeeze/LayerNormalization/Abs/Neg/Exp/Log/Cos/Sin/Clip/"
-            "Greater/Less/And/Not/ReduceSum/Range/Pad only)");
+            "Greater/Less/And/Not/ReduceSum/Range/Pad/GridSample/Einsum only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;

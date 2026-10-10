@@ -170,6 +170,13 @@ void Tile(const Node& node, const std::vector<TensorView>& inputs, const std::ve
 // automatic padding, ceil_mode, and count_include_pad.
 void AveragePool(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
+// 4-D bilinear or nearest sampling of X at normalized grid positions, with
+// zeros, border, or reflection padding; float32.
+void GridSample(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Einstein summation of one or two float32 operands per the equation attribute.
+void Einsum(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 // NCHW transposed convolution with groups, strides, dilations, explicit pads,
 // output_padding, and an optional rank-1 bias.
 void ConvTranspose(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
