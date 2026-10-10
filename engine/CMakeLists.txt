@@ -45,6 +45,7 @@ add_library(neuriplo_engine STATIC
     src/MemoryPlanner.cpp
     src/CpuDevice.cpp
     src/Executor.cpp
+    src/ConstantFolding.cpp
     src/kernels/CpuKernels.cpp
     src/kernels/Relu.cpp
     src/kernels/Add.cpp
@@ -76,7 +77,13 @@ add_library(neuriplo_engine STATIC
     src/kernels/Flatten.cpp
     src/kernels/Shape.cpp
     src/kernels/ConstantOfShape.cpp
-    src/kernels/TopK.cpp)
+    src/kernels/TopK.cpp
+    src/kernels/Floor.cpp
+    src/kernels/Identity.cpp
+    src/kernels/Pow.cpp
+    src/kernels/Tile.cpp
+    src/kernels/AveragePool.cpp
+    src/kernels/ConvTranspose.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
 target_include_directories(neuriplo_engine
     PUBLIC

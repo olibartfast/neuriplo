@@ -73,6 +73,7 @@ constexpr int kField_Tensor_DataType = 2;
 constexpr int kField_Tensor_FloatData = 4;
 constexpr int kField_Tensor_Int64Data = 7;
 constexpr int kField_Tensor_Name = 8;
+constexpr int kField_Tensor_DoubleData = 10;
 constexpr int kField_Tensor_RawData = 9;
 constexpr int kField_Tensor_ExternalData = 13;
 constexpr int kField_Tensor_DataLocation = 14;
@@ -99,6 +100,7 @@ constexpr int kField_Dim_Param = 2;
 constexpr int64_t kElemType_OnnxFloat = 1;
 constexpr int64_t kElemType_OnnxInt64 = 7;
 constexpr int64_t kElemType_OnnxBool = 9;
+constexpr int64_t kElemType_OnnxDouble = 11;
 
 // The opset version this loader targets.
 constexpr int64_t kRequiredOpsetVersion = 18;
@@ -195,6 +197,26 @@ void read_repeated_float(WireReader& reader, WireType wire_type,
     }
 }
 
+// A repeated double payload: packed (length-delimited fixed64s) or unpacked.
+void read_repeated_double(WireReader& reader, WireType wire_type,
+    std::vector<double>& out)
+{
+    auto push = [](uint64_t bits, std::vector<double>& out) {
+        double d = 0.0;
+        std::memcpy(&d, &bits, sizeof(d));
+        out.push_back(d);
+    };
+    if (wire_type == WireType::LengthDelimited) {
+        const auto payload = reader.read_length_delimited();
+        WireReader sub(payload.first, payload.second);
+        while (!sub.at_end()) {
+            push(sub.read_fixed64(), out);
+        }
+    } else {
+        push(reader.read_fixed64(), out);
+    }
+}
+
 std::string ld_string(WireReader& reader)
 {
     const auto s = reader.read_length_delimited();
@@ -211,6 +233,7 @@ struct TensorPatch {
     std::vector<int64_t> dims;
     std::vector<float> float_data;
     std::vector<int64_t> int64_data;
+    std::vector<double> double_data;
     std::string raw_data; // bytes as stored (little-endian elements)
     bool external = false;
     std::string external_location;
@@ -236,6 +259,9 @@ TensorPatch decode_tensor(const uint8_t* data, size_t size)
             break;
         case kField_Tensor_Int64Data:
             read_repeated_int64(reader, f.wire_type, t.int64_data);
+            break;
+        case kField_Tensor_DoubleData:
+            read_repeated_double(reader, f.wire_type, t.double_data);
             break;
         case kField_Tensor_Name:
             t.name = ld_string(reader);
@@ -339,6 +365,7 @@ DataType initializer_dtype(int64_t onnx_type, const std::string& name)
 {
     switch (onnx_type) {
     case kElemType_OnnxFloat:
+    case kElemType_OnnxDouble: // narrowed to float32, see double_initializer_values
         return DataType::Float32;
     case kElemType_OnnxInt64:
         return DataType::Int64;
@@ -419,6 +446,43 @@ std::vector<int64_t> int64_initializer_values(const TensorPatch& t,
     return values;
 }
 
+// DOUBLE constants are narrowed to float32: compute is float32-only, and the
+// surveyed exports use float64 only for constant subgraphs (anchor grids) that
+// end in a Cast to FLOAT.
+std::vector<float> double_initializer_values(const TensorPatch& t,
+    const std::string& model_dir, int64_t count)
+{
+    std::vector<double> wide = t.double_data;
+    if (wide.empty()) {
+        const std::string bytes = load_tensor_data(t, model_dir);
+        if (bytes.size() % sizeof(double) != 0) {
+            throw ModelLoadException(
+                "initializer raw_data byte size is not a multiple of eight "
+                "for tensor " +
+                quote(t.name));
+        }
+        wide.resize(bytes.size() / sizeof(double));
+        if (!wide.empty()) {
+            std::memcpy(wide.data(), bytes.data(), bytes.size());
+        }
+    }
+    if (static_cast<int64_t>(wide.size()) != count) {
+        throw ModelLoadException("initializer element count " +
+            std::to_string(wide.size()) + " does not match shape for tensor " +
+            quote(t.name));
+    }
+    return std::vector<float>(wide.begin(), wide.end());
+}
+
+std::vector<float> float32_values(const TensorPatch& t,
+    const std::string& model_dir, int64_t count)
+{
+    if (t.data_type == kElemType_OnnxDouble) {
+        return double_initializer_values(t, model_dir, count);
+    }
+    return float_initializer_values(t, model_dir, count);
+}
+
 Initializer materialize_initializer(const TensorPatch& t,
     const std::string& model_dir)
 {
@@ -432,7 +496,7 @@ Initializer materialize_initializer(const TensorPatch& t,
     init.dtype = dtype;
     init.dims = t.dims;
     if (dtype == DataType::Float32) {
-        init.values = float_initializer_values(t, model_dir, count);
+        init.values = float32_values(t, model_dir, count);
     } else {
         init.values = int64_initializer_values(t, model_dir, count);
     }
@@ -612,6 +676,35 @@ const std::unordered_map<std::string, AttrSlot>& transpose_attrs()
     return k;
 }
 
+const std::unordered_map<std::string, AttrSlot>& averagepool_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "kernel_shape", AttrSlot::IntList },
+        { "pads", AttrSlot::IntList },
+        { "strides", AttrSlot::IntList },
+        { "ceil_mode", AttrSlot::Int },
+        { "count_include_pad", AttrSlot::Int },
+        { "auto_pad", AttrSlot::Str },
+    };
+    return k;
+}
+
+// output_shape is deliberately absent: an explicit output size is a load
+// rejection rather than a second padding rule.
+const std::unordered_map<std::string, AttrSlot>& convtranspose_attrs()
+{
+    static const std::unordered_map<std::string, AttrSlot> k = {
+        { "pads", AttrSlot::IntList },
+        { "strides", AttrSlot::IntList },
+        { "dilations", AttrSlot::IntList },
+        { "group", AttrSlot::Int },
+        { "kernel_shape", AttrSlot::IntList },
+        { "output_padding", AttrSlot::IntList },
+        { "auto_pad", AttrSlot::Str },
+    };
+    return k;
+}
+
 static const std::unordered_map<std::string, AttrSlot> kNoAttrs;
 
 const std::unordered_map<std::string,
@@ -652,6 +745,12 @@ allowed_attributes()
             { "Split", &split_attrs() },
             { "TopK", &topk_attrs() },
             { "Transpose", &transpose_attrs() },
+            { "Floor", &kNoAttrs },
+            { "Identity", &kNoAttrs },
+            { "Pow", &kNoAttrs },
+            { "Tile", &kNoAttrs },
+            { "AveragePool", &averagepool_attrs() },
+            { "ConvTranspose", &convtranspose_attrs() },
         };
     return kOps;
 }
@@ -964,6 +1063,17 @@ void validate_attr_policy(Node& node)
         }
         return;
     }
+    if (node.op_type == "ConvTranspose") {
+        const Attribute* pad = lookup("auto_pad");
+        if (pad != nullptr) {
+            const std::string* v = std::get_if<std::string>(&pad->value);
+            if (v == nullptr || (*v != "NOTSET" && *v != "VALID")) {
+                throw ModelLoadException(prefix +
+                    ": ConvTranspose 'auto_pad' must be NOTSET or VALID here");
+            }
+        }
+        return;
+    }
     if (node.op_type == "ConstantOfShape") {
         if (lookup("value") == nullptr) {
             throw ModelLoadException(
@@ -992,8 +1102,8 @@ Node decode_node(const uint8_t* data, size_t size)
             " (engine accepts Conv/Gemm/MatMul/Add/Relu/MaxPool/ReduceMean/"
             "Reshape/Flatten/Mul/Div/Sub/Sigmoid/Shape/Equal/Where/Slice/"
             "Unsqueeze/Expand/Cast/Concat/ConstantOfShape/Gather/"
-            "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose "
-            "only)");
+            "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose/"
+            "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;
@@ -1101,18 +1211,20 @@ std::pair<std::string, Initializer> fold_constant_node(
         reinterpret_cast<const uint8_t*>(tensor_bytes.data()),
         tensor_bytes.size());
     if (t.data_type != kElemType_OnnxFloat &&
+        t.data_type != kElemType_OnnxDouble &&
         t.data_type != kElemType_OnnxInt64) {
         throw ModelLoadException("unsupported Constant value data type " +
             quote(elem_type_name(t.data_type)) + " on " + who +
-            " (engine folds FLOAT and INT64 Constants only)");
+            " (engine folds FLOAT, DOUBLE, and INT64 Constants only)");
     }
     t.name = raw.outputs[0];
     const int64_t count = tensor_elem_count(t.dims);
     Initializer init;
     init.dims = t.dims;
-    if (t.data_type == kElemType_OnnxFloat) {
+    if (t.data_type == kElemType_OnnxFloat ||
+        t.data_type == kElemType_OnnxDouble) {
         init.dtype = DataType::Float32;
-        init.values = float_initializer_values(t, model_dir, count);
+        init.values = float32_values(t, model_dir, count);
     } else {
         init.dtype = DataType::Int64;
         init.values = int64_initializer_values(t, model_dir, count);
@@ -1210,6 +1322,10 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
         dtype = DataType::Int64;
     } else if (allow_bool && elem_type == kElemType_OnnxBool) {
         dtype = DataType::Bool;
+    } else if (allow_integer && elem_type == kElemType_OnnxDouble) {
+        // value_info only: DOUBLE constants are narrowed to float32 at load,
+        // so a DOUBLE intermediate is recorded as the float32 it becomes.
+        dtype = DataType::Float32;
     } else {
         reject(std::string("carries unsupported element type ") +
             quote(elem_type_name(elem_type)) +
@@ -1418,9 +1534,17 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             const auto payload = graph_reader.read_length_delimited();
             const auto entry = decode_value_info(payload.first, payload.second,
                 "value_info", /*allow_integer=*/true, /*allow_bool=*/true);
-            if (graph.tensors.count(entry.first) != 0) {
-                throw ModelLoadException(
-                    "duplicate value-info entry " + quote(entry.first));
+            // torch 2.12's exporter writes each value-info entry twice; an
+            // identical repeat is harmless, a conflicting one is rejected.
+            const auto existing = graph.tensors.find(entry.first);
+            if (existing != graph.tensors.end()) {
+                if (existing->second.dtype != entry.second.dtype ||
+                    existing->second.dims != entry.second.dims) {
+                    throw ModelLoadException(
+                        "conflicting duplicate value-info entry " +
+                        quote(entry.first));
+                }
+                break;
             }
             graph.tensors[entry.first] = entry.second;
             break;

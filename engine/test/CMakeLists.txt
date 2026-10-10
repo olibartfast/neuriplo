@@ -104,3 +104,12 @@ if(NEURIPLO_NATIVE_FIXTURE)
         engine_executor engine_executor_negative PROPERTIES
         ENVIRONMENT "NEURIPLO_NATIVE_FIXTURE=${NEURIPLO_NATIVE_FIXTURE}")
 endif()
+
+add_executable(engine_constant_folding_test ConstantFoldingTest.cpp)
+target_compile_features(engine_constant_folding_test PRIVATE cxx_std_17)
+target_compile_options(engine_constant_folding_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(engine_constant_folding_test PRIVATE
+    neuriplo_engine
+    GTest::gtest
+    GTest::gtest_main)
+add_test(NAME engine_constant_folding COMMAND engine_constant_folding_test)

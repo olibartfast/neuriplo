@@ -57,7 +57,8 @@ void RequireMode(const Node& node, const std::string& name, const std::string& w
 
 template <typename T>
 void ResizeTyped(const T* x, T* y, const std::vector<int64_t>& in_dims, const std::vector<int64_t>& in_strides,
-    const std::vector<int64_t>& out_strides, const std::vector<float>& scales, int64_t out_count, int64_t rank) {
+                 const std::vector<int64_t>& out_strides, const std::vector<float>& scales, int64_t out_count,
+                 int64_t rank) {
     for (int64_t i = 0; i < out_count; ++i) {
         int64_t remaining = i;
         int64_t offset = 0;
@@ -94,38 +95,59 @@ void Resize(const Node& node, const std::vector<TensorView>& inputs, const std::
     if (out.dtype != in.dtype) {
         throw InferenceException(context + ": output dtype must match the input dtype");
     }
-    if (inputs.size() > 3 && inputs[3].dtype != DataType::Unknown) {
-        throw InferenceException(context + ": Resize takes scales, not sizes, here");
-    }
-    const TensorView& scales_view = inputs[2];
-    if (scales_view.dtype != DataType::Float32) {
-        throw InferenceException(context + ": Resize requires a scales input");
-    }
     RequireMode(node, "mode", "nearest", context);
     RequireMode(node, "coordinate_transformation_mode", "asymmetric", context);
     RequireMode(node, "nearest_mode", "floor", context);
 
     const int64_t rank = static_cast<int64_t>(in.dims.size());
-    const int64_t scales_count = ElementCount(scales_view.dims, context);
-    if (scales_count > 0 && scales_view.data == nullptr) {
-        throw InferenceException(context + ": null scales buffer");
+    std::vector<float> scale_vec(static_cast<std::size_t>(rank), 1.0F);
+    const bool has_sizes = inputs.size() > 3 && inputs[3].dtype != DataType::Unknown;
+    if (has_sizes && inputs[2].dtype != DataType::Unknown && ElementCount(inputs[2].dims, context) > 0) {
+        throw InferenceException(context + ": Resize takes exactly one of scales and sizes");
     }
-    if (scales_count != rank) {
-        throw InferenceException(context + ": Resize scales rank must match the input rank");
-    }
-    const float* scales = static_cast<const float*>(scales_view.data);
-    std::vector<int64_t> expected(static_cast<std::size_t>(rank), 0);
-    for (int64_t i = 0; i < rank; ++i) {
-        const std::size_t ui = static_cast<std::size_t>(i);
-        const int64_t dim = static_cast<int64_t>(
-            std::floor(static_cast<double>(in.dims[ui]) * static_cast<double>(scales[ui])));
-        if (dim <= 0) {
-            throw InferenceException(context + ": Resize produces a non-positive output dim");
+    if (has_sizes) {
+        // A sizes input fixes the output dims; the per-axis scale used for the
+        // coordinate transform is then out / in, as ONNX defines it.
+        const TensorView& sizes_view = inputs[3];
+        if (sizes_view.dtype != DataType::Int64 || ElementCount(sizes_view.dims, context) != rank ||
+            sizes_view.data == nullptr) {
+            throw InferenceException(context + ": Resize sizes must be int64 with one entry per input axis");
         }
-        expected[ui] = dim;
-    }
-    if (out.dims != expected) {
-        throw InferenceException(context + ": output shape does not match the scaled input");
+        const int64_t* sizes = static_cast<const int64_t*>(sizes_view.data);
+        for (int64_t i = 0; i < rank; ++i) {
+            const std::size_t ui = static_cast<std::size_t>(i);
+            if (out.dims.size() != static_cast<std::size_t>(rank) || out.dims[ui] != sizes[ui]) {
+                throw InferenceException(context + ": output shape does not match the sizes input");
+            }
+            scale_vec[ui] = static_cast<float>(sizes[ui]) / static_cast<float>(in.dims[ui]);
+        }
+    } else {
+        const TensorView& scales_view = inputs[2];
+        if (scales_view.dtype != DataType::Float32) {
+            throw InferenceException(context + ": Resize requires a scales or sizes input");
+        }
+        const int64_t scales_count = ElementCount(scales_view.dims, context);
+        if (scales_count > 0 && scales_view.data == nullptr) {
+            throw InferenceException(context + ": null scales buffer");
+        }
+        if (scales_count != rank) {
+            throw InferenceException(context + ": Resize scales rank must match the input rank");
+        }
+        const float* scales = static_cast<const float*>(scales_view.data);
+        std::vector<int64_t> expected(static_cast<std::size_t>(rank), 0);
+        for (int64_t i = 0; i < rank; ++i) {
+            const std::size_t ui = static_cast<std::size_t>(i);
+            const int64_t dim =
+                static_cast<int64_t>(std::floor(static_cast<double>(in.dims[ui]) * static_cast<double>(scales[ui])));
+            if (dim <= 0) {
+                throw InferenceException(context + ": Resize produces a non-positive output dim");
+            }
+            expected[ui] = dim;
+            scale_vec[ui] = scales[ui];
+        }
+        if (out.dims != expected) {
+            throw InferenceException(context + ": output shape does not match the scaled input");
+        }
     }
 
     const int64_t out_count = ElementCount(out.dims, context);
@@ -136,13 +158,12 @@ void Resize(const Node& node, const std::vector<TensorView>& inputs, const std::
 
     const std::vector<int64_t> in_strides = Strides(in.dims);
     const std::vector<int64_t> out_strides = Strides(out.dims);
-    const std::vector<float> scale_vec(scales, scales + rank);
     if (in.dtype == DataType::Float32) {
         ResizeTyped<float>(static_cast<const float*>(in.data), static_cast<float*>(out.data), in.dims, in_strides,
-            out_strides, scale_vec, out_count, rank);
+                           out_strides, scale_vec, out_count, rank);
     } else {
-        ResizeTyped<int64_t>(static_cast<const int64_t*>(in.data), static_cast<int64_t*>(out.data), in.dims,
-            in_strides, out_strides, scale_vec, out_count, rank);
+        ResizeTyped<int64_t>(static_cast<const int64_t*>(in.data), static_cast<int64_t*>(out.data), in.dims, in_strides,
+                             out_strides, scale_vec, out_count, rank);
     }
 }
 

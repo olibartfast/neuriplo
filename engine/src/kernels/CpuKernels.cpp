@@ -45,6 +45,12 @@ KernelFn FindCpuKernel(const std::string& op_type) {
         {"Shape", &Shape},
         {"ConstantOfShape", &ConstantOfShape},
         {"TopK", &TopK},
+        {"Floor", &Floor},
+        {"Identity", &Identity},
+        {"Pow", &Pow},
+        {"Tile", &Tile},
+        {"AveragePool", &AveragePool},
+        {"ConvTranspose", &ConvTranspose},
     };
     const auto it = table.find(op_type);
     return it == table.end() ? nullptr : it->second;

@@ -1,5 +1,6 @@
 #include "NativeInfer.hpp"
 
+#include "engine/ConstantFolding.hpp"
 #include "engine/Device.hpp"
 #include "engine/ModelLoader.hpp"
 #include "engine/Shapes.hpp"
@@ -57,6 +58,7 @@ NativeInfer::NativeInfer(const std::string& model_path, bool use_gpu, size_t bat
     }
 
     graph_ = load_graph_or_throw(model_path);
+    engine::FoldConstants(graph_, engine::CpuDevice());
 
     const engine::ShapeMap shapes = build_input_shapes(graph_, input_sizes);
     try {

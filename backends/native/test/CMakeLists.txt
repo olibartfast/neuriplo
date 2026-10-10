@@ -164,3 +164,42 @@ if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
     )
 
 endif()
+
+# ---------------------------------------------------------------------------
+# Model-zoo parity (neuriplo-tasks operator coverage packet). Registered only
+# when a manifest is configured: the models are large local exports, not
+# provisioned fixtures.
+# ---------------------------------------------------------------------------
+if("ONNX_RUNTIME" IN_LIST NEURIPLO_ENABLED_BACKENDS)
+    set(NEURIPLO_MODEL_ZOO_MANIFEST "" CACHE FILEPATH
+        "Manifest of ONNX models for the NATIVE model-zoo parity test")
+
+    add_executable(native_model_zoo_parity_test ${CMAKE_CURRENT_LIST_DIR}/ModelZooParityTest.cpp)
+    target_compile_features(native_model_zoo_parity_test PRIVATE cxx_std_17)
+    target_compile_options(native_model_zoo_parity_test PRIVATE -Wall -Wextra -Wpedantic)
+    target_include_directories(native_model_zoo_parity_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/backends/native/src
+        ${CMAKE_SOURCE_DIR}/backends/onnx-runtime/src
+        ${CMAKE_SOURCE_DIR}/backends/src
+        ${CMAKE_SOURCE_DIR}/include
+        ${ONNX_RUNTIME_DIR}/include
+        ${GLOG_INCLUDE_DIRS}
+    )
+    target_link_libraries(native_model_zoo_parity_test PRIVATE
+        neuriplo
+        neuriplo_engine
+        ${ONNX_RUNTIME_LIBRARY}
+        GTest::gtest
+        GTest::gtest_main
+        ${GLOG_LIBRARIES}
+        glog::glog
+    )
+
+    if(NEURIPLO_MODEL_ZOO_MANIFEST)
+        add_test(NAME native_model_zoo_parity COMMAND native_model_zoo_parity_test)
+        set_tests_properties(native_model_zoo_parity PROPERTIES
+            ENVIRONMENT "NEURIPLO_MODEL_ZOO_MANIFEST=${NEURIPLO_MODEL_ZOO_MANIFEST}"
+            TIMEOUT 7200
+        )
+    endif()
+endif()

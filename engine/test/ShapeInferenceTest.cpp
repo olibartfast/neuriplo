@@ -1609,12 +1609,12 @@ TEST_F(EngineShapesNegative, ResizeMissingInputsNamesNode)
         << "message: " << message;
 }
 
-// Resize with a sizes input is rejected: scales-only is the admitted form.
+// Resize with a sizes input whose rank misses the input rank names the node.
 
 TEST_F(EngineShapesNegative, ResizeSizesInputNamesNode)
 {
     std::string body;
-    put_sub(body, 5, encode_initializer_int64("sizes", {4}, {1, 3, 16, 16}));
+    put_sub(body, 5, encode_initializer_int64("sizes", {3}, {1, 3, 16}));
     put_sub(body, 1, encode_node("rs_sizes", "Resize", {"x", "", "", "sizes"},
                       {"y"}, {encode_attribute_string("mode", "nearest")}));
     put_sub(body, 11, encode_value_info("x", 1, {1, 3, 8, 8}));
@@ -1628,7 +1628,7 @@ TEST_F(EngineShapesNegative, ResizeSizesInputNamesNode)
     } catch (const engine::ModelLoadException& e) {
         message = e.what();
     }
-    EXPECT_FALSE(message.empty()) << "sizes Resize did not throw";
+    EXPECT_FALSE(message.empty()) << "rank-3 sizes Resize did not throw";
     EXPECT_NE(message.find("rs_sizes"), std::string::npos)
         << "message: " << message;
     EXPECT_NE(message.find("Resize"), std::string::npos)
