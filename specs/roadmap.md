@@ -218,6 +218,86 @@ Exit criteria:
   against an installed neuriplo package with no access to its source tree.
 - The existing C++ API and `neuriplo-infer` are unchanged.
 
+## NERT Track
+
+A parallel track, not a renumbering of Phases 1-6. It delivers the `NERT`
+backend: a first-party inference runtime implemented in this repository, aimed
+at the slot `OPENCV_DNN` occupies today — a small, self-contained engine with no
+vendor SDK underneath. Sequencing against Phase 1 is an open decision recorded
+in the Phase N0 packet; Phase 1 first is the cheaper order, because `NERT` is
+a new inventory entry with no external SDK version or setup script.
+
+The design reference for the track is OpenCV 5's rewritten `dnn` engine — a
+typed operation graph with shape inference, dynamic shapes, constant folding,
+and fusion. It is read as a reference for how to structure the graph and the
+per-shape plan, and nothing more: the track introduces no dependency on it, and
+does not change how `OPENCV_DNN` is built or pinned.
+
+### Phase N0 - CPU Reference Spine
+
+- Status: Implemented, merge on hold (YOLO26-nano runs on `NERT`: 6
+  confident rows, min IoU 0.999999 vs `ONNX_RUNTIME`; spec
+  `specs/2026-10-01-yolo26-native/`, branch `feature/nert`
+  draft PR #46 into `develop`; was #39 on `feature/native-engine-cpu-spine`). Vision-op coverage was pulled forward onto
+  the branch per the 2026-10-01 maintainer gate.
+- Merge gate (maintainer, 2026-10-10): the branch merges into `develop` only
+  once `NERT` implements every operator needed by these neuriplo-tasks
+  families: YOLO detection (all supported versions, including SiLU,
+  HardSwish, LeakyRelu, Clip and pooling variants); ViT classification;
+  RT-DETR, D-FINE, DEIM and RF-DETR; ViTPose; Depth Anything V2; VideoMAE,
+  ViViT and TimeSformer; segmentation and pose heads; RAFT; OWLv2 and
+  Grounding DINO. Gaussian splatting and VLM (llama.cpp) are outside the
+  gate. This supersedes the 2026-10-10 hold-lift proposal.
+- Gate lifted (maintainer, 2026-10-10, later the same day): NERT moved to its
+  own repository, `olibartfast/nert`; `feature/nert` merges into `develop`
+  once Neuriplo consumes NERT as a pinned dependency (packet R4), with NERT
+  labelled experimental and `DEFAULT_BACKEND` left at `OPENCV_DNN`. RAFT,
+  OWLv2 and Grounding DINO coverage continues in the NERT repository. Backlog and
+  evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tiers 1-2 of 5 done
+  2026-10-10: YOLO families and transformer encoders).
+- Outcome: one classification model runs end to end through `NERT` on CPU,
+  with outputs matching `ONNX_RUNTIME` on the same file within a recorded
+  tolerance.
+- Proves: the whole spine — ONNX parsing, graph IR, static shape inference,
+  arena planning, sequential execution, and the backend adapter — before any
+  accelerated kernel exists, and produces the reference kernels those kernels
+  will be validated against.
+- Spec: `specs/2026-09-17-native-engine-cpu-spine/`
+  Branch: `feature/nert`
+
+### Phase N1 - CUDA Device Layer
+
+- Status: Planned; depends on N0 and on the vendor-kernel decision in
+  `specs/tech-stack.md`
+- Outcome: the same model and the same graph plan execute on CUDA, matching the
+  CPU reference path within tolerance, with device chosen once at load.
+- Proves: the device seam from N0 holds without touching the device-agnostic
+  core, and the kernel-table abstraction is sufficient.
+
+### Phase N2 - Vision Op Coverage, Dynamic Shapes, and Fusion
+
+- Status: Planned
+- Outcome: the op set covers the detection and ViT-based models actually in use;
+  dynamic input and output shapes are supported by re-planning per shape behind
+  a plan cache; conv-bias-activation fusion lands as a graph pass with measured
+  effect.
+- Proves: coverage grows by adding kernels and passes rather than by special
+  cases in the executor, and that the per-shape planning seam required in N0
+  was sufficient. Scope is vision ops, explicitly not all of ONNX.
+
+### Phase N3 - Default Backend Migration
+
+- Branch default (maintainer, 2026-10-10): on `feature/nert`,
+  `DEFAULT_BACKEND` is `NERT` (packet D2). The default for `develop` and
+  releases is still this phase's decision.
+
+- Status: Blocked; needs the deprecation-window policy named in
+  `specs/mission.md` open questions
+- Outcome: a decision, with migration notes, on whether `NERT` becomes
+  `DEFAULT_BACKEND` and what happens to `OPENCV_DNN`.
+- Proves: nothing technical; it is a compatibility decision and must be
+  specified as one.
+
 ## Specification Rule
 
 Create a dated `specs/YYYY-MM-DD-feature-name/` packet for active work that is
@@ -227,6 +307,17 @@ validation defined before implementation and evidence recorded after execution.
 Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
+
+_Revision: 2026-10-10 - renamed the first-party backend again, `NEURIPLO_ENGINE`
+to `NERT`, Neuriplo Engine Runtime (maintainer decision; packet R2). `NRT` was rejected because it is
+already AWS Neuron's runtime (`libnrt`). The engine library (`engine/`,
+`neuriplo_engine`) keeps its name._
+
+_Revision: 2026-10-10 - renamed the first-party backend `NATIVE` to
+`NEURIPLO_ENGINE` (maintainer decision; packet R1 in
+`specs/2026-10-10-native-tasks-op-coverage/`). The dated packets
+`2026-09-17-native-engine-cpu-spine` and `2026-10-01-yolo26-native` keep the
+old name as history._
 
 _Revision: 2026-09-27 - Phase 7 implemented; Complete pending the manual
 checks [M-1]–[M-3]._
@@ -239,3 +330,7 @@ documentation walkthrough._
 
 _Revision: 2026-09-22 - added the `Specified` status and moved Phase 2 into it
 with its feature packet; Phase 1 remains `Next`._
+
+_Revision: 2026-09-17 - added the Native Engine Track (N0-N3) as a parallel
+track without renumbering Phases 1-6; named the track's design reference and
+moved dynamic shapes into Phase N2 explicitly._

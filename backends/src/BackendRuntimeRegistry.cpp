@@ -42,6 +42,9 @@
 #ifdef USE_DALI
 #include "DALIRuntimeFactory.hpp"
 #endif
+#ifdef USE_NERT
+#include "NertRuntimeFactory.hpp"
+#endif
 
 #include <cstring>
 #include <memory>
@@ -101,6 +104,9 @@ std::vector<BackendRuntimeRegistration> build_registrations() {
     // GPU preprocessing, not an inference engine: it occupies the same slot so a
     // pipeline can chain decode/resize/normalize ahead of a model. force_gpu.
     registrations.push_back({"DALI", "NVIDIA DALI", &make_factory<DALIRuntimeFactory>, true});
+#endif
+#ifdef USE_NERT
+    registrations.push_back({"NERT", "NERT (Neuriplo Engine Runtime)", &make_factory<NertRuntimeFactory>, false});
 #endif
     return registrations;
 }

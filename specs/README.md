@@ -80,7 +80,7 @@ unmotivated; both are review findings.
 - **Numbers are per packet.** `R-1` in one feature directory is unrelated to
   `R-1` in another. Cross-packet references name the packet.
 - **Phases vs groups.** `roadmap.md` numbers repository phases (`Phase 1`…`6`,
-  and `N0`…`N3` for the parallel Native Engine Track). Inside a packet,
+  and `N0`…`N3` for the parallel NERT Track). Inside a packet,
   `plan.md` numbers its own delivery slices as `Group 0`, `Group 1`, … Each
   group ends in something runnable, so `develop` stays green mid-phase.
 - **Validation before implementation.** `validation.md` is written and reviewed
@@ -99,5 +99,5 @@ above are what those produce in this repository — they are recorded here so th
 packets are readable without the skills at hand.
 
 Two packets are in flight on their own branches as of 2026-09-22 and arrive with
-them: `2026-09-17-native-engine-cpu-spine` (Native Engine Track, Phase N0) and
+them: `2026-09-17-native-engine-cpu-spine` (NERT Track, Phase N0) and
 `2026-09-22-plugin-abi-loader-hardening` (Phase 2).

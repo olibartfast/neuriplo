@@ -9,7 +9,8 @@
 
 One C++ interface over many inference runtimes: ONNX Runtime, TensorRT,
 OpenVINO, LibTorch, ExecuTorch, LiteRT, llama.cpp and more, plus NVIDIA DALI for
-GPU preprocessing.
+GPU preprocessing. Neuriplo also includes an experimental first-party runtime,
+NERT (Neuriplo Engine Runtime), developed in its own repository.
 
 Write your application once against `InferenceInterface`, then pick the runtime
 that fits your model and hardware at build time, without rewriting code around
@@ -36,7 +37,7 @@ behind the interface is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Quick Start
 
-Four steps on Ubuntu 24.04, using the default backend (OpenCV DNN, CPU: no GPU,
+Four steps on Ubuntu 24.04, using the default backend, OpenCV DNN (CPU: no GPU,
 no CUDA, no extra SDK).
 
 ### 1. Install the toolchain
@@ -47,8 +48,8 @@ sudo apt-get install -y cmake build-essential pkg-config \
   libgoogle-glog-dev libgtest-dev libgmock-dev libopencv-dev
 ```
 
-OpenCV is needed only by the OpenCV DNN backend. Every other backend configures
-and builds without it.
+OpenCV is needed only by the OpenCV DNN backend; every other backend builds
+without it.
 
 ### 2. Build
 
@@ -123,6 +124,7 @@ and examples.
 | ID | Runtime | Model format | Best for |
 |----|---------|--------------|----------|
 | `OPENCV_DNN` (default) | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference |
+| `NERT` | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Experimental: self-contained CPU inference with no vendor SDK |
 | `ONNX_RUNTIME` | ONNX Runtime | `.onnx` | General CPU/GPU inference, many execution providers |
 | `TENSORRT` | TensorRT | `.engine` | Production on NVIDIA GPUs |
 | `OPENVINO` | OpenVINO | IR (`.xml` + `.bin`) | Intel CPUs and GPUs |
@@ -136,6 +138,15 @@ and examples.
 | `DALI` | NVIDIA DALI | `.dali` pipeline | GPU preprocessing in front of a model backend |
 | `GGML` | GGML | GGML | Experimental: returns placeholder output |
 | `TVM` | Apache TVM | compiled module | Experimental: returns placeholder output |
+
+> **NERT (experimental):** CPU only. Loads opset-18 ONNX models (convert others with
+> `onnx.version_converter`). Outputs match `ONNX_RUNTIME` on YOLO (v5–v10, v12
+> detection; YOLO11 segmentation and pose; YOLO26 detection, segmentation and
+> pose) and on ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and TimeSformer.
+> RAFT and open-vocabulary coverage continue in the
+> [NERT repository](https://github.com/olibartfast/nert). The engine is fetched
+> at the commit pinned by `NERT_VERSION` in `versions.env`; build against a local
+> checkout with `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`.
 
 Several backends can be compiled into one library (`-DNEURIPLO_BACKENDS`), or
 built as runtime-loaded plugins (`-DNEURIPLO_PLUGIN_BACKENDS`); see
@@ -183,6 +194,7 @@ architecture and GPU support, and model sources are in
 |----------|--------|
 | **[docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md)** | Per-backend setup, model formats, Docker workflows, version validation |
 | **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Adapter, Bridge, Abstract Factory, Decorator and State design of the backend layer |
+| **[NERT](https://github.com/olibartfast/nert)** | The NERT engine (separate repository): layout, build and tests |
 | **[docs/C_API.md](docs/C_API.md)** | Stable C ABI and C++ wrapper for third-party applications |
 | **[docs/ADDING_BACKEND.md](docs/ADDING_BACKEND.md)** | Implementing and registering a new backend |
 | **[docs/PLUGIN_BACKENDS.md](docs/PLUGIN_BACKENDS.md)** | Multi-backend builds and the plugin ABI |
