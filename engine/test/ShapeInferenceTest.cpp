@@ -877,6 +877,58 @@ TEST_F(EngineShapes, SliceExtractsWindow)
     EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 5}));
 }
 
+// Slice with negative steps (ONNX clamping: start to [0, dim - 1], end to
+// [-1, dim - 1]). x is [3,10,6]: axis 0 reverses fully (start -1 -> 2, end
+// -INT64_MAX clamps to -1, count 3); axis 1 runs 8 down to 1 by -3 (indices
+// 8, 5, 2 -> 3); axis 2 start 100 clamps to 5, end 0, step -2 (5, 3, 1 ->
+// 3).
+
+TEST_F(EngineShapes, SliceNegativeSteps)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {3}, {-1, 8, 100}));
+    put_sub(body, 5, encode_initializer_int64("ends", {3},
+                         {-9223372036854775807LL, 1, 0}));
+    put_sub(body, 5, encode_initializer_int64("axes", {3}, {0, 1, -1}));
+    put_sub(body, 5, encode_initializer_int64("steps", {3}, {-1, -3, -2}));
+    put_sub(body, 1, encode_node("sl0", "Slice",
+                      {"x", "starts", "ends", "axes", "steps"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {3, 10, 6}));
+    put_sub(body, 12, encode_value_info("y", 1, {3, 3, 3}));
+
+    const engine::Graph graph =
+        load_graph("slice_neg.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {3, 10, 6}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{3, 3, 3}));
+}
+
+// Slice with a negative step whose start is already at or below the end
+// selects nothing: start 1, end 100 (clamped to dim - 1 = 4), step -1 -> 0.
+// The empty y feeds a Shape so the graph output keeps fixed dims.
+
+TEST_F(EngineShapes, SliceNegativeStepEmpty)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {1}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1}, {100}));
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {1}));
+    put_sub(body, 5, encode_initializer_int64("steps", {1}, {-1}));
+    put_sub(body, 1, encode_node("sl0", "Slice",
+                      {"x", "starts", "ends", "axes", "steps"}, {"y"}, {}));
+    put_sub(body, 1, encode_node("sh0", "Shape", {"y"}, {"s"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 5}));
+    put_sub(body, 12, encode_value_info("s", 7, {2}));
+
+    const engine::Graph graph =
+        load_graph("slice_neg_empty.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 5}}});
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 0}));
+}
+
 // TopK: constant scalar K replaces the axis dim on both outputs.
 
 TEST_F(EngineShapes, TopKSelectsK)
@@ -1783,6 +1835,36 @@ TEST_F(EngineShapes, EvaluatorSliceEndsChains)
     EXPECT_EQ(shapes.tensors.at("e").dtype, engine::DataType::Int64);
     ASSERT_EQ(shapes.tensors.count("e2"), 1U);
     EXPECT_EQ(shapes.tensors.at("e2").dtype, engine::DataType::Int64);
+}
+
+// Static evaluator: Slice of a shape vector with a negative step. Shape(x)
+// of [2,3,4,5] sliced from -1 toward -INT64_MAX by -2 picks indices 3 and 1
+// -> [5,3], which then serves as the Reshape target of a 15-element w.
+
+TEST_F(EngineShapes, EvaluatorSliceNegativeStep)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {-1}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1},
+                         {-9223372036854775807LL}));
+    put_sub(body, 5, encode_initializer_int64("axes", {1}, {0}));
+    put_sub(body, 5, encode_initializer_int64("steps", {1}, {-2}));
+    put_sub(body, 1, encode_node("sh0", "Shape", {"x"}, {"sh"}, {}));
+    put_sub(body, 1, encode_node("sl0", "Slice",
+                      {"sh", "starts", "ends", "axes", "steps"}, {"tgt"}, {}));
+    put_sub(body, 1, encode_node("r0", "Reshape", {"w", "tgt"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 3, 4, 5}));
+    put_sub(body, 11, encode_value_info("w", 1, {15}));
+    put_sub(body, 12, encode_value_info("y", 1, {5, 3}));
+
+    const engine::Graph graph =
+        load_graph("eval_slice_neg.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 3, 4, 5}}, {"w", {15}}});
+    ASSERT_EQ(shapes.tensors.count("tgt"), 1U);
+    EXPECT_EQ(shapes.tensors.at("tgt").dims, (std::vector<int64_t>{2}));
+    ASSERT_EQ(shapes.tensors.count("y"), 1U);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{5, 3}));
 }
 
 // Static evaluator: Where-of-constants Expand shape mirroring the fixture's

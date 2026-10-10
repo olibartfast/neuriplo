@@ -31,7 +31,13 @@ constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 // sigmoid(max logit) > 0.5 are compared, greedily matched one-to-one by class
 // and box IoU, since near-tied low-score queries order differently between
 // backends; fixed thresholds: box IoU >= 0.99, |score diff| <= 1e-3, mask IoU
-// >= 0.98, and `atol` is ignored), or `load` (NERT must load the model and
+// >= 0.98, and `atol` is ignored), or `detr_post` (DETR-family export with
+// built-in postprocessing: output 0 labels int64 [1,Q], output 1 boxes [1,Q,4]
+// as x1y1x2y2 pixels, output 2 scores [1,Q]; only detections ONNX Runtime
+// scores above 0.5 are compared, greedily matched one-to-one by label and box
+// IoU, since the internal TopK breaks near-ties differently between backends;
+// same fixed thresholds as `detr`, `atol` is ignored), or `load` (NERT must
+// load the model and
 // plan it; nothing runs). Inputs are generated per graph input dtype: float32
 // inputs get the seeded uniform [0, 1) values, int64 inputs (RT-DETR's
 // orig_target_sizes, token ids) are filled with the `int64=<v>` value (default
@@ -289,6 +295,107 @@ void check_detr(const ZooEntry& entry, const std::vector<std::vector<TensorEleme
     EXPECT_TRUE(failure.empty()) << failure;
 }
 
+double corner_iou(const std::vector<TensorElement>& a, size_t ia, const std::vector<TensorElement>& b, size_t ib) {
+    double ba[4];
+    double bb[4];
+    for (size_t k = 0; k < 4; ++k) {
+        ba[k] = as_double(a[ia * 4 + k]);
+        bb[k] = as_double(b[ib * 4 + k]);
+    }
+    const double iw = std::max(0.0, std::min(ba[2], bb[2]) - std::max(ba[0], bb[0]));
+    const double ih = std::max(0.0, std::min(ba[3], bb[3]) - std::max(ba[1], bb[1]));
+    const double inter = iw * ih;
+    const double area_a = std::max(0.0, ba[2] - ba[0]) * std::max(0.0, ba[3] - ba[1]);
+    const double area_b = std::max(0.0, bb[2] - bb[0]) * std::max(0.0, bb[3] - bb[1]);
+    const double uni = area_a + area_b - inter;
+    return uni > 0.0 ? inter / uni : 0.0;
+}
+
+struct DetrDetection {
+    size_t index = 0;
+    double score = 0.0;
+    int64_t label = 0;
+};
+
+std::vector<DetrDetection> confident_detections(const std::vector<TensorElement>& labels,
+                                                const std::vector<TensorElement>& scores) {
+    std::vector<DetrDetection> result;
+    for (size_t q = 0; q < scores.size(); ++q) {
+        const double score = as_double(scores[q]);
+        if (score > 0.5) {
+            result.push_back({q, score, as_int64(labels[q])});
+        }
+    }
+    return result;
+}
+
+void check_detr_post(const ZooEntry& entry, const std::vector<std::vector<TensorElement>>& native_out,
+                     const std::vector<std::vector<int64_t>>& native_shapes,
+                     const std::vector<std::vector<TensorElement>>& ort_out,
+                     const std::vector<std::vector<int64_t>>& ort_shapes) {
+    ASSERT_EQ(ort_out.size(), 3U) << "detr_post needs labels, boxes, and scores";
+    ASSERT_EQ(ort_shapes[0].size(), 2U);
+    ASSERT_EQ(ort_shapes[1].size(), 3U);
+    ASSERT_EQ(ort_shapes[1][2], 4);
+    ASSERT_EQ(ort_shapes[2].size(), 2U);
+    ASSERT_EQ(ort_shapes[0][1], ort_shapes[1][1]);
+    ASSERT_EQ(ort_shapes[2][1], ort_shapes[1][1]);
+    for (size_t o = 0; o < ort_out.size(); ++o) {
+        ASSERT_EQ(native_shapes[o], ort_shapes[o]) << "output " << o << " shape differs";
+        ASSERT_EQ(native_out[o].size(), ort_out[o].size()) << "output " << o << " size differs";
+    }
+    ASSERT_TRUE(ort_out[0].empty() || is_integral(ort_out[0][0])) << "ORT labels are not integral";
+    ASSERT_TRUE(native_out[0].empty() || is_integral(native_out[0][0])) << "NERT labels are not integral";
+
+    std::vector<DetrDetection> ort_conf = confident_detections(ort_out[0], ort_out[2]);
+    const std::vector<DetrDetection> native_conf = confident_detections(native_out[0], native_out[2]);
+    std::stable_sort(ort_conf.begin(), ort_conf.end(),
+                     [](const DetrDetection& x, const DetrDetection& y) { return x.score > y.score; });
+
+    double min_box_iou = 1.0;
+    double max_score_diff = 0.0;
+    std::string failure;
+    std::vector<bool> used(native_conf.size(), false);
+    for (const DetrDetection& od : ort_conf) {
+        double best_iou = -1.0;
+        size_t best = native_conf.size();
+        for (size_t n = 0; n < native_conf.size(); ++n) {
+            if (used[n] || native_conf[n].label != od.label) {
+                continue;
+            }
+            const double iou = corner_iou(ort_out[1], od.index, native_out[1], native_conf[n].index);
+            if (iou > best_iou) {
+                best_iou = iou;
+                best = n;
+            }
+        }
+        if (best == native_conf.size()) {
+            if (failure.empty()) {
+                failure = "ORT detection " + std::to_string(od.index) + " has no unmatched NERT detection of label " +
+                          std::to_string(od.label);
+            }
+            continue;
+        }
+        used[best] = true;
+        const double score_diff = std::fabs(native_conf[best].score - od.score);
+        min_box_iou = std::min(min_box_iou, best_iou);
+        max_score_diff = std::max(max_score_diff, score_diff);
+        if (best_iou < 0.99 && failure.empty()) {
+            failure = "ORT detection " + std::to_string(od.index) + " box IoU " + std::to_string(best_iou) + " < 0.99";
+        }
+        if (score_diff > 1e-3 && failure.empty()) {
+            failure =
+                "ORT detection " + std::to_string(od.index) + " score diff " + std::to_string(score_diff) + " > 1e-3";
+        }
+    }
+    std::cout << "ZOO " << entry.name << " confident_queries=" << ort_conf.size() << " min_box_iou=" << min_box_iou
+              << " max_score_diff=" << max_score_diff << std::endl;
+
+    EXPECT_GT(ort_conf.size(), 0U) << "no confident detections; the input is not a real image";
+    EXPECT_EQ(ort_conf.size(), native_conf.size()) << "confident detection counts differ";
+    EXPECT_TRUE(failure.empty()) << failure;
+}
+
 void check_entry(const ZooEntry& entry) {
     SCOPED_TRACE(entry.name);
     ASSERT_TRUE(std::filesystem::exists(entry.path)) << "model does not exist: " << entry.path;
@@ -302,7 +409,8 @@ void check_entry(const ZooEntry& entry) {
         }
         return;
     }
-    ASSERT_TRUE(entry.mode == "parity" || entry.mode == "e2e" || entry.mode == "detr") << "unknown mode " << entry.mode;
+    ASSERT_TRUE(entry.mode == "parity" || entry.mode == "e2e" || entry.mode == "detr" || entry.mode == "detr_post")
+        << "unknown mode " << entry.mode;
 
     std::unique_ptr<NertInfer> native;
     try {
@@ -354,6 +462,10 @@ void check_entry(const ZooEntry& entry) {
     ASSERT_EQ(native_out.size(), ort_out.size()) << "output count differs";
     if (entry.mode == "detr") {
         check_detr(entry, native_out, native_shapes, ort_out, ort_shapes);
+        return;
+    }
+    if (entry.mode == "detr_post") {
+        check_detr_post(entry, native_out, native_shapes, ort_out, ort_shapes);
         return;
     }
     if (entry.mode == "e2e") {

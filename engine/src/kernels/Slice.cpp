@@ -2,9 +2,10 @@
 // (data, starts, ends, axes, steps).
 //
 // The starts/ends/steps are int64 inputs; axes defaults to [0, count) and
-// steps to all ones. Steps must be positive. Negative begins/ends wrap by the
-// axis dim and both clamp to [0, dim], exactly as the shape rule does. Data
-// is float32 or int64.
+// steps to all ones. Steps must be non-zero. Negative begins/ends wrap by the
+// axis dim; for a positive step both clamp to [0, dim], for a negative step
+// the begin clamps to [0, dim - 1] and the end to [-1, dim - 1], exactly as
+// the shape rule does. Data is float32 or int64.
 
 #include "Kernels.hpp"
 
@@ -50,8 +51,8 @@ std::vector<int64_t> ReadInt64s(const TensorView& view, const std::string& what,
 
 template <typename T>
 void SliceTyped(const T* x, T* y, const std::vector<int64_t>& begins, const std::vector<int64_t>& steps,
-    const std::vector<int64_t>& in_strides, const std::vector<int64_t>& out_strides, int64_t out_count,
-    int64_t rank) {
+                const std::vector<int64_t>& in_strides, const std::vector<int64_t>& out_strides, int64_t out_count,
+                int64_t rank) {
     for (int64_t i = 0; i < out_count; ++i) {
         int64_t remaining = i;
         int64_t offset = 0;
@@ -110,8 +111,9 @@ void Slice(const Node& node, const std::vector<TensorView>& inputs, const std::v
     std::vector<int64_t> strides(static_cast<std::size_t>(rank), 1);
     std::vector<int64_t> expected = in.dims;
     for (std::size_t i = 0; i < count; ++i) {
-        if (steps[i] <= 0) {
-            throw InferenceException(context + ": Slice steps must be positive");
+        const int64_t step = steps[i];
+        if (step == 0) {
+            throw InferenceException(context + ": Slice steps must be non-zero");
         }
         int64_t axis = axes[i];
         if (axis < -rank || axis >= rank) {
@@ -130,11 +132,17 @@ void Slice(const Node& node, const std::vector<TensorView>& inputs, const std::v
         if (end < 0) {
             end += dim;
         }
-        begin = std::max<int64_t>(0, std::min(begin, dim));
-        end = std::max<int64_t>(0, std::min(end, dim));
+        if (step > 0) {
+            begin = std::max<int64_t>(0, std::min(begin, dim));
+            end = std::max<int64_t>(0, std::min(end, dim));
+            expected[ua] = end > begin ? (end - begin + step - 1) / step : 0;
+        } else {
+            begin = std::max<int64_t>(0, std::min(begin, dim - 1));
+            end = std::max<int64_t>(-1, std::min(end, dim - 1));
+            expected[ua] = dim > 0 && begin > end ? (begin - end - step - 1) / -step : 0;
+        }
         begins[ua] = begin;
-        strides[ua] = steps[i];
-        expected[ua] = end > begin ? (end - begin + steps[i] - 1) / steps[i] : 0;
+        strides[ua] = step;
     }
     if (out.dims != expected) {
         throw InferenceException(context + ": output shape does not match the sliced ranges");
@@ -157,10 +165,10 @@ void Slice(const Node& node, const std::vector<TensorView>& inputs, const std::v
     const std::vector<int64_t> out_strides = Strides(out.dims);
     if (in.dtype == DataType::Float32) {
         SliceTyped<float>(static_cast<const float*>(in.data), static_cast<float*>(out.data), begins, strides,
-            in_strides, out_strides, out_count, rank);
+                          in_strides, out_strides, out_count, rank);
     } else {
         SliceTyped<int64_t>(static_cast<const int64_t*>(in.data), static_cast<int64_t*>(out.data), begins, strides,
-            in_strides, out_strides, out_count, rank);
+                            in_strides, out_strides, out_count, rank);
     }
 }
 

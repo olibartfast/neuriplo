@@ -106,6 +106,30 @@ std::vector<int64_t> attr_ints(const Node& node, const std::string& name)
 
 // Shape's [start, end) dim range (opset 15): negatives count from the back
 // and both clamp to [0, rank].
+// ONNX Slice bounds for one axis with a non-zero step: negative starts and
+// ends wrap by dim, then a positive step clamps both to [0, dim] and a
+// negative step clamps the start to [0, dim - 1] and the end to
+// [-1, dim - 1]. Returns {first index, element count}.
+std::pair<int64_t, int64_t> slice_range(int64_t start, int64_t end,
+    int64_t step, int64_t dim)
+{
+    if (start < 0) {
+        start += dim;
+    }
+    if (end < 0) {
+        end += dim;
+    }
+    if (step > 0) {
+        start = std::max<int64_t>(0, std::min(start, dim));
+        end = std::max<int64_t>(0, std::min(end, dim));
+        return {start, end > start ? (end - start + step - 1) / step : 0};
+    }
+    start = std::max<int64_t>(0, std::min(start, dim - 1));
+    end = std::max<int64_t>(-1, std::min(end, dim - 1));
+    return {start,
+        dim > 0 && start > end ? (start - end - step - 1) / -step : 0};
+}
+
 std::pair<int64_t, int64_t> shape_range(const Node& node, int64_t rank)
 {
     const auto clamp = [rank](int64_t v) {
@@ -679,7 +703,7 @@ std::optional<EvalTensor> eval_node(
     }
     if (op == "Slice") {
         // Rank-1 int64 data with constant starts/ends (and optional axes=0,
-        // steps): the slice of a shape vector.
+        // any non-zero step): the slice of a shape vector.
         if (node.inputs.size() < 3) {
             return std::nullopt;
         }
@@ -698,24 +722,24 @@ std::optional<EvalTensor> eval_node(
                 return std::nullopt;
             }
         }
+        int64_t step = 1;
         if (node.inputs.size() > 4 && !node.inputs[4].empty()) {
             const auto steps = eval_tensor(ctx, node.inputs[4], depth);
             if (!steps.has_value() || steps->i64.size() != 1 ||
-                steps->i64[0] != 1) {
+                steps->i64[0] == 0) {
                 return std::nullopt;
             }
+            step = steps->i64[0];
         }
-        const int64_t len = data->dims[0];
-        const auto clamp = [len](int64_t v) {
-            v = v < 0 ? v + len : v;
-            return std::min(std::max(v, int64_t{0}), len);
-        };
-        const int64_t begin = clamp(starts->i64[0]);
-        const int64_t end = std::max(begin, clamp(ends->i64[0]));
+        const auto [begin, count] =
+            slice_range(starts->i64[0], ends->i64[0], step, data->dims[0]);
         EvalTensor out;
         out.dtype = DataType::Int64;
-        out.i64.assign(data->i64.begin() + begin, data->i64.begin() + end);
-        out.dims = {end - begin};
+        for (int64_t k = 0; k < count; ++k) {
+            out.i64.push_back(
+                data->i64[static_cast<size_t>(begin + k * step)]);
+        }
+        out.dims = {count};
         return out;
     }
     if (op == "Gather") {
@@ -1817,23 +1841,13 @@ TensorInfo slice_shape(const StaticContext& ctx, const Node& node,
     }
     std::vector<int64_t> out = in;
     for (size_t i = 0; i < count; ++i) {
-        if (steps[i] <= 0) {
-            fail(node, "Slice steps must be positive");
+        if (steps[i] == 0) {
+            fail(node, "Slice steps must be non-zero");
         }
         const int64_t axis = normalize_axis(node, axes[i], rank, "Slice");
         const int64_t dim = in[static_cast<size_t>(axis)];
-        int64_t begin = starts[i];
-        int64_t end = ends[i];
-        if (begin < 0) {
-            begin += dim;
-        }
-        if (end < 0) {
-            end += dim;
-        }
-        begin = std::max<int64_t>(0, std::min(begin, dim));
-        end = std::max<int64_t>(0, std::min(end, dim));
         out[static_cast<size_t>(axis)] =
-            end > begin ? (end - begin + steps[i] - 1) / steps[i] : 0;
+            slice_range(starts[i], ends[i], steps[i], dim).second;
     }
     return TensorInfo{inputs[0]->dtype, out};
 }

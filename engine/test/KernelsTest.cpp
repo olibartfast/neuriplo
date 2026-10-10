@@ -1709,6 +1709,51 @@ TEST(EngineKernels, SliceClampAndStepInt64) {
     EXPECT_EQ(out, (std::vector<int64_t>{2, 4, 7, 9}));
 }
 
+// Slice with negative steps on a [2,5] matrix: axis 0 reverses fully (start
+// -1 -> 1, end -INT64_MAX clamps to -1); axis 1 starts at 100 (clamped to 4)
+// and runs down by -2 to the exclusive end 0, picking columns 4 and 2.
+TEST(EngineKernels, SliceNegativeStepsReverse) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Slice");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
+    std::vector<float> out(4, 0.0f);
+    std::vector<int64_t> starts = {-1, 100};
+    std::vector<int64_t> ends = {-9223372036854775807LL, 0};
+    std::vector<int64_t> axes = {0, 1};
+    std::vector<int64_t> steps = {-1, -2};
+    engine::Node node = MakeNode("slice_neg", "Slice");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 5}), Int64View(starts, {2}), Int64View(ends, {2}),
+                                              Int64View(axes, {2}), Int64View(steps, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{10.0f, 8.0f, 5.0f, 3.0f}));
+}
+
+// Slice with step -3 on an int64 vector of 7: start 5 down to the exclusive
+// end -6 (wrapped to 1) picks indices 5 and 2.
+TEST(EngineKernels, SliceNegativeStepInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Slice");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {10, 11, 12, 13, 14, 15, 16};
+    std::vector<int64_t> out(2, 0);
+    std::vector<int64_t> starts = {5};
+    std::vector<int64_t> ends = {-6};
+    std::vector<int64_t> axes = {0};
+    std::vector<int64_t> steps = {-3};
+    engine::Node node = MakeNode("slice_neg64", "Slice");
+    std::vector<engine::TensorView> inputs = {Int64View(in, {7}), Int64View(starts, {1}), Int64View(ends, {1}),
+                                              Int64View(axes, {1}), Int64View(steps, {1})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{15, 12}));
+}
+
 // Gather picks rows 2 and 0 of a [3,2] matrix along axis 0.
 TEST(EngineKernels, GatherRowsAxisZero) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gather");
@@ -2193,7 +2238,7 @@ TEST(EngineKernelsNegative, SliceRejectsStartsEndsMismatch) {
     }
 }
 
-// Slice rejects a non-positive step, naming the op.
+// Slice rejects a zero step (negative steps are valid), naming the op.
 TEST(EngineKernelsNegative, SliceRejectsNonPositiveStep) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("Slice");
     ASSERT_NE(kernel, nullptr);
