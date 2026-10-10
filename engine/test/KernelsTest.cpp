@@ -2,7 +2,8 @@
 // Cast, Softmax, ReduceMax, Mod, Equal, Where, Concat, Split, Unsqueeze,
 // Expand, Transpose, Slice, Gather, GatherElements, Resize, Flatten, Shape,
 // ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool,
-// ConvTranspose, Erf, Sqrt, Tanh, IsNaN, Squeeze, and LayerNormalization.
+// ConvTranspose, Erf, Sqrt, Tanh, IsNaN, Squeeze, LayerNormalization, Abs,
+// Neg, Exp, Log, Cos, Sin, and Clip.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -3007,5 +3008,208 @@ TEST(EngineKernelsNegative, LayerNormalizationRejectsScaleShape) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("LayerNormalization"), std::string::npos) << error.what();
+    }
+}
+
+// Abs on float32 flips negatives and keeps positives.
+TEST(EngineKernels, AbsFloat) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Abs");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {-1.5f, 0.0f, 2.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("abs0", "Abs");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.5f, 0.0f, 2.0f}));
+}
+
+// Abs on int64 keeps the dtype.
+TEST(EngineKernels, AbsInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Abs");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> x = {-7, 3, 0};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("abs_i", "Abs");
+    std::vector<engine::TensorView> inputs = {Int64View(x, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{7, 3, 0}));
+}
+
+// Neg on float32 flips signs.
+TEST(EngineKernels, NegFloat) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Neg");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {-1.5f, 2.0f, 4.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("neg0", "Neg");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.5f, -2.0f, -4.0f}));
+}
+
+// Neg on int64 keeps the dtype.
+TEST(EngineKernels, NegInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Neg");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> x = {-7, 3, 0};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("neg_i", "Neg");
+    std::vector<engine::TensorView> inputs = {Int64View(x, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{7, -3, 0}));
+}
+
+// Exp of 0 is 1 and of 1 is e.
+TEST(EngineKernels, ExpValues) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Exp");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {0.0f, 1.0f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("exp0", "Exp");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_FLOAT_EQ(out[0], 1.0f);
+    EXPECT_NEAR(out[1], 2.718281828f, 1e-6f);
+}
+
+// Log of 1 is 0 and of e^2 is 2.
+TEST(EngineKernels, LogValues) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Log");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 7.389056099f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("log0", "Log");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_FLOAT_EQ(out[0], 0.0f);
+    EXPECT_NEAR(out[1], 2.0f, 1e-6f);
+}
+
+// Cos of 0 is 1 and of pi is -1.
+TEST(EngineKernels, CosValues) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Cos");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {0.0f, 3.14159265f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("cos0", "Cos");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_FLOAT_EQ(out[0], 1.0f);
+    EXPECT_NEAR(out[1], -1.0f, 1e-6f);
+}
+
+// Sin of 0 is 0 and of pi/2 is 1.
+TEST(EngineKernels, SinValues) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Sin");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {0.0f, 1.57079633f};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("sin0", "Sin");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_FLOAT_EQ(out[0], 0.0f);
+    EXPECT_NEAR(out[1], 1.0f, 1e-6f);
+}
+
+// Clip with both bounds clamps to [0, 6].
+TEST(EngineKernels, ClipBothBounds) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Clip");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {-2.0f, 3.0f, 9.0f};
+    std::vector<float> lo = {0.0f};
+    std::vector<float> hi = {6.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("clip_both", "Clip");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {3}), FloatView(lo, {}), FloatView(hi, {})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 3.0f, 6.0f}));
+}
+
+// Clip with only min leaves the upper side unbounded.
+TEST(EngineKernels, ClipOnlyMin) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Clip");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {-2.0f, 3.0f, 9.0f};
+    std::vector<float> lo = {0.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("clip_min", "Clip");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {3}), FloatView(lo, {}), engine::TensorView{}};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 3.0f, 9.0f}));
+}
+
+// Clip with only max (min omitted) leaves the lower side unbounded.
+TEST(EngineKernels, ClipOnlyMax) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Clip");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {-2.0f, 3.0f, 9.0f};
+    std::vector<float> hi = {6.0f};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("clip_max", "Clip");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {3}), engine::TensorView{}, FloatView(hi, {})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{-2.0f, 3.0f, 6.0f}));
+}
+
+// Exp rejects int64 input and names the op.
+TEST(EngineKernelsNegative, ExpRejectsInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Exp");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> x = {1, 2};
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("exp_bad", "Exp");
+    std::vector<engine::TensorView> inputs = {Int64View(x, {2})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Exp"), std::string::npos) << error.what();
     }
 }

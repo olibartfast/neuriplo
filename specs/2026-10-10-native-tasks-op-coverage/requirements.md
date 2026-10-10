@@ -113,13 +113,16 @@ Out:
   to int64, and the layout-only ops (Identity, Squeeze, Unsqueeze, Reshape,
   Flatten), and Shape honours `start`/`end` (opset 15).
 
+- [D-14] Graph inputs and outputs widen to int64 and bool (maintainer,
+  2026-10-10): the DETR exports take `orig_target_sizes`, and OWLv2 and
+  Grounding DINO take int64 token ids and masks. Packet P3e.
+
 ## Open questions
 
 - [Q-1] Accept opsets 12–17 natively (per-op attribute-vs-input variants), or
   require opset-18 exports and document the conversion? Recommendation:
   require 18 and ship a conversion note; owner: maintainer.
-- [Q-2] Integer graph inputs: widen graph I/O to int64 for the DETR and
-  open-vocabulary families. Blocks tiers 3 and 5. Owner: maintainer.
+- [Q-2] Resolved 2026-10-10 as [D-14].
 - [Q-3] Dynamic spatial dims for RAFT: fix them through `input_sizes` (static
   per load), or wait for the Phase N2 plan cache? Recommendation: static per
   load. Owner: maintainer.

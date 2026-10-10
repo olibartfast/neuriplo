@@ -805,6 +805,13 @@ allowed_attributes()
             { "Floor", &kNoAttrs },
             { "Identity", &kNoAttrs },
             { "Pow", &kNoAttrs },
+            { "Abs", &kNoAttrs },
+            { "Neg", &kNoAttrs },
+            { "Exp", &kNoAttrs },
+            { "Log", &kNoAttrs },
+            { "Cos", &kNoAttrs },
+            { "Sin", &kNoAttrs },
+            { "Clip", &kNoAttrs },
             { "Tile", &kNoAttrs },
             { "AveragePool", &averagepool_attrs() },
             { "ConvTranspose", &convtranspose_attrs() },
@@ -1177,7 +1184,7 @@ Node decode_node(const uint8_t* data, size_t size)
             "Unsqueeze/Expand/Cast/Concat/ConstantOfShape/Gather/"
             "GatherElements/Mod/ReduceMax/Resize/Softmax/Split/TopK/Transpose/"
             "Floor/Identity/Pow/Tile/AveragePool/ConvTranspose/Erf/Sqrt/Tanh/"
-            "IsNaN/Squeeze/LayerNormalization only)");
+            "IsNaN/Squeeze/LayerNormalization/Abs/Neg/Exp/Log/Cos/Sin/Clip only)");
     }
 
     const std::unordered_map<std::string, AttrSlot>& allowed = *op_it->second;

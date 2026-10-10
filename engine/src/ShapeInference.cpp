@@ -1692,8 +1692,12 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
             broadcast_shape(lhs.dims, rhs.dims, node)}};
     }
     if (op == "Relu" || op == "Sigmoid" || op == "Softmax" || op == "Floor" ||
-        op == "Erf" || op == "Sqrt" || op == "Tanh") {
+        op == "Erf" || op == "Sqrt" || op == "Tanh" || op == "Exp" ||
+        op == "Log" || op == "Cos" || op == "Sin" || op == "Clip") {
         return {TensorInfo{DataType::Float32, need(0).dims}};
+    }
+    if (op == "Abs" || op == "Neg") {
+        return {need(0)};
     }
     if (op == "MatMul") {
         return {TensorInfo{DataType::Float32,

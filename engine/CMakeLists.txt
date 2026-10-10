@@ -88,6 +88,13 @@ add_library(neuriplo_engine STATIC
     src/kernels/Sqrt.cpp
     src/kernels/Tanh.cpp
     src/kernels/IsNaN.cpp
+    src/kernels/Abs.cpp
+    src/kernels/Neg.cpp
+    src/kernels/Exp.cpp
+    src/kernels/Log.cpp
+    src/kernels/Cos.cpp
+    src/kernels/Sin.cpp
+    src/kernels/Clip.cpp
     src/kernels/Squeeze.cpp
     src/kernels/LayerNormalization.cpp)
 target_compile_features(neuriplo_engine PUBLIC cxx_std_17)
