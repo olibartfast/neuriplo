@@ -91,6 +91,47 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - **Budget:** 40 turns. **Handback:** `PACKET P3a HANDBACK pass|fail`, the
   acceptance output tail, deviations, `git status --short`.
 
+### Packet P3e — int64 and bool graph I/O ([D-14])
+
+Routed to the strongest worker tier (`opus`): it changes an engine API and
+the adapter's marshalling contract.
+
+- **Starting revision:** the branch head after P3d integrates.
+- **Writable:** `engine/include/engine/Executor.hpp`, `engine/src/Executor.cpp`,
+  `engine/src/ModelLoader.cpp` (graph input/output element types only),
+  `engine/src/ShapeInference.cpp` (`InferShapes` input dtypes only),
+  `backends/neuriplo-engine/src/NeuriploEngineInfer.{hpp,cpp}`,
+  `engine/test/{ExecutorTest,LoaderTest}.cpp`,
+  `backends/neuriplo-engine/test/NeuriploEngineInferTest.cpp`,
+  `backends/neuriplo-engine/test/ModelZooParityTest.cpp` (input generation
+  and comparison for non-float inputs/outputs). Nothing else.
+- **Required final state:**
+  1. The loader accepts FLOAT, INT64 and BOOL graph inputs and outputs;
+     other element types stay rejected with the input's name.
+  2. `InferShapes` types each graph input by its declared dtype (it forces
+     Float32 today).
+  3. `engine::Model` gains a typed entry point: a host tensor type carrying
+     dtype, dims and bytes, `Run` over a name → host tensor map returning
+     every graph output in its own dtype. The existing float-only `Run` and
+     `InferenceResult` keep compiling and behaving as before (callers and
+     tests depend on them); it may delegate to the typed path.
+  4. `NeuriploEngineInfer` marshals each input buffer by the graph input's
+     dtype (float32 4 bytes, int64 8, bool 1 per element), reports input and
+     output dtypes in its metadata (`TensorDataType::Int64` / `Bool`), and
+     returns int64 outputs as `int64_t` and bool outputs as `uint8_t`
+     `TensorElement`s (raw path: `TensorDtype::INT64` / `UINT8`), matching
+     `HostTensorConverter`'s convention.
+  5. `ModelZooParityTest` fills int64 inputs with a value per input given in
+     the manifest (new optional token `name=value` style, or a documented
+     default), and compares int64/bool outputs exactly.
+  6. Tests: loader positives for INT64/BOOL graph I/O replacing the three
+     negative tests that asserted rejection (keep one rejection for an
+     unsupported type such as INT32); an executor test running a graph with
+     an int64 input and a bool output; an adapter test with an int64 input.
+- **Acceptance:** the R1 scoreboard (NEURIPLO_ENGINE + ONNX_RUNTIME build,
+  `ctest -R "^engine_|NeuriploEngineInferTest"`, docs and format checks).
+- **Budget:** 60 turns.
+
 ### Packet R1 — rename `NATIVE` to `NEURIPLO_ENGINE`
 
 Maintainer decision 2026-10-10: the backend must not be called `NATIVE`.
@@ -240,8 +281,38 @@ Fresh worker, same worktree, continuing from the R1 diff.
 
 ### Packet P3d — GridSample, Einsum
 
-Written at dispatch. Survey: GridSample 4-D, bilinear, `padding_mode` zeros,
-`align_corners` 0 (every site); Einsum `bchw,bnc->bnhw` (RF-DETR-Seg).
+- **Starting revision:** the branch head after P3c integrates.
+- **Writable:** new `engine/src/kernels/{GridSample,Einsum}.cpp`; modify
+  `Kernels.hpp`, `CpuKernels.cpp`, `engine/CMakeLists.txt`,
+  `engine/src/ModelLoader.cpp` (allowlist, attribute maps, policies,
+  accepted-ops message), `engine/src/ShapeInference.cpp` (shape rules and
+  `compute_outputs` only), `engine/test/KernelsTest.cpp` and
+  `engine/test/ShapeInferenceTest.cpp` (append only).
+- **Survey facts:** every GridSample site (RT-DETR v4, D-FINE, DEIMv2,
+  RF-DETR, RF-DETR-Seg) is 4-D, `mode` bilinear, `padding_mode` zeros,
+  `align_corners` 0; the one Einsum is `bchw,bnc->bnhw` (RF-DETR-Seg).
+- **Required final state:**
+  1. GridSample (opset 16 attribute names, as opset 18 exports carry): X
+     `[N,C,H,W]`, grid `[N,Ho,Wo,2]` holding (x, y) in [-1, 1]; output
+     `[N,C,Ho,Wo]`. `mode` bilinear (default) or nearest; `padding_mode`
+     zeros (default), border, or reflection; `align_corners` 0 (default) or
+     1, with the ONNX unnormalization (`align_corners` 1: -1 and 1 are the
+     centres of the corner pixels; 0: the outer edges). Nearest rounds half
+     to even, as the ONNX reference does. bicubic is rejected at load.
+  2. Einsum: one or two float32 operands; explicit output (`->`) or the
+     implicit form (output = the labels that appear once, alphabetical);
+     summation over the labels absent from the output; a label repeated
+     inside one operand means its diagonal. Ellipsis (`...`) is rejected at
+     load. Shape inference derives the output dims from the labels and
+     fails on a label bound to two different sizes.
+  3. Tests: hand-computed GridSample cases for bilinear and nearest, each
+     padding mode on an out-of-range sample, and both `align_corners`
+     values; Einsum cases for `bchw,bnc->bnhw`, a matrix product `ij,jk->ik`,
+     a trace `ii->` (or `ii` implicit), and a transpose `ij->ji`; negative
+     cases for an ellipsis equation and a size mismatch.
+  4. clang-format only on new kernel files.
+- **Acceptance:** the scoreboard at the top of this file.
+- **Budget:** 60 turns.
 
 ## Run ledger
 
