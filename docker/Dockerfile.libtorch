@@ -43,10 +43,10 @@ FROM base AS libtorch_install
 ARG COMPUTE_PLATFORM=cpu
 RUN . /tmp/versions.env && \
     LIBTORCH_VERSION=${PYTORCH_VERSION} && \
-    wget https://download.pytorch.org/libtorch/$COMPUTE_PLATFORM/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2B${COMPUTE_PLATFORM}.zip && \
-    unzip libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip -d /tmp && \
+    wget https://download.pytorch.org/libtorch/$COMPUTE_PLATFORM/libtorch-shared-with-deps-${LIBTORCH_VERSION}%2B${COMPUTE_PLATFORM}.zip && \
+    unzip libtorch-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip -d /tmp && \
     mv /tmp/libtorch ${LIBTORCH_DIR} && \
-    rm libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip    
+    rm libtorch-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip    
 
 # Set LibTorch environment variables
 ENV LIBTORCH_DIR=/opt/libtorch
@@ -61,6 +61,10 @@ WORKDIR /app
 # Copy source code
 COPY . .
 
+# Parallel compile jobs. Each LibTorch translation unit needs about 1 GB, so
+# memory-constrained hosts should pass a small value (--build-arg BUILD_JOBS=2).
+ARG BUILD_JOBS=""
+
 # Build the project with LibTorch backend and tests enabled
 RUN rm -rf build && \
     cmake -Bbuild -H. \
@@ -68,7 +72,7 @@ RUN rm -rf build && \
     -DBUILD_INFERENCE_ENGINE_TESTS=ON \
     -DCMAKE_PREFIX_PATH=${LIBTORCH_DIR} \
     -DLIBTORCH_DIR=${LIBTORCH_DIR} \
-    && cmake --build build --config Release -j$(nproc)
+    && cmake --build build --config Release -j${BUILD_JOBS:-$(nproc)}
 
 # Stage 4: Generate test models
 FROM builder AS model_generator
@@ -77,8 +81,12 @@ FROM builder AS model_generator
 RUN python3 -m venv /opt/pytorch_env
 ENV PATH=/opt/pytorch_env/bin:$PATH
 
-RUN pip install --upgrade pip && \
-    pip install torch torchvision onnx numpy \
+# torch is pinned to the LibTorch version: an AOTInductor package (.pt2) only
+# loads in the LibTorch release whose compiler produced it.
+RUN . /tmp/versions.env && \
+    pip install --upgrade pip && \
+    pip install torch==${PYTORCH_VERSION} torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install onnx numpy \
     pytest pytest-cov pytest-mock pytest-benchmark pytest-xdist \
     coverage pytest-html pytest-json-report
 
@@ -88,6 +96,10 @@ RUN python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
 # Generate LibTorch model using model_downloader.py
 WORKDIR /app/build/backends/libtorch/test
 RUN /opt/pytorch_env/bin/python /app/scripts/model_downloader.py LIBTORCH --output-dir . --keep-temp
+# AOTInductor compiles with one worker per core unless told otherwise.
+ARG BUILD_JOBS=""
+RUN TORCHINDUCTOR_COMPILE_THREADS=${BUILD_JOBS:-$(nproc)} \
+    /opt/pytorch_env/bin/python /app/scripts/model_downloader.py LIBTORCH_AOTI --output-dir . --keep-temp --path-file aoti_model_path.txt
 
 # Stage 5: Final runtime image for testing
 FROM libtorch_install AS final

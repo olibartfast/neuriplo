@@ -48,6 +48,25 @@ and optionally applies decorators. Model construction failures use
 request-time failures use `InferenceExecutionException`. Backends must not
 terminate the host process.
 
+The facade translates a `ModelLoadException` into a `nullptr` return, so a
+consumer checks one value instead of catching backend-specific errors. Each
+backend's `*RuntimeFactory` produces a coherent `{backend, allocator,
+converter}` family, and `setup_inference_engine` builds through the factory
+selected at compile time by `-DDEFAULT_BACKEND`. A factory may pick between
+runtimes of one family; `LibtorchRuntimeFactory`, for example, routes `.pt2`
+packages to AOTInductor and everything else to TorchScript.
+
+### Opt-in decorators
+
+`ProfilingBackend`, `LoggingBackend`, `CachingBackend`, and `QuantizedBackend`
+wrap any backend without changing its interface. They are off by default, so
+the production path is unchanged. The profiling and logging chain is enabled at
+runtime:
+
+```bash
+NEURIPLO_ENABLE_PROFILING=1 NEURIPLO_ENABLE_LOGGING=1 ./your_app
+```
+
 Device placement and fallback remain backend-owned until the shared
 `EngineOptions` contract is extended. A requested accelerator must be used,
 fail clearly, or fall back only when the caller explicitly permits it.
@@ -81,5 +100,5 @@ backend's output and failure semantics. Runtime-specific device providers,
 delegates, and preprocessing operators stay inside their owning adapter rather
 than becoming duplicate top-level backend IDs.
 
-_Revision: 2026-09-11 - replaced the completed refactor plan with the
-implemented architecture and added DALI's pipeline-adapter role._
+_Revision: 2026-10-10 - absorbed the architecture summary from the README
+(facade `nullptr` contract, decorator switches, per-format factory routing)._

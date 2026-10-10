@@ -1,230 +1,211 @@
-
 # Neuriplo
 
-![Alt text](data/neuriplo.png)
+[![C++](https://img.shields.io/badge/language-C++17-blue.svg)](https://en.cppreference.com/w/cpp)
+[![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)](https://github.com/olibartfast/neuriplo/releases/tag/v0.10.0)
 
-## Overview
+![Neuriplo](data/neuriplo.png)
 
-* Neuriplo is a C++ library designed for seamless integration of various backend engines for inference tasks.
-* It supports vision, graph, and GGUF-native generative runtimes including OpenCV DNN, TensorFlow, PyTorch (LibTorch), ONNX Runtime, TensorRT, OpenVINO, TVM, GGML, MIGraphX, Cactus, llama.cpp, ExecuTorch, and LiteRT, plus NVIDIA DALI for GPU preprocessing.
-* The project aims to provide a unified interface for performing inference using these backends, allowing flexibility in choosing the most suitable backend based on performance or compatibility requirements.
-* The library is currently mainly used as component of the [Neuriplo Infer Project](https://github.com/olibartfast/neuriplo-infer)
+One C++ interface over many inference runtimes: ONNX Runtime, TensorRT,
+OpenVINO, LibTorch, ExecuTorch, LiteRT, llama.cpp and more, plus NVIDIA DALI for
+GPU preprocessing.
 
-## Dependencies
-- C++17
-- glog
+Write your application once against `InferenceInterface`, then pick the runtime
+that fits your model and hardware at build time, without rewriting code around
+each vendor SDK. Neuriplo is the backend layer of
+[neuriplo-infer](https://github.com/olibartfast/neuriplo-infer).
 
-OpenCV is required only by the OpenCV DNN backend. Every other backend
-configures and builds without it installed.
+**Start here, then go deeper:** this page is the short path: build, test, link.
+Per-backend setup, model formats and Docker workflows are in
+**[docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md)**. The design
+behind the interface is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
-### Supported Backends (Inside [versions.env](versions.env) file, versions tested in this project):
-* OpenCV DNN module
-* ONNX Runtime
-* Pytorch (Libtorch)
-* TensorRT
-* OpenVINO
-* Tensorflow (LibTensorFlow C++ library) - inference on saved models, not graph
-* GGML - Efficient tensor library for machine learning
-* TVM - Open deep learning compiler stack
-* MIGraphX - AMD ROCm graph inference engine
-* Cactus - GGUF-native text generation backend
-* llama.cpp - GGUF-native LLM and multimodal backend
-* ExecuTorch - PyTorch edge inference runtime
-* LiteRT - Google AI Edge runtime, formerly TensorFlow Lite
-* NVIDIA DALI - GPU preprocessing pipeline. See its
-  [architecture](docs/ARCHITECTURE.md#dali-as-a-pipeline-adapter) and
-  [setup and runtime contract](docs/DEPENDENCY_MANAGEMENT.md#dali-pipeline-metadata-and-validation).
+---
 
-### Optional
-* CUDA (if you want to use GPU)
+## Table of Contents
+- [Quick Start](#quick-start): from a clean Ubuntu box to passing tests
+- [Using the Library](#using-the-library): C++ API and the stable C ABI
+- [Choosing a Backend](#choosing-a-backend)
+- [Versions](#versions)
+- [Common Build Options](#common-build-options)
+- [Documentation](#documentation)
+- [Testing](#testing)
+
+---
 
 ## Quick Start
-### Automated Setup and Testing
 
-#### Setup Dependencies for a Specific Backend
+Four steps on Ubuntu 24.04, using the default backend (OpenCV DNN, CPU: no GPU,
+no CUDA, no extra SDK).
+
+### 1. Install the toolchain
 
 ```bash
-./scripts/setup_dependencies.sh --backend <BACKEND_NAME>
+sudo apt-get update
+sudo apt-get install -y cmake build-essential pkg-config \
+  libgoogle-glog-dev libgtest-dev libgmock-dev libopencv-dev
 ```
 
-Supported `<BACKEND_NAME>` values:
+OpenCV is needed only by the OpenCV DNN backend. Every other backend configures
+and builds without it.
 
-* `OPENCV_DNN`
-* `ONNX_RUNTIME`
-* `LIBTORCH`
-* `TENSORRT`
-* `LIBTENSORFLOW`
-* `OPENVINO`
-* `GGML`
-* `TVM`
-* `MIGRAPHX`
-* `CACTUS`
-* `LLAMACPP`
-* `EXECUTORCH`
-* `LITERT`
-* `DALI`
-
-#### Test All Backends
-```bash
-./scripts/test_backends.sh
-````
-
-#### Test a Specific Backend
+### 2. Build
 
 ```bash
-./scripts/test_backends.sh --backend <BACKEND_NAME>
+git clone https://github.com/olibartfast/neuriplo.git
+cd neuriplo
+cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN
+cmake --build build --parallel
 ```
 
-### Backend-Specific Workflows
+### 3. Test
 
-Backend-specific setup notes, model format constraints, Docker workflows, and
-GGUF backend details live in [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
-ExecuTorch delegate selection is covered in
-[docs/EXECUTORCH_DELEGATES.md](docs/EXECUTORCH_DELEGATES.md).
+```bash
+ctest --test-dir build --output-on-failure
+```
 
+### 4. Switch backend
 
-### Manual Build Instructions
+Every other backend has a setup script that installs the pinned dependency into
+`~/dependencies`:
 
-1. Clone the repository:
+```bash
+./scripts/setup_dependencies.sh --backend ONNX_RUNTIME
+cmake -S . -B build -DDEFAULT_BACKEND=ONNX_RUNTIME
+cmake --build build --parallel
+```
 
-   ```bash
-   git clone https://github.com/olibartfast/neuriplo.git
-   cd neuriplo
-   ```
+---
 
-2. Create a build directory and navigate into it:
+## Using the Library
 
-   ```bash
-   mkdir build
-   cd build
-   ```
-
-3. Configure the build with CMake:
-
-   ```bash
-   cmake ..
-   ```
-
-   Optionally, you can specify the default backend by setting `-DDEFAULT_BACKEND=your_backend` during configuration.
-   - **Note**: If the backend package is not installed on your system, set the path manually in the backend's CMake module or use the automated setup scripts.
-
-4. Build the project:
-
-   ```bash
-   cmake --build .
-   ```
-
-   This will compile the project along with the selected backend(s).
-
-## Usage
-
-To use the Neuriplo library in your project, link against it and include necessary headers ([check the example here](https://github.com/olibartfast/neuriplo-infer/blob/master/app/CMakeLists.txt)):
+Link against `neuriplo` and include the setup header
+([full example](https://github.com/olibartfast/neuriplo-infer/blob/master/app/CMakeLists.txt)):
 
 ```cmake
 target_link_libraries(your_project PRIVATE neuriplo)
 target_include_directories(your_project PRIVATE path_to/neuriplo/include)
 ```
 
-Ensure you have initialized and set up the selected backend(s) appropriately in your code using the provided interface headers.
+```cpp
+#include "InferenceBackendSetup.hpp"
 
-That C++ API passes STL types across the library boundary, so it needs the same toolchain as `libneuriplo`. Any other application — C, C++ built with another compiler, Python, C#/Unity — should use the stable **consumer C ABI** (`neuriplo/neuriplo_c.h`) or its header-only C++ wrapper (`neuriplo/neuriplo.hpp`) from an installed package:
+auto engine = setup_inference_engine("model.onnx", /*use_gpu=*/false);
+if (!engine) {
+    // the model failed to load; the backend logged why
+}
+auto metadata = engine->get_inference_metadata();          // input/output names and shapes
+auto [outputs, shapes] = engine->get_infer_results(inputs); // inputs: one byte buffer per tensor
+```
+
+That C++ API passes STL types across the library boundary, so the application
+must use the same toolchain as `libneuriplo`. Anything else (C, C++ built with
+another compiler, Python, C#/Unity) uses the stable **C ABI**
+(`neuriplo/neuriplo_c.h`) or its header-only C++ wrapper (`neuriplo/neuriplo.hpp`)
+from an installed package:
 
 ```cmake
 find_package(neuriplo CONFIG REQUIRED)
 target_link_libraries(your_project PRIVATE neuriplo::neuriplo)
 ```
 
-See [Consumer C API](docs/C_API.md) for installation, ownership, threading, and examples in C, C++, Python, and C#/Unity.
+See **[docs/C_API.md](docs/C_API.md)** for installation, ownership, threading,
+and examples.
 
-## Architecture
+---
 
-Neuriplo's backend layer is organized around five design patterns, all built on
-the single `InferenceInterface` contract that `setup_inference_engine` returns:
+## Choosing a Backend
 
-- **Adapter** — each `*Infer` class wraps a vendor SDK behind `InferenceInterface`.
-- **Bridge** — `ModelRunner` orchestrates lifecycle and delegates to any backend
-  without knowing the concrete type.
-- **Abstract Factory** — each backend ships an `IBackendRuntimeFactory`
-  (`*RuntimeFactory`) that produces a coherent `{backend, allocator, converter}`
-  family. `setup_inference_engine` builds through the factory selected at compile
-  time by `-DDEFAULT_BACKEND`.
-- **Decorator** — `ProfilingBackend` / `LoggingBackend` / `CachingBackend` /
-  `QuantizedBackend` add cross-cutting behavior. They are opt-in; enable the
-  profiling/logging chain at runtime with `NEURIPLO_ENABLE_PROFILING=1` and
-  `NEURIPLO_ENABLE_LOGGING=1` (default off, so the production path is unchanged).
-- **State** — `BackendState{Uninitialized, Loading, Ready, Failed}` makes the
-  lifecycle explicit. Load failures set `Failed` and throw `ModelLoadException`,
-  which the facade translates to a `nullptr` return (no `std::exit`).
+`-DDEFAULT_BACKEND=<ID>` selects the runtime compiled into the library, and
+`./scripts/setup_dependencies.sh --backend <ID>` installs it.
 
-The public contract is unchanged: `setup_inference_engine(model_path, use_gpu,
-batch_size, input_sizes)` still returns `std::unique_ptr<InferenceInterface>`.
-See [Backend Architecture](docs/ARCHITECTURE.md) for the
-full design.
+| ID | Runtime | Model format | Best for |
+|----|---------|--------------|----------|
+| `OPENCV_DNN` (default) | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference |
+| `ONNX_RUNTIME` | ONNX Runtime | `.onnx` | General CPU/GPU inference, many execution providers |
+| `TENSORRT` | TensorRT | `.engine` | Production on NVIDIA GPUs |
+| `OPENVINO` | OpenVINO | IR (`.xml` + `.bin`) | Intel CPUs and GPUs |
+| `LIBTORCH` | LibTorch | TorchScript `.pt`, AOTInductor `.pt2` | PyTorch models on server/desktop |
+| `EXECUTORCH` | ExecuTorch | `.pte` | PyTorch models on edge devices |
+| `LITERT` | LiteRT (TensorFlow Lite) | `.tflite` | Mobile and edge |
+| `LIBTENSORFLOW` | TensorFlow C++ | SavedModel | Existing TensorFlow models |
+| `MIGRAPHX` | MIGraphX | `.onnx` | AMD GPUs (ROCm) |
+| `LLAMACPP` | llama.cpp | GGUF | LLM and multimodal generation |
+| `CACTUS` | Cactus | GGUF | Text generation on ARM64 |
+| `DALI` | NVIDIA DALI | `.dali` pipeline | GPU preprocessing in front of a model backend |
+| `GGML` | GGML | GGML | Experimental: returns placeholder output |
+| `TVM` | Apache TVM | compiled module | Experimental: returns placeholder output |
 
-## Backend Configuration System
+Several backends can be compiled into one library (`-DNEURIPLO_BACKENDS`), or
+built as runtime-loaded plugins (`-DNEURIPLO_PLUGIN_BACKENDS`); see
+[docs/PLUGIN_BACKENDS.md](docs/PLUGIN_BACKENDS.md). Per-backend setup notes,
+architecture and GPU support, and model sources are in
+[docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
 
-Neuriplo uses a centralized configuration system that makes it easy to add new backends. The system consists of:
+---
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Backend Configuration Flow                    │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  1. versions.env                                                │
-│     ┌────────────────────────────────────────────────────┐      │
-│     │ Defines version numbers:                           │      │
-│     │ TVM_VERSION=0.18.0                                 │      │
-│     │ ONNX_RUNTIME_VERSION=1.19.2                        │      │
-│     │ PYTORCH_VERSION=2.3.0                              │      │
-│     └────────────────────────────────────────────────────┘      │
-│                           ↓                                      │
-│  2. cmake/versions.cmake                                        │
-│     ┌────────────────────────────────────────────────────┐      │
-│     │ Reads versions.env and validates consistency       │      │
-│     │ Maps backends to their version variables           │      │
-│     │ Ensures all backends have version variables        │      │
-│     └────────────────────────────────────────────────────┘      │
-│                           ↓                                      │
-│  3. scripts/*.sh                                                │
-│     ┌────────────────────────────────────────────────────┐      │
-│     │ Backend arrays and mappings defined directly       │      │
-│     │ Sources versions.env for version numbers           │      │
-│     └────────────────────────────────────────────────────┘      │
-│                           ↓                                      │
-│  ✓ All bash scripts and CMake automatically synchronized        │
-└─────────────────────────────────────────────────────────────────┘
-```
+## Versions
 
-### Adding a New Backend
+> **Every dependency version is pinned once, in [`versions.env`](versions.env).**
+> CMake reads it through `cmake/versions.cmake` and the setup scripts source it
+> directly, so a bump is a one-line edit. The tested version of each backend is
+> listed in the generated
+> [backend table](docs/DEPENDENCY_MANAGEMENT.md#supported-backends).
 
-See [Adding an Inference Backend](docs/ADDING_BACKEND.md) for the complete
-workflow.
+| Component | Requirement |
+|-----------|-------------|
+| C++ compiler | C++17 (C++20 when LibTorch is enabled) |
+| CMake | 3.10+ |
+| glog | any recent release |
+| CUDA | only for GPU backends; version pinned in `versions.env` |
 
-At a high level, a new backend needs:
+---
 
-1. A `backends/<backend>/src` implementation deriving from `InferenceInterface`.
-2. Backend tests under `backends/<backend>/test`.
-3. A backend CMake module such as `cmake/NCNN.cmake`.
-4. CMake registration in `cmake/BackendRegistry.cmake`.
-5. Link and dependency-validation rules for the backend's library layout.
-6. Factory registration in `include/InferenceBackendSetup.hpp` and `src/InferenceBackendSetup.cpp`.
-7. Script and docs updates when setup, testing, model format, or runtime behavior changes.
+## Common Build Options
 
-The CMake registry centralizes supported backend IDs, selected-backend module
-lookup, test directory lookup, and backend version-variable mapping.
+| Option | Default | Effect |
+|--------|---------|--------|
+| `-DDEFAULT_BACKEND=<ID>` | `OPENCV_DNN` | Backend compiled in and used by `setup_inference_engine` |
+| `-DNEURIPLO_BACKENDS="A;B"` | `DEFAULT_BACKEND` | Compile several backends into one library |
+| `-DNEURIPLO_PLUGIN_BACKENDS="A;B"` | empty | Build backends as runtime-loaded plugins |
+| `-DBUILD_INFERENCE_ENGINE_TESTS=ON/OFF` | `ON` | Build the test suites |
+| `-DNEURIPLO_INSTALL=ON/OFF` | `ON` when top-level | Generate install rules and the CMake package |
+| `-DWERROR=ON/OFF` | `OFF` | Treat compiler warnings as errors (what CI does) |
+| `-DSANITIZERS=ON/OFF` | `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer |
+| `-DORT_ENABLE_<EP>_EP=ON/OFF` | `OFF` | ONNX Runtime execution providers; see [docs/ORT_EXECUTION_PROVIDERS.md](docs/ORT_EXECUTION_PROVIDERS.md) |
 
-### Validation
+---
 
-The system automatically validates that every backend has a corresponding version:
+## Documentation
+
+| Document | Covers |
+|----------|--------|
+| **[docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md)** | Per-backend setup, model formats, Docker workflows, version validation |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | Adapter, Bridge, Abstract Factory, Decorator and State design of the backend layer |
+| **[docs/C_API.md](docs/C_API.md)** | Stable C ABI and C++ wrapper for third-party applications |
+| **[docs/ADDING_BACKEND.md](docs/ADDING_BACKEND.md)** | Implementing and registering a new backend |
+| **[docs/PLUGIN_BACKENDS.md](docs/PLUGIN_BACKENDS.md)** | Multi-backend builds and the plugin ABI |
+| **[docs/ORT_EXECUTION_PROVIDERS.md](docs/ORT_EXECUTION_PROVIDERS.md)** | ONNX Runtime execution provider selection |
+| **[docs/EXECUTORCH_DELEGATES.md](docs/EXECUTORCH_DELEGATES.md)** | ExecuTorch delegate selection |
+| **[docs/TVM_BUILD_GUIDE.md](docs/TVM_BUILD_GUIDE.md)** | Building TVM from source |
+| **[docs/CODE_QUALITY.md](docs/CODE_QUALITY.md)** | Formatting, static analysis, sanitizers, git hooks |
+| **[docs/LOCAL_CI.md](docs/LOCAL_CI.md)** | Running the CI workflows locally with `act` |
+| **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** | Known build and CI failures and their fixes |
+| **[docs/Versioning.md](docs/Versioning.md)** | Release and versioning policy |
+| **[specs/](specs/)** | Project [mission](specs/mission.md), [tech stack](specs/tech-stack.md) and [roadmap](specs/roadmap.md) |
+
+---
+
+## Testing
 
 ```bash
-# CMake validation (runs automatically)
-cmake ..
+ctest --test-dir build --output-on-failure           # the backend you built
+./scripts/test_backends.sh --backend <ID>            # setup + build + test one backend
+./scripts/test_backends.sh                           # every backend
 ```
 
-## Code quality
-
-Local checks (format, cppcheck, ASan/UBSan, clang-tidy) and git hook setup:
+Local quality gate and git hooks:
 
 ```bash
 ./scripts/quality/setup_hooks.sh   # pre-commit + pre-push hooks
@@ -232,15 +213,17 @@ Local checks (format, cppcheck, ASan/UBSan, clang-tidy) and git hook setup:
 ./scripts/quality/sanitizers.sh    # ASan + UBSan build and ctest
 ```
 
-See **[Code Quality](docs/CODE_QUALITY.md)** for details.
+CI runs on pushes and PRs to `master`, `develop`, `release/**` and `feature/**`:
 
-## Documentation
+| Workflow | What it does |
+|----------|-------------|
+| `ci.yml` | Format, backend-docs sync, cppcheck, clang-tidy, `-DWERROR=ON` builds, sanitizers, C ABI checks, per-backend Docker build and test |
+| `windows-build.yml` | Windows builds, when a Windows-relevant path or `versions.env` changes |
 
-For detailed documentation, see the [docs/](docs/) directory:
+Run them locally with `act`: see [docs/LOCAL_CI.md](docs/LOCAL_CI.md).
 
-- **Project constitution** - [Mission](specs/mission.md), [Technical Stack](specs/tech-stack.md), and [Roadmap](specs/roadmap.md)
-- **[Code Quality](docs/CODE_QUALITY.md)** - Formatting, static analysis, sanitizers, pre-commit hooks
-- **[Architecture / Design Patterns](docs/ARCHITECTURE.md)** - Adapter, Bridge, Abstract Factory, Decorator, and State design of the backend layer
-- **[Dependency Management](docs/DEPENDENCY_MANAGEMENT.md)** - Complete setup guide for all backends
-- **[Adding an Inference Backend](docs/ADDING_BACKEND.md)** - Backend implementation and registration checklist
-- **[Consumer C API](docs/C_API.md)** - Stable C ABI and C++ wrapper for third-party applications (C, C++, Python, C#/Unity)
+---
+
+## License
+
+[MIT](LICENSE)
