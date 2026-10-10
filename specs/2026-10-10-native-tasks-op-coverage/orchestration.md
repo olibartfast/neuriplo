@@ -55,7 +55,8 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3b — comparison and logic: Greater, Less, And, Not
 - P3c — ReduceSum, Range, Pad (with load-time evaluation)
 - P3d — GridSample, Einsum
-- P3e — int64 graph inputs, blocked on [Q-2]
+- P3e — int64 and bool graph I/O ([D-14]); written at dispatch
+- R1 — rename the backend `NATIVE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -89,6 +90,50 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
   `git status`. No commits, no pushes, no network.
 - **Budget:** 40 turns. **Handback:** `PACKET P3a HANDBACK pass|fail`, the
   acceptance output tail, deviations, `git status --short`.
+
+### Packet R1 — rename `NATIVE` to `NEURIPLO_ENGINE`
+
+Maintainer decision 2026-10-10: the backend must not be called `NATIVE`.
+New identity: ID `NEURIPLO_ENGINE`, directory `backends/neuriplo-engine/`,
+adapter `NeuriploEngineInfer`. The engine library (`engine/`,
+`neuriplo_engine`, namespace `engine`) keeps its name. Spec files are
+orchestrator-owned and updated by the planner, not the worker.
+
+- **Writable:** everything under `backends/native/` (moved with `git mv` to
+  `backends/neuriplo-engine/`), `backends/src/BackendRuntimeRegistry.cpp`,
+  `cmake/Native.cmake` (moved to `cmake/NeuriploEngine.cmake`),
+  `cmake/BackendRegistry.cmake`, `cmake/LinkBackend.cmake`,
+  `cmake/versions.cmake` (comment), `docs/backends.yaml`,
+  `docs/DEPENDENCY_MANAGEMENT.md` (regenerated only, via
+  `python3 scripts/gen_backend_docs.py`), `engine/README.md`,
+  `engine/test/*.cpp` and `engine/test/CMakeLists.txt` (fixture variable
+  only), `.github/workflows/ci.yml` (the `native` job only), `Readme.md`,
+  `CHANGELOG.md` (`[Unreleased]` only). Nothing else.
+- **Mapping (exact):** `NATIVE` → `NEURIPLO_ENGINE` (backend ID, `USE_NATIVE`
+  → `USE_NEURIPLO_ENGINE`, `NEURIPLO_BACKEND_NATIVE_*` →
+  `NEURIPLO_BACKEND_NEURIPLO_ENGINE_*`); registry display name
+  "Native Engine" → "Neuriplo Engine"; `NativeInfer` → `NeuriploEngineInfer`;
+  `NativeRuntimeFactory` → `NeuriploEngineRuntimeFactory`; `NativeInferTest`
+  → `NeuriploEngineInferTest`; `native_parity*`, `native_yolo_parity*`,
+  `native_model_zoo_parity*` → `neuriplo_engine_parity*`,
+  `neuriplo_engine_yolo_parity*`, `neuriplo_engine_model_zoo_parity*`;
+  `NEURIPLO_NATIVE_FIXTURE` → `NEURIPLO_ENGINE_FIXTURE`; CI job `native` →
+  `neuriplo-engine`, `build-native` → `build-neuriplo-engine`.
+- **Must not change:** "native" in its ordinary sense (native-endian, native
+  handles, `-march=native`, `GGML_NATIVE`, C# `class Native`, Gemma's native
+  tokens), `engine/` and `neuriplo_engine`, `specs/**`.
+- **Acceptance (once, final action):**
+  ```bash
+  cmake -S . -B build-ne -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
+    && nice -n 10 cmake --build build-ne --parallel 2 \
+    && NEURIPLO_ENGINE_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
+       ctest --test-dir build-ne -R "engine_|NeuriploEngineInferTest" --output-on-failure \
+    && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check \
+    && ! git grep -nIE "\bNATIVE\b|NativeInfer|NativeRuntimeFactory|USE_NATIVE|backends/native|Native\.cmake|native_(parity|yolo|model_zoo)|NEURIPLO_NATIVE_FIXTURE" -- ':!specs' \
+    && git status --short
+  ```
+- **Budget:** 60 turns. **Handback:** `PACKET R1 HANDBACK pass|fail`,
+  acceptance tail, deviations, `git status --short`.
 
 ### Packet P3b — comparison and logic
 
