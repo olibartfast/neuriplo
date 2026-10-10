@@ -3,7 +3,7 @@
 // Expand, Transpose, Slice, Gather, GatherElements, Resize, Flatten, Shape,
 // ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool,
 // ConvTranspose, Erf, Sqrt, Tanh, IsNaN, Squeeze, LayerNormalization, Abs,
-// Neg, Exp, Log, Cos, Sin, and Clip.
+// Neg, Exp, Log, Cos, Sin, Clip, Greater, Less, And, and Not.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -3211,5 +3211,126 @@ TEST(EngineKernelsNegative, ExpRejectsInt64) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("Exp"), std::string::npos) << error.what();
+    }
+}
+
+// Greater broadcasts float32 [2,1] against [3] into a [2,3] bool output.
+TEST(EngineKernels, GreaterFloatBroadcast) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Greater");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {2.0f, 5.0f};
+    std::vector<float> b = {1.0f, 3.0f, 5.0f};
+    std::vector<std::uint8_t> out(6, 0);
+    engine::Node node = MakeNode("greater0", "Greater");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 1}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{1, 0, 0, 1, 1, 0}));
+}
+
+// Greater compares int64 vectors elementwise.
+TEST(EngineKernels, GreaterInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Greater");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {3, -1, 7};
+    std::vector<int64_t> b = {2, -1, 9};
+    std::vector<std::uint8_t> out(3, 0);
+    engine::Node node = MakeNode("greater1", "Greater");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {3}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{1, 0, 0}));
+}
+
+// Less broadcasts float32 [2,1] against [3] into a [2,3] bool output.
+TEST(EngineKernels, LessFloatBroadcast) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Less");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {2.0f, 5.0f};
+    std::vector<float> b = {1.0f, 3.0f, 5.0f};
+    std::vector<std::uint8_t> out(6, 0);
+    engine::Node node = MakeNode("less0", "Less");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2, 1}), FloatView(b, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2, 3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{0, 1, 1, 0, 0, 0}));
+}
+
+// Less compares int64 vectors elementwise.
+TEST(EngineKernels, LessInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Less");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> a = {3, -1, 7};
+    std::vector<int64_t> b = {2, -1, 9};
+    std::vector<std::uint8_t> out(3, 0);
+    engine::Node node = MakeNode("less1", "Less");
+    std::vector<engine::TensorView> inputs = {Int64View(a, {3}), Int64View(b, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{0, 0, 1}));
+}
+
+// And broadcasts bool [2,1] against [2] into a [2,2] bool output.
+TEST(EngineKernels, AndBroadcast) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("And");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> a = {1, 0};
+    std::vector<std::uint8_t> b = {1, 0};
+    std::vector<std::uint8_t> out(4, 0);
+    engine::Node node = MakeNode("and0", "And");
+    std::vector<engine::TensorView> inputs = {BoolView(a, {2, 1}), BoolView(b, {2})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{1, 0, 0, 0}));
+}
+
+// Not negates a bool vector.
+TEST(EngineKernels, NotFlipsBools) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Not");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<std::uint8_t> a = {1, 0, 0, 1};
+    std::vector<std::uint8_t> out(4, 0);
+    engine::Node node = MakeNode("not0", "Not");
+    std::vector<engine::TensorView> inputs = {BoolView(a, {2, 2})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{0, 1, 1, 0}));
+}
+
+// Greater rejects mixed float/int inputs, naming the op.
+TEST(EngineKernelsNegative, GreaterRejectsMixedDtypes) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Greater");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0f, 2.0f};
+    std::vector<int64_t> b = {1, 2};
+    std::vector<std::uint8_t> out(2, 0);
+    engine::Node node = MakeNode("greater_bad", "Greater");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {2}), Int64View(b, {2})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("Greater"), std::string::npos) << error.what();
     }
 }

@@ -2234,3 +2234,43 @@ TEST_F(EngineShapes, ResizeEmptyScalesWithSizes)
         engine::InferShapes(graph, {{"x", {1, 1, 2, 2}}});
     EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 1, 4, 4}));
 }
+
+// A Greater over a Shape-derived value selects, through Where, the shape input
+// of a Reshape; the static evaluator must resolve the whole chain.
+TEST_F(EngineShapes, GreaterWhereFeedsReshape)
+{
+    auto node = [](std::string name, std::string op,
+                    std::vector<std::string> in, std::vector<std::string> out) {
+        engine::Node n;
+        n.name = std::move(name);
+        n.op_type = std::move(op);
+        n.inputs = std::move(in);
+        n.outputs = std::move(out);
+        return n;
+    };
+    auto int64_init = [](std::vector<int64_t> dims, std::vector<int64_t> values) {
+        engine::Initializer init;
+        init.dtype = engine::DataType::Int64;
+        init.dims = std::move(dims);
+        init.values = std::move(values);
+        return init;
+    };
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {-1, 6, 4}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["threshold"] = int64_init({3}, {1, 1, 100});
+    graph.initializers["flat"] = int64_init({3}, {-1, 6, 4});
+    graph.initializers["keep"] = int64_init({3}, {3, 8, 1});
+    graph.nodes.push_back(node("shape", "Shape", {"x"}, {"s"}));
+    graph.nodes.push_back(node("greater", "Greater", {"s", "threshold"}, {"big"}));
+    graph.nodes.push_back(node("any_big", "And", {"big", "big"}, {"big2"}));
+    graph.nodes.push_back(node("where", "Where", {"big2", "flat", "keep"}, {"target"}));
+    graph.nodes.push_back(node("reshape", "Reshape", {"x", "target"}, {"y"}));
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 6, 4}}});
+    EXPECT_EQ(shapes.tensors.at("big").dtype, engine::DataType::Bool);
+    EXPECT_EQ(shapes.tensors.at("target").dtype, engine::DataType::Int64);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{8, 6, 1}));
+}

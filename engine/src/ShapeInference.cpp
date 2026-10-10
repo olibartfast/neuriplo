@@ -750,6 +750,81 @@ std::optional<EvalTensor> eval_node(
         }
         return out;
     }
+    if (op == "Greater" || op == "Less") {
+        if (node.inputs.size() != 2) {
+            return std::nullopt;
+        }
+        const auto lhs = eval_tensor(ctx, node.inputs[0], depth);
+        const auto rhs = eval_tensor(ctx, node.inputs[1], depth);
+        if (!lhs.has_value() || !rhs.has_value() ||
+            lhs->dtype != DataType::Int64 ||
+            rhs->dtype != DataType::Int64) {
+            return std::nullopt;
+        }
+        const auto dims = eval_broadcast(lhs->dims, rhs->dims);
+        if (!dims.has_value()) {
+            return std::nullopt;
+        }
+        EvalTensor out;
+        out.dtype = DataType::Bool;
+        out.dims = *dims;
+        out.boolean.assign(static_cast<size_t>(eval_element_count(out.dims)),
+            0);
+        for (int64_t i = 0; i < eval_element_count(out.dims); ++i) {
+            const int64_t a = lhs->i64[static_cast<size_t>(
+                eval_offset(lhs->dims, out.dims, i))];
+            const int64_t b = rhs->i64[static_cast<size_t>(
+                eval_offset(rhs->dims, out.dims, i))];
+            out.boolean[static_cast<size_t>(i)] =
+                static_cast<char>(op == "Greater" ? a > b : a < b);
+        }
+        return out;
+    }
+    if (op == "And") {
+        if (node.inputs.size() != 2) {
+            return std::nullopt;
+        }
+        const auto lhs = eval_tensor(ctx, node.inputs[0], depth);
+        const auto rhs = eval_tensor(ctx, node.inputs[1], depth);
+        if (!lhs.has_value() || !rhs.has_value() ||
+            lhs->dtype != DataType::Bool || rhs->dtype != DataType::Bool) {
+            return std::nullopt;
+        }
+        const auto dims = eval_broadcast(lhs->dims, rhs->dims);
+        if (!dims.has_value()) {
+            return std::nullopt;
+        }
+        EvalTensor out;
+        out.dtype = DataType::Bool;
+        out.dims = *dims;
+        out.boolean.assign(static_cast<size_t>(eval_element_count(out.dims)),
+            0);
+        for (int64_t i = 0; i < eval_element_count(out.dims); ++i) {
+            const char a = lhs->boolean[static_cast<size_t>(
+                eval_offset(lhs->dims, out.dims, i))];
+            const char b = rhs->boolean[static_cast<size_t>(
+                eval_offset(rhs->dims, out.dims, i))];
+            out.boolean[static_cast<size_t>(i)] = static_cast<char>(a && b);
+        }
+        return out;
+    }
+    if (op == "Not") {
+        if (node.inputs.size() != 1) {
+            return std::nullopt;
+        }
+        const auto in = eval_tensor(ctx, node.inputs[0], depth);
+        if (!in.has_value() || in->dtype != DataType::Bool) {
+            return std::nullopt;
+        }
+        EvalTensor out;
+        out.dtype = DataType::Bool;
+        out.dims = in->dims;
+        out.boolean.reserve(in->boolean.size());
+        for (const char v : in->boolean) {
+            out.boolean.push_back(static_cast<char>(!v));
+        }
+        return out;
+    }
     if (op == "Where") {
         if (node.inputs.size() != 3) {
             return std::nullopt;
@@ -1760,6 +1835,20 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
     if (op == "Equal") {
         return {TensorInfo{DataType::Bool,
             broadcast_shape(need(0).dims, need(1).dims, node)}};
+    }
+    if (op == "Greater" || op == "Less") {
+        if (need(0).dtype != need(1).dtype) {
+            fail(node, op + " inputs must share dtype");
+        }
+        return {TensorInfo{DataType::Bool,
+            broadcast_shape(need(0).dims, need(1).dims, node)}};
+    }
+    if (op == "And") {
+        return {TensorInfo{DataType::Bool,
+            broadcast_shape(need(0).dims, need(1).dims, node)}};
+    }
+    if (op == "Not") {
+        return {TensorInfo{DataType::Bool, need(0).dims}};
     }
     if (op == "Where") {
         if (inputs.size() < 3 || inputs[0] == nullptr ||
