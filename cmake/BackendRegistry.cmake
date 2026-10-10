@@ -197,9 +197,8 @@ set(NEURIPLO_BACKEND_DALI_MODULE DALI)
 set(NEURIPLO_BACKEND_DALI_TEST_DIR backends/dali/test)
 set(NEURIPLO_BACKEND_DALI_VERSION_VAR DALI_VERSION)
 
-# First-party backend. MODULE and TEST_DIR follow the shared shape; VERSION_VAR
-# is the declared no-external-SDK token that validate_backend_versions()
-# understands, so no versions.env entry is needed.
+# First-party experimental backend. The engine lives in olibartfast/nert and is
+# fetched at the commit pinned by NERT_VERSION in versions.env.
 set(NEURIPLO_BACKEND_NERT_MODULE Nert)
 set(NEURIPLO_BACKEND_NERT_TEST_DIR backends/nert/test)
-set(NEURIPLO_BACKEND_NERT_VERSION_VAR NEURIPLO_NO_EXTERNAL_SDK)
+set(NEURIPLO_BACKEND_NERT_VERSION_VAR NERT_VERSION)

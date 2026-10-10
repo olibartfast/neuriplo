@@ -177,14 +177,7 @@ function(validate_backend_versions)
         list(GET MAPPING_PARTS 1 VERSION_VAR_NAME)
 
         # Get the version value by variable name
-        # First-party backends (e.g. NERT) link no external SDK and therefore
-        # have no version variable in versions.env. This is a declared state,
-        # not a missing entry: validate it here so the registry can point at
-        # NEURIPLO_NO_EXTERNAL_SDK without tripping the missing-version path.
-        if(VERSION_VAR_NAME STREQUAL "NEURIPLO_NO_EXTERNAL_SDK")
-            message(STATUS "  ✓ ${BACKEND_NAME} -> no external SDK (first-party backend, no version variable)")
-            continue()
-        elseif(VERSION_VAR_NAME STREQUAL "OPENCV_VERSION")
+        if(VERSION_VAR_NAME STREQUAL "OPENCV_VERSION")
             set(VERSION_VAR "${OPENCV_MIN_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "ONNX_RUNTIME_VERSION")
             set(VERSION_VAR "${ONNX_RUNTIME_VERSION}")
@@ -212,6 +205,8 @@ function(validate_backend_versions)
             set(VERSION_VAR "${LITERT_VERSION}")
         elseif(VERSION_VAR_NAME STREQUAL "DALI_VERSION")
             set(VERSION_VAR "${DALI_VERSION}")
+        elseif(VERSION_VAR_NAME STREQUAL "NERT_VERSION")
+            set(VERSION_VAR "${NERT_VERSION}")
         else()
             set(VERSION_VAR "")
         endif()
@@ -257,6 +252,7 @@ message(STATUS "llama.cpp: ${LLAMACPP_VERSION}")
 message(STATUS "ExecuTorch: ${EXECUTORCH_VERSION}")
 message(STATUS "LiteRT: ${LITERT_VERSION}")
 message(STATUS "DALI: ${DALI_VERSION}")
+message(STATUS "NERT: ${NERT_VERSION}")
 message(STATUS "CUDA: ${CUDA_VERSION}")
 message(STATUS "OpenCV: ${OPENCV_MIN_VERSION}")
 message(STATUS "Dependency Root: ${DEFAULT_DEPENDENCY_ROOT}") 

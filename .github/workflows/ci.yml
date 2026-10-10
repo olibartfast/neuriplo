@@ -475,9 +475,10 @@ jobs:
 
   # =============================================================
   # NERT Backend (specs/2026-10-01-yolo26-native, Y12)
-  # First-party engine: no vendor SDK of its own, so no Docker image.
-  # Its parity harnesses need ONNX Runtime plus the pinned torch export
-  # stack, hence this runs inside the onnx-runtime builder image.
+  # Experimental first-party engine, fetched from olibartfast/nert at the
+  # NERT_VERSION pin (its own engine_* suites run in the NERT repository).
+  # No vendor SDK, so no Docker image. The parity harnesses need ONNX Runtime
+  # plus the pinned torch export stack, hence this runs inside the onnx-runtime builder image.
   # =============================================================
   nert:
     name: "NERT"
@@ -508,7 +509,7 @@ jobs:
               ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-NERT' || '' }} \
               .
 
-      - name: Provision torch stack, build NERT, run engine + parity tests
+      - name: Provision torch stack, build NERT, run adapter + parity tests
         run: |
           docker run --rm neuriplo-lint:NERT bash -c '
             set -euo pipefail
@@ -520,7 +521,7 @@ jobs:
               "onnx==1.22.0" "onnxscript==0.7.0" "ultralytics==8.4.113" pillow
             cd /app
             rm -rf build-nert
-            # The engine and adapter tests take the ResNet fixture via
+            # The adapter tests take the ResNet fixture via
             # NERT_FIXTURE (fail, never skip); provision it once
             # up front so configure sees it. The parity targets re-provision
             # into the build tree themselves at build time.
@@ -532,7 +533,7 @@ jobs:
               -DONNX_RUNTIME_DIR=/opt/onnxruntime >/dev/null
             cmake --build build-nert --target nert_parity_fixture nert_yolo_parity_fixture --parallel
             cmake --build build-nert --parallel
-            ctest --test-dir build-nert -R "engine_|NertInferTest|nert_parity|nert_yolo_parity" --output-on-failure
+            ctest --test-dir build-nert -R "NertInferTest|nert_parity|nert_yolo_parity" --output-on-failure
           '
 
   # =============================================================

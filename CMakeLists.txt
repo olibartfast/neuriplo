@@ -28,7 +28,7 @@ message(STATUS "neuriplo Cmake module path: ${CMAKE_MODULE_PATH}")
 
 # Read DEFAULT_BACKEND from the cache. If not set, provide a default.
 if(NOT DEFINED DEFAULT_BACKEND)
-    set(DEFAULT_BACKEND "NERT" CACHE STRING "Default backend for inference")
+    set(DEFAULT_BACKEND "OPENCV_DNN" CACHE STRING "Default backend for inference")
 endif()
 
 neuriplo_get_supported_backends(SUPPORTED_BACKENDS)
