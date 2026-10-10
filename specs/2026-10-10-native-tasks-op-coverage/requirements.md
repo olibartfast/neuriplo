@@ -117,6 +117,21 @@ Out:
   2026-10-10): the DETR exports take `orig_target_sizes`, and OWLv2 and
   Grounding DINO take int64 token ids and masks. Packet P3e.
 
+- [D-15] Float reductions in the reference kernels (MatMul, Gemm, Conv,
+  Einsum, ReduceSum, ReduceMean, Softmax) accumulate in double and round to
+  float32 once per output. A correctness oracle should add as little rounding
+  of its own as possible; tensor dtypes do not change. Introduced by P3f;
+  accepted after the YOLO and tier 2 regression.
+- [D-16] DETR-family exports (query outputs `[1,Q,4]` boxes in cxcywh and
+  `[1,Q,C]` class logits, optional `[1,Q,H,W]` mask logits) compare
+  confident queries on a real image, extending [D-3]: queries whose ONNX
+  Runtime score (sigmoid of the max logit) exceeds 0.5, matched one-to-one
+  by class with box IoU >= 0.99 and score difference <= 1e-3; matched masks,
+  binarized at 0, reach IoU >= 0.98; the confident-query counts are equal.
+  The query-selection TopK in these decoders breaks near-ties (1e-6) by
+  rounding, so elementwise comparison of every query is not meaningful
+  (P3f, 2026-10-10). Planner decision; the maintainer may overrule.
+
 ## Open questions
 
 - [Q-1] Accept opsets 12–17 natively (per-op attribute-vs-input variants), or

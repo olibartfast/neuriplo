@@ -541,7 +541,7 @@ Initializer materialize_initializer(const TensorPatch& t,
 // Allowed attributes per operator; an empty set means the op takes none.
 // ---------------------------------------------------------------------------
 
-enum class AttrSlot { Int, Float, Str, IntList, TensorInt };
+enum class AttrSlot { Int, Float, Str, IntList, TensorScalar };
 
 const std::unordered_map<std::string, AttrSlot>& conv_attrs()
 {
@@ -636,7 +636,7 @@ const std::unordered_map<std::string, AttrSlot>& concat_attrs()
 const std::unordered_map<std::string, AttrSlot>& constantofshape_attrs()
 {
     static const std::unordered_map<std::string, AttrSlot> k = {
-        { "value", AttrSlot::TensorInt },
+        { "value", AttrSlot::TensorScalar },
     };
     return k;
 }
@@ -967,7 +967,10 @@ Attribute map_attribute(const AttrPatch& a, AttrSlot slot,
         }
         return Attribute(a.name, a.floats.front());
     case kAttrType_Tensor: {
-        if (slot != AttrSlot::TensorInt) {
+        // A one-element tensor (ConstantOfShape's `value`): INT64, FLOAT, or
+        // BOOL, each kept in its own Attribute alternative so the element
+        // type survives into shape inference and the kernel.
+        if (slot != AttrSlot::TensorScalar) {
             reject(" does not take a tensor here");
         }
         if (!a.has_tensor || a.tensor_bytes.empty()) {
@@ -976,23 +979,44 @@ Attribute map_attribute(const AttrPatch& a, AttrSlot slot,
         const TensorPatch t = decode_tensor(
             reinterpret_cast<const uint8_t*>(a.tensor_bytes.data()),
             a.tensor_bytes.size());
-        if (t.data_type != kElemType_OnnxInt64) {
-            reject(std::string(" must be an INT64 tensor here (found ") +
+        if (t.data_type != kElemType_OnnxInt64 &&
+            t.data_type != kElemType_OnnxFloat &&
+            t.data_type != kElemType_OnnxBool) {
+            reject(std::string(
+                       " must be an INT64, FLOAT, or BOOL tensor here (found ") +
                 elem_type_name(t.data_type) + ")");
         }
         if (tensor_elem_count(t.dims) != 1) {
             reject(" must carry exactly one element here");
         }
-        if (!t.int64_data.empty()) {
-            return Attribute(a.name, t.int64_data.front());
-        }
-        if (t.raw_data.size() == sizeof(int64_t)) {
-            int64_t value = 0;
-            std::memcpy(&value, t.raw_data.data(), sizeof(value));
-            return Attribute(a.name, value);
-        }
         if (t.external) {
             reject(" refers to external data, which attributes cannot use");
+        }
+        if (t.data_type == kElemType_OnnxInt64) {
+            if (!t.int64_data.empty()) {
+                return Attribute(a.name, t.int64_data.front());
+            }
+            if (t.raw_data.size() == sizeof(int64_t)) {
+                int64_t value = 0;
+                std::memcpy(&value, t.raw_data.data(), sizeof(value));
+                return Attribute(a.name, value);
+            }
+        } else if (t.data_type == kElemType_OnnxFloat) {
+            if (!t.float_data.empty()) {
+                return Attribute(a.name, t.float_data.front());
+            }
+            if (t.raw_data.size() == sizeof(float)) {
+                float value = 0.0f;
+                std::memcpy(&value, t.raw_data.data(), sizeof(value));
+                return Attribute(a.name, value);
+            }
+        } else {
+            if (!t.int32_data.empty()) {
+                return Attribute(a.name, t.int32_data.front() != 0);
+            }
+            if (t.raw_data.size() == 1) {
+                return Attribute(a.name, t.raw_data.front() != 0);
+            }
         }
         reject(" carries no data");
         break;
@@ -1100,10 +1124,11 @@ void validate_attr_policy(Node& node)
                 prefix + ": Cast requires a 'to' attribute");
         }
         const int64_t v = need_int(to);
-        if (v != kElemType_OnnxFloat && v != kElemType_OnnxInt64) {
+        if (v != kElemType_OnnxFloat && v != kElemType_OnnxInt64 &&
+            v != kElemType_OnnxBool) {
             throw ModelLoadException(prefix +
-                ": attribute 'to' must be 1 (FLOAT) or 7 (INT64) here (found " +
-                std::to_string(v) + ")");
+                ": attribute 'to' must be 1 (FLOAT), 7 (INT64), or 9 (BOOL)"
+                " here (found " + std::to_string(v) + ")");
         }
         return;
     }
@@ -1244,13 +1269,8 @@ void validate_attr_policy(Node& node)
         }
         return;
     }
-    if (node.op_type == "ConstantOfShape") {
-        if (lookup("value") == nullptr) {
-            throw ModelLoadException(
-                prefix + ": ConstantOfShape requires a 'value' attribute");
-        }
-        return;
-    }
+    // ConstantOfShape: `value` is optional (absent means float32 zero); the
+    // tensor-scalar decode already pinned it to INT64, FLOAT, or BOOL.
 }
 
 Node decode_node(const uint8_t* data, size_t size)
@@ -1400,7 +1420,7 @@ std::pair<std::string, Initializer> fold_constant_node(
 
 std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
     size_t size, const char* kind, bool allow_integer = false,
-    bool allow_bool = false)
+    bool allow_bool = false, bool allow_empty = false)
 {
     std::string name;
     std::string element; // payload bytes of the (nested) type sub-messages
@@ -1500,7 +1520,9 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
     // TensorShapeProto: dim = 1 (repeated); each dim carries dim_value = 1 or
     // dim_param = 2. A named or unknown dim (a symbolic batch, say) is
     // recorded as -1: the caller fixes it per load through the input shapes
-    // handed to InferShapes. An explicit non-positive dim_value is rejected.
+    // handed to InferShapes. An explicit non-positive dim_value is rejected,
+    // except that an intermediate (allow_empty) may record a zero dim: an
+    // empty tensor such as the leading slice of a shape vector.
     if (!shape.empty()) {
         WireReader shape_reader(
             reinterpret_cast<const uint8_t*>(shape.data()), shape.size());
@@ -1539,7 +1561,8 @@ std::pair<std::string, TensorInfo> decode_value_info(const uint8_t* data,
                 dims.push_back(-1); // named or unknown: fixed per load
                 continue;
             }
-            if (!has_value || dim_value <= 0) {
+            if (!has_value || dim_value < 0 ||
+                (dim_value == 0 && !allow_empty)) {
                 reject("carries a non-fixed dimension" +
                     (dim_param.empty()
                             ? std::string()
@@ -1701,7 +1724,8 @@ Graph decode_model(const std::string& model_dir, const uint8_t* data,
             }
             const auto payload = graph_reader.read_length_delimited();
             const auto entry = decode_value_info(payload.first, payload.second,
-                "value_info", /*allow_integer=*/true, /*allow_bool=*/true);
+                "value_info", /*allow_integer=*/true, /*allow_bool=*/true,
+                /*allow_empty=*/true);
             // torch 2.12's exporter writes each value-info entry twice; an
             // identical repeat is harmless, a conflicting one is rejected.
             const auto existing = graph.tensors.find(entry.first);

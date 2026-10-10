@@ -29,6 +29,7 @@
 
 #include "engine/Graph.hpp"
 #include "engine/ModelLoader.hpp"
+#include "engine/Plan.hpp"
 #include "engine/Shapes.hpp"
 
 namespace {
@@ -2533,4 +2534,198 @@ TEST_F(EngineShapesNegative, GridSampleBicubicNamesNode)
     EXPECT_FALSE(message.empty()) << "bicubic did not throw";
     EXPECT_NE(message.find("gs_bad"), std::string::npos) << message;
     EXPECT_NE(message.find("GridSample"), std::string::npos) << message;
+}
+
+// ConstantOfShape's output dtype follows `value`: FLOAT -> float32, BOOL ->
+// bool, and an absent `value` -> float32 (opset 18 default of float zero).
+
+TEST_F(EngineShapes, ConstantOfShapeDtypeFollowsValue)
+{
+    const std::vector<float> fill{2.5F};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {2}, {2, 3}));
+    put_sub(body, 1, encode_node("cos_f", "ConstantOfShape", {"cshape"},
+                      {"of"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(1 /*FLOAT*/, {1},
+                              std::string(
+                                  reinterpret_cast<const char*>(fill.data()),
+                                  sizeof(float))))}));
+    put_sub(body, 1, encode_node("cos_b", "ConstantOfShape", {"cshape"},
+                      {"ob"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(9 /*BOOL*/, {1},
+                              std::string(1, '\x01')))}));
+    put_sub(body, 1, encode_node("cos_d", "ConstantOfShape", {"cshape"},
+                      {"od"}, {}));
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+
+    const engine::Graph graph =
+        load_graph("cos_dtypes.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2}}});
+    EXPECT_EQ(shapes.tensors.at("of").dims, (std::vector<int64_t>{2, 3}));
+    EXPECT_EQ(shapes.tensors.at("of").dtype, engine::DataType::Float32);
+    EXPECT_EQ(shapes.tensors.at("ob").dims, (std::vector<int64_t>{2, 3}));
+    EXPECT_EQ(shapes.tensors.at("ob").dtype, engine::DataType::Bool);
+    EXPECT_EQ(shapes.tensors.at("od").dims, (std::vector<int64_t>{2, 3}));
+    EXPECT_EQ(shapes.tensors.at("od").dtype, engine::DataType::Float32);
+}
+
+// Static evaluator: a FLOAT-valued ConstantOfShape (2.0 over [2]) cast to
+// int64 gives the Reshape target [2, 2], so x[4] reshapes to [2, 2].
+
+TEST_F(EngineShapes, EvalFloatConstantOfShapeCastDrivesReshape)
+{
+    const std::vector<float> fill{2.0F};
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {2}));
+    put_sub(body, 1, encode_node("cos0", "ConstantOfShape", {"cshape"},
+                      {"cf"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(1 /*FLOAT*/, {1},
+                              std::string(
+                                  reinterpret_cast<const char*>(fill.data()),
+                                  sizeof(float))))}));
+    put_sub(body, 1, encode_node("c0", "Cast", {"cf"}, {"ci"},
+                      {encode_attribute_int("to", 7)}));
+    put_sub(body, 1, encode_node("r0", "Reshape", {"x", "ci"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {4}));
+    put_sub(body, 12, encode_value_info("y", 1, {2, 2}));
+
+    const engine::Graph graph =
+        load_graph("eval_cos_float.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {4}}});
+    EXPECT_EQ(shapes.tensors.at("cf").dtype, engine::DataType::Float32);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 2}));
+}
+
+// Static evaluator: a BOOL-valued ConstantOfShape (true over [2]) selects the
+// Where true branch [3, 4] over [9, 9], so x[12] reshapes to [3, 4].
+
+TEST_F(EngineShapes, EvalBoolConstantOfShapeDrivesWhere)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("cshape", {1}, {2}));
+    put_sub(body, 5, encode_initializer_int64("a", {2}, {3, 4}));
+    put_sub(body, 5, encode_initializer_int64("b", {2}, {9, 9}));
+    put_sub(body, 1, encode_node("cos0", "ConstantOfShape", {"cshape"},
+                      {"cb"},
+                      {encode_attribute_tensor("value",
+                          encode_constant_tensor(9 /*BOOL*/, {1},
+                              std::string(1, '\x01')))}));
+    put_sub(body, 1, encode_node("w0", "Where", {"cb", "a", "b"}, {"w"}, {}));
+    put_sub(body, 1, encode_node("r0", "Reshape", {"x", "w"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {12}));
+    put_sub(body, 12, encode_value_info("y", 1, {3, 4}));
+
+    const engine::Graph graph =
+        load_graph("eval_cos_bool.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {12}}});
+    EXPECT_EQ(shapes.tensors.at("cb").dtype, engine::DataType::Bool);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{3, 4}));
+}
+
+// Cast to BOOL (9): same dims, bool dtype; in the static evaluator [1, 0]
+// becomes [true, false], so Where picks [3, 6] from [3, 4] and [2, 6], and
+// x[18] reshapes to [3, 6].
+
+TEST_F(EngineShapes, CastToBoolDrivesWhere)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("flags", {2}, {1, 0}));
+    put_sub(body, 5, encode_initializer_int64("a", {2}, {3, 4}));
+    put_sub(body, 5, encode_initializer_int64("b", {2}, {2, 6}));
+    put_sub(body, 1, encode_node("c0", "Cast", {"flags"}, {"fb"},
+                      {encode_attribute_int("to", 9)}));
+    put_sub(body, 1, encode_node("w0", "Where", {"fb", "a", "b"}, {"w"}, {}));
+    put_sub(body, 1, encode_node("r0", "Reshape", {"x", "w"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {18}));
+    put_sub(body, 12, encode_value_info("y", 1, {3, 6}));
+
+    const engine::Graph graph =
+        load_graph("cast_bool_where.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {18}}});
+    EXPECT_EQ(shapes.tensors.at("fb").dims, (std::vector<int64_t>{2}));
+    EXPECT_EQ(shapes.tensors.at("fb").dtype, engine::DataType::Bool);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{3, 6}));
+}
+
+// An empty intermediate: Slice [0:0] of Shape(x) = [2, 6] is the empty int64
+// vector (dims {0}); Concat with [3, 4] gives the Reshape target [3, 4]. The
+// memory plan gives the empty tensor a zero-byte buffer.
+
+TEST_F(EngineShapes, EmptySliceConcatsIntoReshapeAndPlansZeroBytes)
+{
+    std::string body;
+    put_sub(body, 5, encode_initializer_int64("starts", {1}, {0}));
+    put_sub(body, 5, encode_initializer_int64("ends", {1}, {0}));
+    put_sub(body, 5, encode_initializer_int64("tail", {2}, {3, 4}));
+    put_sub(body, 1, encode_node("sh0", "Shape", {"x"}, {"s"}, {}));
+    put_sub(body, 1, encode_node("sl0", "Slice", {"s", "starts", "ends"},
+                      {"e"}, {}));
+    put_sub(body, 1, encode_node("cc0", "Concat", {"e", "tail"}, {"c"},
+                      {encode_attribute_int("axis", 0)}));
+    put_sub(body, 1, encode_node("r0", "Reshape", {"x", "c"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2, 6}));
+    put_sub(body, 12, encode_value_info("y", 1, {3, 4}));
+
+    const engine::Graph graph =
+        load_graph("empty_slice.onnx", encode_model(body));
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 6}}});
+    EXPECT_EQ(shapes.tensors.at("e").dims, (std::vector<int64_t>{0}));
+    EXPECT_EQ(shapes.tensors.at("e").dtype, engine::DataType::Int64);
+    EXPECT_EQ(shapes.tensors.at("c").dims, (std::vector<int64_t>{2}));
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{3, 4}));
+
+    const engine::MemoryPlan plan = engine::PlanMemory(graph, shapes);
+    ASSERT_EQ(plan.buffers.count("e"), 1U);
+    EXPECT_EQ(plan.buffers.at("e").size, 0);
+    ASSERT_EQ(plan.buffers.count("s"), 1U);
+    EXPECT_EQ(plan.buffers.at("s").size, 16); // two int64
+    EXPECT_EQ(plan.buffers.at("y").size, 48); // twelve float32
+}
+
+// A ConstantOfShape whose `value` is not an INT64/FLOAT/BOOL scalar (a string,
+// reachable only by assembling the graph directly) names the node.
+
+TEST_F(EngineShapesNegative, ConstantOfShapeStringValueNamesNode)
+{
+    engine::Graph graph;
+    engine::Initializer cshape;
+    cshape.dtype = engine::DataType::Int64;
+    cshape.dims = {1};
+    cshape.values = std::vector<int64_t>{3};
+    graph.initializers["cshape"] = cshape;
+    engine::Node cos;
+    cos.name = "cos_str";
+    cos.op_type = "ConstantOfShape";
+    cos.inputs = {"cshape"};
+    cos.outputs = {"o"};
+    cos.attributes.push_back(engine::Attribute("value", std::string("one")));
+    engine::Node relu;
+    relu.name = "relu0";
+    relu.op_type = "Relu";
+    relu.inputs = {"x"};
+    relu.outputs = {"y"};
+    graph.nodes.push_back(cos);
+    graph.nodes.push_back(relu);
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {2}}});
+
+    std::string message;
+    try {
+        engine::InferShapes(graph, {{"x", {2}}});
+    } catch (const engine::ModelLoadException& e) {
+        message = e.what();
+    }
+    EXPECT_FALSE(message.empty()) << "string ConstantOfShape value did not throw";
+    EXPECT_NE(message.find("cos_str"), std::string::npos) << message;
+    EXPECT_NE(message.find("ConstantOfShape"), std::string::npos) << message;
 }

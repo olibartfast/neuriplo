@@ -2400,8 +2400,11 @@ TEST(EngineKernelsNegative, ConstantOfShapeRejectsNegativeDim) {
     }
 }
 
-// ConstantOfShape rejects a missing value attribute, naming the op.
-TEST(EngineKernelsNegative, ConstantOfShapeRejectsMissingValue) {
+// ConstantOfShape without a value attribute fills float32 zero (opset 18), so an
+// int64 output no longer matches and rejects, naming the op. Converted from the
+// former ConstantOfShapeRejectsMissingValue: a missing value is now accepted
+// (see ConstantOfShapeDefaultFillsFloatZero); the dtype mismatch still rejects.
+TEST(EngineKernelsNegative, ConstantOfShapeMissingValueRejectsInt64Output) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConstantOfShape");
     ASSERT_NE(kernel, nullptr);
 
@@ -3662,4 +3665,259 @@ TEST(EngineKernelsNegative, GridSampleRejectsBicubic) {
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("GridSample"), std::string::npos) << error.what();
     }
+}
+
+// ConstantOfShape fills [2,2] with the float32 value attribute 2.5.
+TEST(EngineKernels, ConstantOfShapeFloatFill) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConstantOfShape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> shape = {2, 2};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("cos_f", "ConstantOfShape");
+    node.attributes.emplace_back("value", 2.5f);
+    std::vector<engine::TensorView> inputs = {Int64View(shape, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{2.5f, 2.5f, 2.5f, 2.5f}));
+}
+
+// ConstantOfShape fills [3] with the bool value attribute true.
+TEST(EngineKernels, ConstantOfShapeBoolFill) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConstantOfShape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> shape = {3};
+    std::vector<std::uint8_t> out(3, 0);
+    engine::Node node = MakeNode("cos_b", "ConstantOfShape");
+    node.attributes.emplace_back("value", true);
+    std::vector<engine::TensorView> inputs = {Int64View(shape, {1})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{1, 1, 1}));
+}
+
+// ConstantOfShape without a value attribute fills float32 zero over [3].
+TEST(EngineKernels, ConstantOfShapeDefaultFillsFloatZero) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConstantOfShape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> shape = {3};
+    std::vector<float> out(3, 7.0f);
+    engine::Node node = MakeNode("cos_d", "ConstantOfShape");
+    std::vector<engine::TensorView> inputs = {Int64View(shape, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 0.0f, 0.0f}));
+}
+
+// ConstantOfShape rejects a bool value written into a float32 output, naming the op.
+TEST(EngineKernelsNegative, ConstantOfShapeBoolValueRejectsFloatOutput) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConstantOfShape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> shape = {2};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("cos_mismatch", "ConstantOfShape");
+    node.attributes.emplace_back("value", true);
+    std::vector<engine::TensorView> inputs = {Int64View(shape, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("ConstantOfShape"), std::string::npos) << error.what();
+    }
+}
+
+// ConstantOfShape rejects a string value attribute, naming the op.
+TEST(EngineKernelsNegative, ConstantOfShapeRejectsStringValue) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConstantOfShape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> shape = {2};
+    std::vector<float> out(2, 0.0f);
+    engine::Node node = MakeNode("cos_str", "ConstantOfShape");
+    node.attributes.emplace_back("value", std::string("one"));
+    std::vector<engine::TensorView> inputs = {Int64View(shape, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("ConstantOfShape"), std::string::npos) << error.what();
+    }
+}
+
+// Slice [0:0] of an int64 shape vector yields the empty vector (dims {0}).
+TEST(EngineKernels, SliceEmptyRangeInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Slice");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {2, 6};
+    std::vector<int64_t> out;
+    std::vector<int64_t> starts = {0};
+    std::vector<int64_t> ends = {0};
+    engine::Node node = MakeNode("slice_empty", "Slice");
+    std::vector<engine::TensorView> inputs = {Int64View(in, {2}), Int64View(starts, {1}), Int64View(ends, {1})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {0})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_TRUE(out.empty());
+}
+
+// Concat of an empty int64 vector with [3,4] is [3,4].
+TEST(EngineKernels, ConcatEmptyInputInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Concat");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> empty;
+    std::vector<int64_t> tail = {3, 4};
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("concat_empty", "Concat");
+    node.attributes.emplace_back("axis", int64_t{0});
+    std::vector<engine::TensorView> inputs = {Int64View(empty, {0}), Int64View(tail, {2})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{3, 4}));
+}
+
+// Double accumulation: 1e8 + 1 - 1e8 is 1. A float32 running sum loses the 1
+// (1e8 + 1 rounds back to 1e8, whose float32 ulp is 8) and would give 0.
+TEST(EngineKernels, MatMulAccumulatesInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("MatMul");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0e8f, 1.0f, -1.0e8f};
+    std::vector<float> b = {1.0f, 1.0f, 1.0f};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("mm_acc", "MatMul");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {1, 3}), FloatView(b, {3, 1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f}));
+}
+
+// Gemm accumulates 1e8 + 1 - 1e8 in double, giving 1 (float32 would give 0).
+TEST(EngineKernels, GemmAccumulatesInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Gemm");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0e8f, 1.0f, -1.0e8f};
+    std::vector<float> b = {1.0f, 1.0f, 1.0f};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("gemm_acc", "Gemm");
+    std::vector<engine::TensorView> inputs = {FloatView(a, {1, 3}), FloatView(b, {3, 1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f}));
+}
+
+// Conv (1x1 kernel over three channels) accumulates 1e8 + 1 - 1e8 in double,
+// giving 1 (float32 would give 0).
+TEST(EngineKernels, ConvAccumulatesInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0e8f, 1.0f, -1.0e8f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("conv_acc", "Conv");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 3, 1, 1}), FloatView(w, {1, 3, 1, 1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 1, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f}));
+}
+
+// ReduceSum accumulates 1e8 + 1 - 1e8 in double, giving 1 (float32 would give 0).
+TEST(EngineKernels, ReduceSumAccumulatesInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceSum");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0e8f, 1.0f, -1.0e8f};
+    std::vector<int64_t> axes = {0};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("rs_acc", "ReduceSum");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f}));
+}
+
+// ReduceMean of {1e8, 1, -1e8} is 1/3, rounded once to float32 (a float32
+// running sum would give 0).
+TEST(EngineKernels, ReduceMeanAccumulatesInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ReduceMean");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0e8f, 1.0f, -1.0e8f};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("rm_acc", "ReduceMean");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{static_cast<float>(1.0 / 3.0)}));
+}
+
+// Einsum "ij,jk->ik" accumulates 1e8 + 1 - 1e8 in double, giving 1 (float32
+// would give 0).
+TEST(EngineKernels, EinsumAccumulatesInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Einsum");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> a = {1.0e8f, 1.0f, -1.0e8f};
+    std::vector<float> b = {1.0f, 1.0f, 1.0f};
+    std::vector<float> out(1, 0.0f);
+    engine::Node node = MakeNode("es_acc", "Einsum");
+    node.attributes.emplace_back("equation", std::string("ij,jk->ik"));
+    std::vector<engine::TensorView> inputs = {FloatView(a, {1, 3}), FloatView(b, {3, 1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f}));
+}
+
+// Softmax over {0, -17 x 1000}: each exp(-17) = 4.14e-8 is below half a float32
+// ulp of 1, so a float32 running sum stays 1 and y0 would be exactly 1. The
+// double sum keeps the tail: y0 = 1 / (1 + 1000 e^-17) = 0.99995860...
+TEST(EngineKernels, SoftmaxSumsInDouble) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Softmax");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in(1001, -17.0f);
+    in[0] = 0.0f;
+    std::vector<float> out(1001, 0.0f);
+    engine::Node node = MakeNode("sm_acc", "Softmax");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {1001})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1001})};
+
+    kernel(node, inputs, outputs);
+
+    const double tail = std::exp(-17.0);
+    const double total = 1.0 + 1000.0 * tail;
+    EXPECT_EQ(out[0], static_cast<float>(1.0 / total));
+    EXPECT_LT(out[0], 0.99996f);
+    EXPECT_EQ(out[1], static_cast<float>(tail / total));
 }

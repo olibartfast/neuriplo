@@ -1,9 +1,11 @@
-// ReduceSum: sum over the requested axes; float32 (float accumulation) or int64 data.
+// ReduceSum: sum over the requested axes; float32 (double accumulation, rounded
+// once to float32) or int64 data.
 
 #include "Kernels.hpp"
 
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace engine {
@@ -56,9 +58,9 @@ void SumTyped(const T* x, T* y, const std::vector<int64_t>& inDims, const std::v
             ++nextOutAxis;
         }
     }
-    for (int64_t i = 0; i < outCount; ++i) {
-        y[i] = T{};
-    }
+    // float32 sums accumulate in double and round once at the end.
+    using Acc = std::conditional_t<std::is_same<T, float>::value, double, T>;
+    std::vector<Acc> acc(static_cast<std::size_t>(outCount), Acc{});
     for (int64_t i = 0; i < inCount; ++i) {
         int64_t remaining = i;
         int64_t outOffset = 0;
@@ -70,7 +72,10 @@ void SumTyped(const T* x, T* y, const std::vector<int64_t>& inDims, const std::v
                 outOffset += coord * outStride[static_cast<std::size_t>(outAxis[uj])];
             }
         }
-        y[outOffset] += x[i];
+        acc[static_cast<std::size_t>(outOffset)] += static_cast<Acc>(x[i]);
+    }
+    for (int64_t i = 0; i < outCount; ++i) {
+        y[i] = static_cast<T>(acc[static_cast<std::size_t>(i)]);
     }
 }
 

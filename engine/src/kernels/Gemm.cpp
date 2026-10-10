@@ -1,8 +1,8 @@
 // Gemm: Y = alpha * op(A) * op(B) + beta * C, with optional transposes.
 //
 // Y is [M,N], op(A) is [M,K], and op(B) is [K,N]. The optional bias C is
-// broadcast to the output from either [N] or [M,N]. Naive, float32,
-// single-threaded.
+// broadcast to the output from either [N] or [M,N]. Naive, float32 data with
+// double accumulation (each output rounds once to float32), single-threaded.
 
 #include "Kernels.hpp"
 
@@ -31,7 +31,8 @@ int64_t IntAttribute(const Node& node, const std::string& name, int64_t fallback
         if (attr.name == name) {
             const int64_t* value = std::get_if<int64_t>(&attr.value);
             if (value == nullptr) {
-                throw InferenceException("Gemm: attribute '" + name + "' must be an integer (node '" + node.name + "')");
+                throw InferenceException("Gemm: attribute '" + name + "' must be an integer (node '" + node.name +
+                                         "')");
             }
             return *value;
         }
@@ -120,17 +121,17 @@ void Gemm(const Node& node, const std::vector<TensorView>& inputs, const std::ve
     float* y = static_cast<float*>(out.data);
     for (int64_t i = 0; i < m; ++i) {
         for (int64_t j = 0; j < n; ++j) {
-            float acc = 0.0f;
+            double acc = 0.0;
             for (int64_t kk = 0; kk < k; ++kk) {
                 const float av = transA == 0 ? ap[i * k + kk] : ap[kk * m + i];
                 const float bv = transB == 0 ? bp[kk * n + j] : bp[j * k + kk];
-                acc += av * bv;
+                acc += static_cast<double>(av) * static_cast<double>(bv);
             }
-            float value = alpha * acc;
+            double value = static_cast<double>(alpha) * acc;
             if (hasC) {
-                value += beta * (biasRank == 1 ? bias[j] : bias[i * n + j]);
+                value += static_cast<double>(beta) * static_cast<double>(biasRank == 1 ? bias[j] : bias[i * n + j]);
             }
-            y[i * n + j] = value;
+            y[i * n + j] = static_cast<float>(value);
         }
     }
 }

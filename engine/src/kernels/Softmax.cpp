@@ -93,14 +93,16 @@ void Softmax(const Node& node, const std::vector<TensorView>& inputs, const std:
                     peak = value;
                 }
             }
-            float total = 0.0F;
+            // Exponentials and their sum are taken in double; each output
+            // rounds once to float32.
+            double total = 0.0;
             for (int64_t k = 0; k < dim; ++k) {
-                const float shifted = std::exp(x[(o * dim + k) * inner + n] - peak);
-                y[(o * dim + k) * inner + n] = shifted;
-                total += shifted;
+                total += std::exp(static_cast<double>(x[(o * dim + k) * inner + n]) - static_cast<double>(peak));
             }
             for (int64_t k = 0; k < dim; ++k) {
-                y[(o * dim + k) * inner + n] /= total;
+                const double shifted =
+                    std::exp(static_cast<double>(x[(o * dim + k) * inner + n]) - static_cast<double>(peak));
+                y[(o * dim + k) * inner + n] = static_cast<float>(shifted / total);
             }
         }
     }

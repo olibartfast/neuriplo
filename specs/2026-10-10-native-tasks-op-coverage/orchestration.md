@@ -65,6 +65,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - R2 — rename the backend `NEURIPLO_ENGINE` → `NERT`, Neuriplo Engine Runtime (maintainer, 2026-10-10)
 - D1 — main README: NERT row and status (maintainer, 2026-10-10); after R2
 - P3f — RF-DETR and RF-DETR-Seg end to end (goal-scoped)
+- P3g — DETR comparison mode in the model-zoo test
 
 ### Packet P3a — elementwise math
 
@@ -206,6 +207,27 @@ policies the op survey could not see (first: ConstantOfShape with a FLOAT
   rfdetr_seg, `parity`, seeded input), then the 18.1.3 format check.
 - **Budget:** 80 turns. Tier: `opus` (judgement: deciding which gaps are
   general and which need design).
+
+### Packet P3g — DETR comparison mode in the model-zoo test ([D-16])
+
+- **Writable:** `backends/nert/test/ModelZooParityTest.cpp` only.
+- **Required final state:**
+  1. A manifest mode `detr` implementing [D-16]: output 0 boxes `[1,Q,4]`
+     (cx, cy, w, h), output 1 logits `[1,Q,C]`, optional output 2 mask logits
+     `[1,Q,H,W]`; confident = ONNX Runtime sigmoid(max logit) > 0.5; greedy
+     one-to-one match of each confident ORT query to an unmatched NERT query
+     of the same argmax class with the highest box IoU (convert to corners);
+     pass when every confident ORT query matches with IoU >= 0.99 and score
+     difference <= 1e-3, the confident counts are equal, and, when masks
+     exist, each matched pair's masks binarized at 0 reach IoU >= 0.98. Print
+     `ZOO <name> confident_queries=<n> min_box_iou=<x> max_score_diff=<y>
+     min_mask_iou=<z>`; fail with a message naming the first failing query.
+  2. Existing modes (`parity`, `e2e`, `load`) unchanged.
+- **Acceptance (once):** build `build-nert` (NERT + ONNX_RUNTIME), `ctest -R
+  "^engine_|NertInferTest"`, the model-zoo test on
+  `~/.cache/neuriplo-op-inventory/tier3_detr.manifest`, the 18.1.3 format
+  check.
+- **Budget:** 30 turns. Tier: `sonnet`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
@@ -456,3 +478,5 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 11 | R2 | worker (`sonnet`, worktree `wip/native-r2`) | fail: environment, planner-owned (after the develop merge `versions.env` pins ONNX Runtime 1.28.0, not installed; planner installed it with `scripts/setup_onnx_runtime.sh`) | planner re-score pass: 13/13, docs, format (18.1.3), no leftover names; integration gate on ORT 1.28.0 pass with ResNet-18 2.24e-05 and YOLO26 IoU 0.999999; `act --dryrun` of job `nert` green | Library target `neuriplo_engine` and the C API's `neuriplo_engine_*` symbols untouched, as required. Deviation: worker edited with `sed -i` |
 | 12 | D1 | worker (`haiku`, worktree `wip/native-d1`) | pass | pass: links resolve (`engine/README.md`, `#nert-track`) | Accepted deviation: the status note names YOLO11 segmentation and pose only, matching the evidence (no YOLO11 detection row), instead of the packet's broader wording |
 | 13 | P3d | worker (`sonnet`, worktree `wip/native-p3d`) | pass | pass: engine 12/12 + NertInferTest, both parities, format (18.1.3). RF-DETR and RF-DETR-Seg load probe then fails on ConstantOfShape with a FLOAT value (not an operator gap: an attribute-policy gap) | Review checked GridSample's unnormalization, reflection bounds and half-to-even rounding. Next: P3f |
+| 14 | P3f | worker (`opus`, worktree `wip/native-p3f`) | fail: both exports load and run, parity misses (RF-DETR 0.54 scaled from a 1e-6 TopK tie on seeded input; RF-DETR-Seg masks 3.2e-3 from decoder amplification) | fast gate pass (13/13, ResNet-18 3.8e-06, YOLO26 IoU 0.999999, format); YOLO + tier 2 regression running | Closed generally: ConstantOfShape float/int64/bool value, Cast to BOOL, empty intermediates (zero dims, zero-byte buffers). Deviation accepted as [D-15]: double accumulation in 7 kernels. Correctly stopped at a numeric limit instead of working around it; scoreboard follow-up is [D-16] / P3g |
+| 15 | P3g | worker (`sonnet`, worktree `wip/native-p3g`) | pass | RF-DETR 5 confident queries, min box IoU 0.999999, score diff 4.7e-08; RF-DETR-Seg 5, IoU 0.999996, 1.7e-06, mask IoU 1.0 (`bus.jpg`, ImageNet-normalized) | Review checked the [D-16] thresholds and the equal-count and non-empty guards |

@@ -32,9 +32,10 @@ struct MemoryPlan {
 };
 
 // Assign arena offsets to every live node output in `graph`, using the concrete
-// shapes in `shapes`. Throws ModelLoadException when a node output has no
-// inferred shape, when an inferred size is non-positive, or when the graph has
-// no nodes.
+// shapes in `shapes`. An empty tensor (a zero dim) gets a zero-byte buffer.
+// Throws ModelLoadException when a node output has no inferred shape, when an
+// inferred dim is negative or its element type has no size, or when the graph
+// has no nodes.
 MemoryPlan PlanMemory(const Graph& graph, const InferredShapes& shapes);
 
 } // namespace engine

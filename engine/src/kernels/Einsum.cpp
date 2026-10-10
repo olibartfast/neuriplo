@@ -5,7 +5,7 @@
 // appears exactly once across the inputs, in alphabetical order. Labels absent
 // from the output are summed over, and a label repeated within one operand
 // selects its diagonal. Ellipsis is rejected. Spaces are ignored. Naive,
-// single-threaded.
+// single-threaded; products and sums accumulate in double.
 
 #include "Kernels.hpp"
 
@@ -167,8 +167,9 @@ void Einsum(const Node& node, const std::vector<TensorView>& inputs, const std::
         outCount = stride;
     }
 
+    // Products and sums accumulate in double; each output rounds once to float32.
     float* y = static_cast<float*>(out.data);
-    std::fill(y, y + outCount, 0.0f);
+    std::vector<double> acc(static_cast<std::size_t>(outCount), 0.0);
 
     int64_t total = 1;
     for (char c : labels) {
@@ -178,11 +179,11 @@ void Einsum(const Node& node, const std::vector<TensorView>& inputs, const std::
     std::vector<int64_t> offset(inputs.size(), 0);
     int64_t outOffset = 0;
     for (int64_t step = 0; step < total; ++step) {
-        float prod = 1.0f;
+        double prod = 1.0;
         for (std::size_t i = 0; i < inputs.size(); ++i) {
-            prod *= static_cast<const float*>(inputs[i].data)[offset[i]];
+            prod *= static_cast<double>(static_cast<const float*>(inputs[i].data)[offset[i]]);
         }
-        y[outOffset] += prod;
+        acc[static_cast<std::size_t>(outOffset)] += prod;
         // Advance the odometer, keeping the running offsets in sync.
         for (std::size_t li = n; li-- > 0;) {
             ++coord[li];
@@ -200,6 +201,9 @@ void Einsum(const Node& node, const std::vector<TensorView>& inputs, const std::
             outOffset -= outStride[li] * size;
             coord[li] = 0;
         }
+    }
+    for (int64_t i = 0; i < outCount; ++i) {
+        y[i] = static_cast<float>(acc[static_cast<std::size_t>(i)]);
     }
 }
 
