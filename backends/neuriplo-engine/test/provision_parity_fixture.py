@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Provision the NATIVE<->ONNX_RUNTIME parity fixture (T-27a).
+"""Provision the NEURIPLO_ENGINE<->ONNX_RUNTIME parity fixture (T-27a).
 
 Exports torchvision ResNet-18 to ``<output_dir>/resnet18.onnx`` with the modern
 opset-18 operator set and verifies the emitted graph against the operators the
-first-party native engine implements. This mirrors
+first-party neuriplo engine implements. This mirrors
 ``backends/onnx-runtime/test/export_torchvision_classifier.py`` but takes its
 output directory as an argument and never writes to the old hard-coded
 ``/workspace/`` path.
@@ -19,7 +19,7 @@ import sys
 PINNED_TORCHVISION_VERSION = "0.27.0"
 OPSET_VERSION = 18
 
-# Operators the native engine implements ([R-5]). The fixture must use only these
+# Operators the neuriplo engine implements ([R-5]). The fixture must use only these
 # so the same file runs through both backends: the opset-18 export expresses the
 # ResNet-18 graph with ReduceMean/Reshape instead of the legacy
 # GlobalAveragePool/Flatten/Identity set.
@@ -100,7 +100,7 @@ def main():
 
     unsupported = sorted(op_set - SUPPORTED_OPS)
     if unsupported:
-        fail(f"graph contains op(s) the native engine does not implement: {unsupported}")
+        fail(f"graph contains op(s) the neuriplo engine does not implement: {unsupported}")
 
     histogram = {op: op_types.count(op) for op in sorted(op_set)}
     print(f"provisioned {os.path.abspath(model_path)}")

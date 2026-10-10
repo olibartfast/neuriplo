@@ -9,7 +9,7 @@
 // The hermetic cases are hand-encoded model bytes and reuse the protobuf wire
 // encoders from the loader tests, so they exercise the real loader -> IR ->
 // shape-inference path. The fixture cases run on the opset-18 ResNet-18 export
-// when it is resolvable via NEURIPLO_NATIVE_FIXTURE (env var or CMake cache
+// when it is resolvable via NEURIPLO_ENGINE_FIXTURE (env var or CMake cache
 // variable), and a missing fixture FAILS the test — never skipped or mocked.
 // The per-shape seam (same loaded Graph, two input shapes, no reload) is proven
 // hermetically on a hand-encoded Relu graph; the fixture additionally asserts
@@ -273,7 +273,7 @@ std::string first_output_of(const engine::Graph& graph,
     return {};
 }
 
-const char* fixture_env_name() { return "NEURIPLO_NATIVE_FIXTURE"; }
+const char* fixture_env_name() { return "NEURIPLO_ENGINE_FIXTURE"; }
 
 } // namespace
 

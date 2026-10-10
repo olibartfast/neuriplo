@@ -1,4 +1,4 @@
-#include "NativeInfer.hpp"
+#include "NeuriploEngineInfer.hpp"
 #include "ORTInfer.hpp"
 
 #include <algorithm>
@@ -25,7 +25,7 @@ constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 // `parity` (run both backends, compare every output), `e2e` (end-to-end
 // detection output [1,N,C>=6] with the score in column 4: compare only rows ONNX Runtime scores above 0.25,
 // since near-tied background rows select backend-noise-dependent cells), or
-// `load` (NATIVE must load the model and plan it; nothing runs). The optional
+// `load` (NEURIPLO_ENGINE must load the model and plan it; nothing runs). The optional
 // input file replaces the seeded input for a single-input model. Each element must satisfy
 // |native - ort| <= atol * (1 + |ort|).
 struct ZooEntry {
@@ -102,10 +102,10 @@ void check_entry(const ZooEntry& entry) {
 
     if (entry.mode == "load") {
         try {
-            NativeInfer native(entry.path, /*use_gpu=*/false, 1, entry.input_sizes);
+            NeuriploEngineInfer native(entry.path, /*use_gpu=*/false, 1, entry.input_sizes);
             std::cout << "ZOO " << entry.name << " LOADED" << std::endl;
         } catch (const std::exception& ex) {
-            FAIL() << entry.name << ": NATIVE load failed: " << ex.what();
+            FAIL() << entry.name << ": NEURIPLO_ENGINE load failed: " << ex.what();
         }
         return;
     }
@@ -121,16 +121,16 @@ void check_entry(const ZooEntry& entry) {
     std::vector<std::vector<TensorElement>> native_out;
     std::vector<std::vector<int64_t>> native_shapes;
     try {
-        NativeInfer native(entry.path, /*use_gpu=*/false, 1, entry.input_sizes);
+        NeuriploEngineInfer native(entry.path, /*use_gpu=*/false, 1, entry.input_sizes);
         std::tie(native_out, native_shapes) = native.get_infer_results(inputs);
     } catch (const std::exception& ex) {
-        FAIL() << entry.name << ": NATIVE failed: " << ex.what();
+        FAIL() << entry.name << ": NEURIPLO_ENGINE failed: " << ex.what();
     }
     std::vector<std::vector<TensorElement>> ort_out;
     std::vector<std::vector<int64_t>> ort_shapes;
     try {
         // ORTInfer takes per-input dims without the batch axis, plus the batch
-        // size; NativeInfer takes full shapes.
+        // size; NeuriploEngineInfer takes full shapes.
         std::vector<std::vector<int64_t>> ort_sizes;
         size_t batch = 1;
         for (const auto& dims : entry.input_sizes) {
@@ -190,7 +190,7 @@ void check_entry(const ZooEntry& entry) {
 } // namespace
 
 // Gate check for the neuriplo-tasks operator coverage packet: every model in
-// the manifest loads on NATIVE, and `parity` rows match ONNX_RUNTIME on the
+// the manifest loads on NEURIPLO_ENGINE, and `parity` rows match ONNX_RUNTIME on the
 // same seeded input. A missing manifest fails, never skips.
 TEST(ModelZooParityTest, ManifestModelsMatchOnnxRuntime) {
     const char* manifest = std::getenv(kManifestEnv);

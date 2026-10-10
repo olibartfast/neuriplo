@@ -1,4 +1,4 @@
-#include "NativeInfer.hpp"
+#include "NeuriploEngineInfer.hpp"
 
 #include "engine/ConstantFolding.hpp"
 #include "engine/Device.hpp"
@@ -32,11 +32,11 @@ engine::ShapeMap build_input_shapes(const engine::Graph& graph, const std::vecto
             (i < input_sizes.size() && !input_sizes[i].empty()) ? input_sizes[i] : graph.inputs[i].second.dims;
         for (int64_t dim : dims) {
             if (dim == -1) {
-                throw ::ModelLoadException("NATIVE input '" + name +
+                throw ::ModelLoadException("NEURIPLO_ENGINE input '" + name +
                                            "' has a symbolic dimension; pass its full shape in input_sizes");
             }
             if (dim <= 0) {
-                throw ::ModelLoadException("NATIVE input '" + name + "' resolves to a non-positive dimension");
+                throw ::ModelLoadException("NEURIPLO_ENGINE input '" + name + "' resolves to a non-positive dimension");
             }
         }
         shapes[name] = std::move(dims);
@@ -54,11 +54,11 @@ size_t element_count(const std::vector<int64_t>& dims) {
 
 } // namespace
 
-NativeInfer::NativeInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
-                         const std::vector<std::vector<int64_t>>& input_sizes)
+NeuriploEngineInfer::NeuriploEngineInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
+                                         const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
     if (use_gpu) {
-        throw ::InferenceException("NATIVE runs on CPU only in this phase");
+        throw ::InferenceException("NEURIPLO_ENGINE runs on CPU only in this phase");
     }
 
     graph_ = load_graph_or_throw(model_path);
@@ -87,7 +87,7 @@ NativeInfer::NativeInfer(const std::string& model_path, bool use_gpu, size_t bat
     state_ = BackendState::Ready;
 }
 
-engine::InferenceResult NativeInfer::run_engine(const std::vector<std::vector<uint8_t>>& input_tensors) {
+engine::InferenceResult NeuriploEngineInfer::run_engine(const std::vector<std::vector<uint8_t>>& input_tensors) {
     validate_input(input_tensors);
 
     const auto& inputs = inference_metadata_.getInputs();
@@ -97,7 +97,7 @@ engine::InferenceResult NativeInfer::run_engine(const std::vector<std::vector<ui
         const size_t elements = element_count(info.shape);
         const size_t expected_bytes = elements * sizeof(float);
         if (input_tensors[i].size() != expected_bytes) {
-            throw ::InferenceExecutionException("NATIVE input '" + info.name + "' expects " +
+            throw ::InferenceExecutionException("NEURIPLO_ENGINE input '" + info.name + "' expects " +
                                                 std::to_string(expected_bytes) + " bytes, got " +
                                                 std::to_string(input_tensors[i].size()));
         }
@@ -115,7 +115,7 @@ engine::InferenceResult NativeInfer::run_engine(const std::vector<std::vector<ui
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
-NativeInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
+NeuriploEngineInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
     const engine::InferenceResult result = run_engine(input_tensors);
 
     std::vector<std::vector<TensorElement>> output_tensors;
@@ -123,7 +123,7 @@ NativeInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
     for (const LayerInfo& info : inference_metadata_.getOutputs()) {
         const auto output = result.outputs.find(info.name);
         if (output == result.outputs.end()) {
-            throw ::InferenceExecutionException("NATIVE engine produced no output named '" + info.name + "'");
+            throw ::InferenceExecutionException("NEURIPLO_ENGINE engine produced no output named '" + info.name + "'");
         }
 
         std::vector<TensorElement> elements;
@@ -139,7 +139,7 @@ NativeInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_te
 }
 
 std::vector<RawOutputTensor>
-NativeInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
+NeuriploEngineInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
     const engine::InferenceResult result = run_engine(input_tensors);
 
     std::vector<RawOutputTensor> outputs;
@@ -147,7 +147,7 @@ NativeInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& inpu
     for (const LayerInfo& info : inference_metadata_.getOutputs()) {
         const auto output = result.outputs.find(info.name);
         if (output == result.outputs.end()) {
-            throw ::InferenceExecutionException("NATIVE engine produced no output named '" + info.name + "'");
+            throw ::InferenceExecutionException("NEURIPLO_ENGINE engine produced no output named '" + info.name + "'");
         }
 
         RawOutputTensor raw;

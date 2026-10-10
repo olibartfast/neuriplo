@@ -1,7 +1,7 @@
-#include "NativeInfer.hpp"
+#include "NeuriploEngineInfer.hpp"
 
 #include "InferenceBackendSetup.hpp"
-#include "NativeRuntimeFactory.hpp"
+#include "NeuriploEngineRuntimeFactory.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr const char* kFixtureEnv = "NEURIPLO_NATIVE_FIXTURE";
+constexpr const char* kFixtureEnv = "NEURIPLO_ENGINE_FIXTURE";
 constexpr const char* kFixtureFallback = "/tmp/opencode/resnet18_export/resnet18.onnx";
 constexpr size_t kInputElements = 1u * 3u * 224u * 224u;
 
@@ -43,7 +43,7 @@ std::vector<std::vector<uint8_t>> make_input() {
 
 } // namespace
 
-class NativeInferTest : public ::testing::Test {
+class NeuriploEngineInferTest : public ::testing::Test {
   protected:
     void SetUp() override {
         fixture_ = resolve_fixture();
@@ -55,8 +55,8 @@ class NativeInferTest : public ::testing::Test {
     std::string fixture_;
 };
 
-TEST_F(NativeInferTest, MetadataHasSingleInputAndOutput) {
-    NativeInfer infer(fixture_);
+TEST_F(NeuriploEngineInferTest, MetadataHasSingleInputAndOutput) {
+    NeuriploEngineInfer infer(fixture_);
 
     const InferenceMetadata metadata = infer.get_inference_metadata();
     ASSERT_EQ(metadata.getInputs().size(), 1u);
@@ -65,8 +65,8 @@ TEST_F(NativeInferTest, MetadataHasSingleInputAndOutput) {
     EXPECT_EQ(metadata.getOutputs()[0].datatype, TensorDataType::Float32);
 }
 
-TEST_F(NativeInferTest, TypedInferenceReturnsOneThousandFloats) {
-    NativeInfer infer(fixture_);
+TEST_F(NeuriploEngineInferTest, TypedInferenceReturnsOneThousandFloats) {
+    NeuriploEngineInfer infer(fixture_);
 
     auto [outputs, shapes] = infer.get_infer_results(make_input());
 
@@ -77,8 +77,8 @@ TEST_F(NativeInferTest, TypedInferenceReturnsOneThousandFloats) {
     EXPECT_EQ(shapes[0], (std::vector<int64_t>{1, 1000}));
 }
 
-TEST_F(NativeInferTest, RawInferenceReturnsFp32Bytes) {
-    NativeInfer infer(fixture_);
+TEST_F(NeuriploEngineInferTest, RawInferenceReturnsFp32Bytes) {
+    NeuriploEngineInfer infer(fixture_);
 
     const std::vector<RawOutputTensor> raw = infer.get_infer_results_raw(make_input());
 
@@ -89,8 +89,8 @@ TEST_F(NativeInferTest, RawInferenceReturnsFp32Bytes) {
     EXPECT_EQ(raw[0].element_count(), 1000u);
 }
 
-TEST_F(NativeInferTest, RawAndTypedValuesAgreeElementwise) {
-    NativeInfer infer(fixture_);
+TEST_F(NeuriploEngineInferTest, RawAndTypedValuesAgreeElementwise) {
+    NeuriploEngineInfer infer(fixture_);
     const std::vector<std::vector<uint8_t>> input = make_input();
 
     auto [typed, shapes] = infer.get_infer_results(input);
@@ -107,8 +107,8 @@ TEST_F(NativeInferTest, RawAndTypedValuesAgreeElementwise) {
     }
 }
 
-TEST(NativeRuntimeFactoryTest, RejectsGpuRequests) {
-    NativeRuntimeFactory factory;
+TEST(NeuriploEngineRuntimeFactoryTest, RejectsGpuRequests) {
+    NeuriploEngineRuntimeFactory factory;
 
     try {
         (void)factory.create_backend("unused.onnx", true, 1, {});
@@ -117,34 +117,34 @@ TEST(NativeRuntimeFactoryTest, RejectsGpuRequests) {
         EXPECT_NE(std::string(ex.what()).find("CPU only"), std::string::npos) << ex.what();
     }
 
-    EXPECT_STREQ(factory.name(), "NativeRuntimeFactory");
+    EXPECT_STREQ(factory.name(), "NeuriploEngineRuntimeFactory");
     EXPECT_NE(factory.create_allocator(), nullptr);
     EXPECT_NE(factory.create_converter(), nullptr);
 }
 
-// [V-8]b: the NATIVE factory rejects GPU requests by throwing the global
+// [V-8]b: the NEURIPLO_ENGINE factory rejects GPU requests by throwing the global
 // InferenceException; the public boundary translates that throw into the
 // nullptr contract. No engine is constructed and no inference runs.
-TEST_F(NativeInferTest, EngineOptionsGpuRequestReturnsNull) {
+TEST_F(NeuriploEngineInferTest, EngineOptionsGpuRequestReturnsNull) {
     EngineOptions options;
     options.model_path = fixture_;
-    options.backend_id = "NATIVE";
+    options.backend_id = "NEURIPLO_ENGINE";
     options.use_gpu = true;
 
     EXPECT_EQ(setup_inference_engine(options), nullptr);
 }
 
-TEST_F(NativeInferTest, LegacyOverloadGpuRequestReturnsNull) {
+TEST_F(NeuriploEngineInferTest, LegacyOverloadGpuRequestReturnsNull) {
     EXPECT_EQ(setup_inference_engine(fixture_, /*use_gpu=*/true, 1, {}), nullptr);
 }
 
-// Control: the same NATIVE backend with the GPU request removed must construct
+// Control: the same NEURIPLO_ENGINE backend with the GPU request removed must construct
 // a ready backend. This proves the nulls above come from the GPU rejection and
 // not from a general failure (e.g. an unresolvable backend id or model).
-TEST_F(NativeInferTest, CpuRequestReturnsReadyBackend) {
+TEST_F(NeuriploEngineInferTest, CpuRequestReturnsReadyBackend) {
     EngineOptions options;
     options.model_path = fixture_;
-    options.backend_id = "NATIVE";
+    options.backend_id = "NEURIPLO_ENGINE";
     options.use_gpu = false;
 
     auto backend = setup_inference_engine(options);
@@ -152,9 +152,9 @@ TEST_F(NativeInferTest, CpuRequestReturnsReadyBackend) {
     EXPECT_EQ(backend->state(), BackendState::Ready);
 }
 
-TEST(NativeInferErrorTest, MissingModelThrowsModelLoadException) {
+TEST(NeuriploEngineInferErrorTest, MissingModelThrowsModelLoadException) {
     try {
-        NativeInfer infer("/nonexistent/neuriplo-native-missing.onnx");
+        NeuriploEngineInfer infer("/nonexistent/neuriplo-engine-missing.onnx");
         (void)infer;
         FAIL() << "expected a missing model path to throw";
     } catch (const ::ModelLoadException& ex) {
