@@ -31,6 +31,10 @@ engine::ShapeMap build_input_shapes(const engine::Graph& graph, const std::vecto
         std::vector<int64_t> dims =
             (i < input_sizes.size() && !input_sizes[i].empty()) ? input_sizes[i] : graph.inputs[i].second.dims;
         for (int64_t dim : dims) {
+            if (dim == -1) {
+                throw ::ModelLoadException("NATIVE input '" + name +
+                                           "' has a symbolic dimension; pass its full shape in input_sizes");
+            }
             if (dim <= 0) {
                 throw ::ModelLoadException("NATIVE input '" + name + "' resolves to a non-positive dimension");
             }

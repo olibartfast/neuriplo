@@ -92,6 +92,26 @@ Out:
   is rejected. torch 2.12's exporter writes every entry twice, which made the
   pinned YOLO26 fixture fail to load.
 - [D-7] Resize accepts a `sizes` input as well as `scales`, never both.
+- [D-8] A named or unknown dimension (`dim_param`, or no value) loads as -1;
+  the caller fixes it per load through `input_sizes` (full shapes for
+  `NATIVE`), and `NativeInfer` names the input when it is missing. An
+  explicit non-positive `dim_value` is still rejected. This resolves [Q-3]
+  for symbolic batch dims; RAFT's spatial dims follow the same rule.
+- [D-9] Resize implements `nearest` and `linear` with the four plain
+  coordinate transforms and all four nearest roundings, with the ONNX
+  defaults (`half_pixel`, `round_prefer_floor`) when an attribute is absent.
+  Before this, an absent attribute was treated as `asymmetric`/`floor`;
+  every fixture that relied on that sets both explicitly. Cubic,
+  `tf_crop_and_resize`, antialiasing and `axes` are rejected at load.
+- [D-10] BOOL initializers and Constants load (one byte per element), so
+  attention masks and boolean constant folding work.
+- [D-11] Reshape keeps its data dtype (float32, int64, or bool); it was
+  float32-only, which broke int64 shape tensors reshaped in-graph.
+- [D-12] Conv covers one, two, or three spatial axes (video tubelet
+  embeddings use 3-D Conv); 1-D and 2-D run as 3-D with unit leading axes.
+- [D-13] The load-time shape evaluator also follows Concat, 1-D Slice, Cast
+  to int64, and the layout-only ops (Identity, Squeeze, Unsqueeze, Reshape,
+  Flatten), and Shape honours `start`/`end` (opset 15).
 
 ## Open questions
 

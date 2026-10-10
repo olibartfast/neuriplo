@@ -8,6 +8,7 @@
 #include "Kernels.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -35,8 +36,9 @@ void Reshape(const Node& node, const std::vector<TensorView>& inputs, const std:
     }
     const TensorView& in = inputs[0];
     const TensorView& out = outputs[0];
-    if (in.dtype != DataType::Float32 || out.dtype != DataType::Float32) {
-        throw InferenceException(context + ": data tensors must be float32");
+    if (in.dtype != out.dtype ||
+        (in.dtype != DataType::Float32 && in.dtype != DataType::Int64 && in.dtype != DataType::Bool)) {
+        throw InferenceException(context + ": data tensors must share one float32, int64, or bool dtype");
     }
 
     bool allowzero = false;
@@ -122,11 +124,10 @@ void Reshape(const Node& node, const std::vector<TensorView>& inputs, const std:
         throw InferenceException(context + ": null buffer");
     }
 
-    const float* x = static_cast<const float*>(in.data);
-    float* y = static_cast<float*>(out.data);
-    for (int64_t i = 0; i < inCount; ++i) {
-        y[i] = x[i];
-    }
+    const std::size_t element = in.dtype == DataType::Float32 ? sizeof(float)
+                                : in.dtype == DataType::Int64 ? sizeof(int64_t)
+                                                              : sizeof(bool);
+    std::memcpy(out.data, in.data, static_cast<std::size_t>(inCount) * element);
 }
 
 } // namespace kernels

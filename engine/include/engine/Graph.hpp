@@ -83,14 +83,35 @@ struct Node {
 };
 
 // An embedded constant tensor. Weights are float32; integer constants carry
-// shape indices. `dtype` selects which alternative of `values` is meaningful.
-// Bool never appears here: Constant folding accepts float32 and int64 only,
-// and any other Constant dtype is a load rejection.
+// shape indices; bool constants are masks, one byte (0 or 1) per element,
+// read by kernels as `bool`. `dtype` selects which alternative of `values` is
+// meaningful.
 struct Initializer {
     DataType dtype = DataType::Unknown;
     std::vector<int64_t> dims;
-    std::variant<std::vector<float>, std::vector<int64_t>> values;
+    std::variant<std::vector<float>, std::vector<int64_t>, std::vector<uint8_t>> values;
 };
+
+// The element storage of an initializer, or null when `dtype` and `values`
+// disagree.
+inline void* InitializerData(Initializer& init) {
+    switch (init.dtype) {
+    case DataType::Float32: {
+        auto* v = std::get_if<std::vector<float>>(&init.values);
+        return v != nullptr ? v->data() : nullptr;
+    }
+    case DataType::Int64: {
+        auto* v = std::get_if<std::vector<int64_t>>(&init.values);
+        return v != nullptr ? v->data() : nullptr;
+    }
+    case DataType::Bool: {
+        auto* v = std::get_if<std::vector<uint8_t>>(&init.values);
+        return v != nullptr ? v->data() : nullptr;
+    }
+    default:
+        return nullptr;
+    }
+}
 
 // A whole model: nodes in execution order, the type-and-shape table for every
 // named value, the embedded constants, and the declared inputs and outputs.

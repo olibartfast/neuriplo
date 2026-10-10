@@ -2160,3 +2160,77 @@ TEST_F(EngineShapesNegative, ExpandIncompatibleDimsNamesNode)
     EXPECT_NE(message.find("Expand"), std::string::npos)
         << "message: " << message;
 }
+
+// A Reshape target assembled the transformer way, Shape -> Gather ->
+// Unsqueeze -> Concat with constants, resolves statically; Reshape keeps the
+// int64 dtype of shape data it reshapes.
+TEST_F(EngineShapes, ConcatOfShapePiecesFeedsReshape)
+{
+    auto node = [](std::string name, std::string op,
+                    std::vector<std::string> in, std::vector<std::string> out) {
+        engine::Node n;
+        n.name = std::move(name);
+        n.op_type = std::move(op);
+        n.inputs = std::move(in);
+        n.outputs = std::move(out);
+        return n;
+    };
+    auto int64_init = [](std::vector<int64_t> dims, std::vector<int64_t> values) {
+        engine::Initializer init;
+        init.dtype = engine::DataType::Int64;
+        init.dims = std::move(dims);
+        init.values = std::move(values);
+        return init;
+    };
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {-1, 6, 4}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    graph.initializers["zero"] = int64_init({}, {0});
+    graph.initializers["axes0"] = int64_init({1}, {0});
+    graph.initializers["minus_one"] = int64_init({1}, {-1});
+    graph.initializers["four"] = int64_init({1}, {4});
+    graph.nodes.push_back(node("shape", "Shape", {"x"}, {"s"}));
+    graph.nodes.push_back(node("gather", "Gather", {"s", "zero"}, {"batch"}));
+    graph.nodes.push_back(node("unsq", "Unsqueeze", {"batch", "axes0"}, {"batch1"}));
+    graph.nodes.push_back(
+        node("concat", "Concat", {"batch1", "minus_one", "four"}, {"target"}));
+    graph.nodes.back().attributes.emplace_back("axis", int64_t{0});
+    graph.nodes.push_back(node("reshape", "Reshape", {"x", "target"}, {"y"}));
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {2, 6, 4}}});
+    EXPECT_EQ(shapes.tensors.at("target").dtype, engine::DataType::Int64);
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{2, 6, 4}));
+}
+
+// Older exporters pass an empty scales tensor alongside sizes; empty means
+// absent, so the sizes input decides the output shape.
+TEST_F(EngineShapes, ResizeEmptyScalesWithSizes)
+{
+    engine::Graph graph;
+    graph.inputs.push_back(
+        {"x", engine::TensorInfo{engine::DataType::Float32, {1, 1, 2, 2}}});
+    graph.outputs.push_back({"y", engine::TensorInfo{engine::DataType::Float32, {}}});
+    engine::Initializer empty;
+    empty.dtype = engine::DataType::Float32;
+    empty.dims = {0};
+    empty.values = std::vector<float>{};
+    graph.initializers["roi"] = empty;
+    graph.initializers["scales"] = empty;
+    engine::Initializer sizes;
+    sizes.dtype = engine::DataType::Int64;
+    sizes.dims = {4};
+    sizes.values = std::vector<int64_t>{1, 1, 4, 4};
+    graph.initializers["sizes"] = sizes;
+    engine::Node resize;
+    resize.name = "resize_sizes";
+    resize.op_type = "Resize";
+    resize.inputs = {"x", "roi", "scales", "sizes"};
+    resize.outputs = {"y"};
+    graph.nodes.push_back(resize);
+
+    const engine::InferredShapes shapes =
+        engine::InferShapes(graph, {{"x", {1, 1, 2, 2}}});
+    EXPECT_EQ(shapes.tensors.at("y").dims, (std::vector<int64_t>{1, 1, 4, 4}));
+}

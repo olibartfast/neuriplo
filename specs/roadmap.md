@@ -248,8 +248,8 @@ does not change how `OPENCV_DNN` is built or pinned.
   ViViT and TimeSformer; segmentation and pose heads; RAFT; OWLv2 and
   Grounding DINO. Gaussian splatting and VLM (llama.cpp) are outside the
   gate. This supersedes the 2026-10-10 hold-lift proposal. Backlog and
-  evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tier 1 of 5, the
-  YOLO families, done 2026-10-10).
+  evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tiers 1-2 of 5 done
+  2026-10-10: YOLO families and transformer encoders).
 - Outcome: one classification model runs end to end through `NATIVE` on CPU,
   with outputs matching `ONNX_RUNTIME` on the same file within a recorded
   tolerance.

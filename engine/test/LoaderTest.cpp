@@ -602,6 +602,31 @@ TEST_F(EngineLoader, HermeticDuplicateValueInfo)
     EXPECT_NE(message.find("'h'"), std::string::npos) << "message: " << message;
 }
 
+// Hermetic positive: a BOOL initializer (an attention mask) loads one byte per
+// element.
+TEST_F(EngineLoader, HermeticBoolInitializerLoads)
+{
+    std::string body;
+    put_sub(body, 5, [] {
+        std::string t;
+        put_varint_field(t, 1, 3);
+        put_varint_field(t, 2, 9 /*BOOL*/);
+        put_length_delimited(t, 8, "mask");
+        put_length_delimited(t, 9, std::string("\x01\x00\x01", 3));
+        return t;
+    }());
+    put_sub(body, 1, encode_node("where0", "Where", {"mask", "x", "x"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {3}));
+    put_sub(body, 12, encode_value_info("y", 1, {3}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("bool_init.onnx", encode_model(body)));
+    const engine::Initializer& mask = graph.initializers.at("mask");
+    EXPECT_EQ(mask.dtype, engine::DataType::Bool);
+    EXPECT_EQ(std::get<std::vector<std::uint8_t>>(mask.values),
+        (std::vector<std::uint8_t>{1, 0, 1}));
+}
+
 // Hermetic positive: an int64 Constant folds into initializers and feeds
 // Reshape, mirroring the survey oracle's int64 Constants.
 TEST_F(EngineLoader, HermeticConstantFoldingInt64)
@@ -1022,7 +1047,7 @@ TEST_F(EngineLoaderNegative, ConstantOtherDtypeRejected)
         {std::tuple<std::string, int64_t, std::string>{
                  "const_i32.onnx", 6, "INT32"},
             std::tuple<std::string, int64_t, std::string>{
-                "const_bool.onnx", 9, "BOOL"}}) {
+                "const_u8.onnx", 2, "UINT8"}}) {
         const std::string raw(4, '\x01');
         std::string body;
         put_sub(body, 1,
@@ -1060,9 +1085,10 @@ TEST_F(EngineLoaderNegative, NonFloatInitializerRejected)
         << "message: " << message;
 }
 
-// Dynamic dimension (dim_param instead of dim_value) is rejected by name.
+// A named (dim_param) or unknown input dimension loads as -1; the caller
+// fixes it per load through the shapes handed to InferShapes.
 
-TEST_F(EngineLoaderNegative, DynamicDimensionRejected)
+TEST_F(EngineLoader, NamedDimensionLoadsAsSymbolic)
 {
     std::string body;
     put_sub(body, 1, encode_node("dynamic_node", "Relu",
@@ -1070,12 +1096,28 @@ TEST_F(EngineLoaderNegative, DynamicDimensionRejected)
     put_sub(body, 11, encode_value_info("x_dyn", 1, {2, 2}, true));
     put_sub(body, 12, encode_value_info("y", 1, {2, 2}));
 
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("dyn_in.onnx", encode_model(body)));
+    ASSERT_EQ(graph.inputs.size(), 1U);
+    EXPECT_EQ(graph.inputs.front().second.dims,
+        (std::vector<std::int64_t>{-1, -1}));
+}
+
+// An explicit zero dim_value is rejected by name.
+
+TEST_F(EngineLoaderNegative, ZeroDimensionRejected)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x_zero"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x_zero", 1, {0, 2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+
     const std::string message =
-        load_error_message(encode_model(body), "dyn_in.onnx");
-    EXPECT_NE(message.find("x_dyn"), std::string::npos) << "message: " << message;
+        load_error_message(encode_model(body), "zero_dim.onnx");
+    EXPECT_NE(message.find("x_zero"), std::string::npos)
+        << "message: " << message;
     EXPECT_NE(message.find("non-fixed"), std::string::npos)
         << "message: " << message;
-    EXPECT_NE(message.find("N"), std::string::npos) << "message: " << message;
 }
 
 // Missing file: the offending path itself appears in the message.
@@ -1114,18 +1156,19 @@ TEST_F(EngineLoaderNegative, CastToOutsidePolicyRejected)
     EXPECT_NE(message.find("to"), std::string::npos) << "message: " << message;
 }
 
-// Resize outside the surveyed nearest policy rejects with node + op context.
+// Resize outside the admitted policy (cubic mode, tf_crop_and_resize,
+// antialiasing) rejects with node + op context.
 
 TEST_F(EngineLoaderNegative, ResizeModeOutsidePolicyRejected)
 {
     for (const auto& [file, attr] :
         {std::tuple<std::string, std::string>{"rs_mode.onnx",
-             encode_attribute_string("mode", "linear")},
-            std::tuple<std::string, std::string>{"rs_nm.onnx",
-                encode_attribute_string("nearest_mode", "round_prefer_floor")},
+             encode_attribute_string("mode", "cubic")},
+            std::tuple<std::string, std::string>{"rs_aa.onnx",
+                encode_attribute_int("antialias", 1)},
             std::tuple<std::string, std::string>{"rs_ctm.onnx",
                 encode_attribute_string(
-                    "coordinate_transformation_mode", "half_pixel")}}) {
+                    "coordinate_transformation_mode", "tf_crop_and_resize")}}) {
         std::string body;
         put_sub(body, 5,
             encode_initializer("scales", {4}, {1.0F, 1.0F, 2.0F, 2.0F}));

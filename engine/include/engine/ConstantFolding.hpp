@@ -15,7 +15,7 @@
 namespace engine {
 
 // Folds, in execution order, every node whose inputs are all initializers and
-// whose outputs are float32 or int64 tensors that are not graph outputs. A node
+// whose outputs are float32, int64, or bool tensors that are not graph outputs. A node
 // that cannot be shaped or run at load is left in place, so it fails (or runs)
 // exactly as it would have without the pass. Returns the number of folded
 // nodes.

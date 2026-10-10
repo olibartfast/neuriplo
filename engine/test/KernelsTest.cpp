@@ -1,8 +1,8 @@
 // CPU kernel tests: Relu, Add, Reshape, ReduceMean, Mul, Div, Sub, Sigmoid,
 // Cast, Softmax, ReduceMax, Mod, Equal, Where, Concat, Split, Unsqueeze,
 // Expand, Transpose, Slice, Gather, GatherElements, Resize, Flatten, Shape,
-// ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool, and
-// ConvTranspose.
+// ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool,
+// ConvTranspose, Erf, Sqrt, Tanh, IsNaN, Squeeze, and LayerNormalization.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -2821,5 +2821,191 @@ TEST(EngineKernelsNegative, ConvTransposeRejectsWrongOutputShape) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("ConvTranspose"), std::string::npos) << error.what();
+    }
+}
+
+// Erf, Sqrt, and Tanh match the C library on a few points.
+TEST(EngineKernels, ErfSqrtTanhUnary) {
+    std::vector<float> in = {0.0f, 0.5f, 1.0f, 4.0f};
+    for (const char* op : {"Erf", "Sqrt", "Tanh"}) {
+        engine::KernelFn kernel = engine::CpuDevice().kernels().find(op);
+        ASSERT_NE(kernel, nullptr) << op;
+        std::vector<float> out(4, -1.0f);
+        engine::Node node = MakeNode("unary", op);
+        std::vector<engine::TensorView> inputs = {FloatView(in, {4})};
+        std::vector<engine::TensorView> outputs = {FloatView(out, {4})};
+        kernel(node, inputs, outputs);
+        for (std::size_t i = 0; i < in.size(); ++i) {
+            const float want = std::string(op) == "Erf"    ? std::erf(in[i])
+                               : std::string(op) == "Sqrt" ? std::sqrt(in[i])
+                                                           : std::tanh(in[i]);
+            EXPECT_FLOAT_EQ(out[i], want) << op << " at " << i;
+        }
+    }
+}
+
+// IsNaN flags only the NaN element.
+TEST(EngineKernels, IsNaNFlagsNaN) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("IsNaN");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, std::nanf(""), -2.0f};
+    std::vector<std::uint8_t> out(3, 7);
+    engine::Node node = MakeNode("isnan0", "IsNaN");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {3})};
+    std::vector<engine::TensorView> outputs = {BoolView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(BoolBytes(out), (std::vector<std::uint8_t>{0, 1, 0}));
+}
+
+// Squeeze keeps the element order; only the view's dims change.
+TEST(EngineKernels, SqueezeCopiesInOrder) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Squeeze");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {1.0f, 2.0f, 3.0f};
+    std::vector<int64_t> axes = {0};
+    std::vector<float> out(3, 0.0f);
+    engine::Node node = MakeNode("squeeze0", "Squeeze");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {1, 3}), Int64View(axes, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, in);
+}
+
+// LayerNormalization over the last axis: rows [1,2,3] and [2,2,2] normalize to
+// [-sqrt(1.5), 0, sqrt(1.5)] and [0,0,0] (epsilon 0), then scale and shift;
+// the optional Mean and InvStdDev outputs carry the row statistics.
+TEST(EngineKernels, LayerNormalizationLastAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("LayerNormalization");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 2.0f, 2.0f, 2.0f};
+    std::vector<float> scale = {2.0f, 2.0f, 2.0f};
+    std::vector<float> bias = {1.0f, 1.0f, 1.0f};
+    std::vector<float> y(6, 0.0f);
+    std::vector<float> mean(2, 0.0f);
+    std::vector<float> inv(2, 0.0f);
+    engine::Node node = MakeNode("ln0", "LayerNormalization");
+    node.attributes.emplace_back("epsilon", 1e-12f);
+    std::vector<engine::TensorView> inputs = {FloatView(x, {2, 3}), FloatView(scale, {3}), FloatView(bias, {3})};
+    std::vector<engine::TensorView> outputs = {FloatView(y, {2, 3}), FloatView(mean, {2, 1}), FloatView(inv, {2, 1})};
+
+    kernel(node, inputs, outputs);
+
+    const float r = std::sqrt(1.5f);
+    EXPECT_NEAR(y[0], 1.0f - 2.0f * r, 1e-5f);
+    EXPECT_NEAR(y[1], 1.0f, 1e-5f);
+    EXPECT_NEAR(y[2], 1.0f + 2.0f * r, 1e-5f);
+    EXPECT_NEAR(mean[0], 2.0f, 1e-6f);
+    EXPECT_NEAR(inv[0], 1.0f / std::sqrt(2.0f / 3.0f), 1e-4f);
+    EXPECT_NEAR(mean[1], 2.0f, 1e-6f);
+}
+
+// Shape with start/end emits only the selected dims; negatives count back.
+TEST(EngineKernels, ShapeStartEndSelectsDims) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Shape");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in(2 * 3 * 4, 0.0f);
+    std::vector<int64_t> out(2, 0);
+    engine::Node node = MakeNode("shape_slice", "Shape");
+    node.attributes.emplace_back("start", int64_t{1});
+    node.attributes.emplace_back("end", int64_t{3});
+    std::vector<engine::TensorView> inputs = {FloatView(in, {2, 3, 4})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<int64_t>{3, 4}));
+
+    std::vector<int64_t> first(1, 0);
+    engine::Node head = MakeNode("shape_head", "Shape");
+    head.attributes.emplace_back("end", int64_t{-2});
+    outputs = {Int64View(first, {1})};
+    kernel(head, inputs, outputs);
+    EXPECT_EQ(first, (std::vector<int64_t>{2}));
+}
+
+// Linear Resize with align_corners doubles [0, 3] to [0, 1, 2, 3]; with
+// half_pixel the samples at -0.25 and 1.25 clamp to the border.
+TEST(EngineKernels, ResizeLinearTransforms) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Resize");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {0.0f, 3.0f};
+    std::vector<int64_t> sizes = {1, 4};
+    std::vector<float> out(4, -1.0f);
+    engine::Node node = MakeNode("resize_linear", "Resize");
+    node.attributes.emplace_back("mode", std::string("linear"));
+    node.attributes.emplace_back("coordinate_transformation_mode", std::string("align_corners"));
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 2}), engine::TensorView{}, engine::TensorView{},
+                                              Int64View(sizes, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 4})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 1.0f, 2.0f, 3.0f}));
+
+    engine::Node half = MakeNode("resize_half", "Resize");
+    half.attributes.emplace_back("mode", std::string("linear"));
+    kernel(half, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{0.0f, 0.75f, 2.25f, 3.0f}));
+}
+
+// Nearest Resize defaults to half_pixel + round_prefer_floor: upsampling
+// [1, 2] by 2 samples 0, 0, 1, 1.
+TEST(EngineKernels, ResizeNearestOnnxDefaults) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Resize");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f};
+    std::vector<float> scales = {1.0f, 2.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("resize_default", "Resize");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 2}), engine::TensorView{}, FloatView(scales, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 1.0f, 2.0f, 2.0f}));
+}
+
+// A 3-D Conv with a 2x1x1 all-ones kernel and depth stride 2 sums each pair
+// of frames, the tubelet pattern of video transformers.
+TEST(EngineKernels, Conv3dTubelet) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Conv");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 10.0f, 20.0f, 100.0f, 200.0f, 1000.0f, 2000.0f};
+    std::vector<float> w = {1.0f, 1.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("conv3d", "Conv");
+    node.attributes.emplace_back("strides", std::vector<int64_t>{2, 1, 1});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 4, 1, 2}), FloatView(w, {1, 1, 2, 1, 1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 1, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{11.0f, 22.0f, 1100.0f, 2200.0f}));
+}
+
+// LayerNormalization rejects a Scale that is neither per-element nor scalar.
+TEST(EngineKernelsNegative, LayerNormalizationRejectsScaleShape) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("LayerNormalization");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f};
+    std::vector<float> scale = {1.0f, 1.0f};
+    std::vector<float> y(3, 0.0f);
+    engine::Node node = MakeNode("ln_bad", "LayerNormalization");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 3}), FloatView(scale, {2})};
+    std::vector<engine::TensorView> outputs = {FloatView(y, {1, 3})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("LayerNormalization"), std::string::npos) << error.what();
     }
 }
