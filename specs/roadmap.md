@@ -247,7 +247,9 @@ does not change how `OPENCV_DNN` is built or pinned.
   RT-DETR, D-FINE, DEIM and RF-DETR; ViTPose; Depth Anything V2; VideoMAE,
   ViViT and TimeSformer; segmentation and pose heads; RAFT; OWLv2 and
   Grounding DINO. Gaussian splatting and VLM (llama.cpp) are outside the
-  gate. This supersedes the 2026-10-10 hold-lift proposal.
+  gate. This supersedes the 2026-10-10 hold-lift proposal. Backlog and
+  evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tier 1 of 5, the
+  YOLO families, done 2026-10-10).
 - Outcome: one classification model runs end to end through `NATIVE` on CPU,
   with outputs matching `ONNX_RUNTIME` on the same file within a recorded
   tolerance.

@@ -1,7 +1,8 @@
 // CPU kernel tests: Relu, Add, Reshape, ReduceMean, Mul, Div, Sub, Sigmoid,
 // Cast, Softmax, ReduceMax, Mod, Equal, Where, Concat, Split, Unsqueeze,
 // Expand, Transpose, Slice, Gather, GatherElements, Resize, Flatten, Shape,
-// ConstantOfShape, and TopK.
+// ConstantOfShape, TopK, Floor, Identity, Pow, Tile, AveragePool, and
+// ConvTranspose.
 //
 // Expected values are hand-computed small cases written inline, not captured
 // from another runtime. Kernels are reached through the CPU device's kernel
@@ -2295,7 +2296,7 @@ TEST(EngineKernelsNegative, GatherElementsRejectsIndexOutOfRange) {
     }
 }
 
-// Resize rejects a sizes input when scales are given, naming the op.
+// Resize rejects a node that supplies both scales and sizes, naming the op.
 TEST(EngineKernelsNegative, ResizeRejectsSizesInput) {
     engine::KernelFn kernel = engine::CpuDevice().kernels().find("Resize");
     ASSERT_NE(kernel, nullptr);
@@ -2622,5 +2623,203 @@ TEST(EngineKernelsNegative, WhereRejectsMixedValueDtypes) {
         FAIL() << "expected InferenceException";
     } catch (const engine::InferenceException& error) {
         EXPECT_NE(std::string(error.what()).find("Where"), std::string::npos) << error.what();
+    }
+}
+
+// Floor rounds toward negative infinity on both signs.
+TEST(EngineKernels, FloorRoundsDown) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Floor");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> in = {-1.5f, 0.5f, 2.0f, 2.7f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("floor0", "Floor");
+    std::vector<engine::TensorView> inputs = {FloatView(in, {4})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{-2.0f, 0.0f, 2.0f, 2.0f}));
+}
+
+// Identity copies an int64 tensor unchanged.
+TEST(EngineKernels, IdentityCopiesInt64) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Identity");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {7, -3, 42};
+    std::vector<int64_t> out(3, 0);
+    engine::Node node = MakeNode("identity0", "Identity");
+    std::vector<engine::TensorView> inputs = {Int64View(in, {3})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {3})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, in);
+}
+
+// Pow squares with a scalar exponent and broadcasts a per-column exponent.
+TEST(EngineKernels, PowScalarAndBroadcastExponent) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Pow");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> base = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> two = {2.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("pow0", "Pow");
+    std::vector<engine::TensorView> inputs = {FloatView(base, {2, 2}), FloatView(two, {})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {2, 2})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 4.0f, 9.0f, 16.0f}));
+
+    std::vector<float> base2 = {4.0f, 2.0f, 9.0f, 3.0f};
+    std::vector<float> exps = {0.5f, 3.0f};
+    inputs = {FloatView(base2, {2, 2}), FloatView(exps, {2})};
+    kernel(node, inputs, outputs);
+    EXPECT_FLOAT_EQ(out[0], 2.0f);
+    EXPECT_FLOAT_EQ(out[1], 8.0f);
+    EXPECT_FLOAT_EQ(out[2], 3.0f);
+    EXPECT_FLOAT_EQ(out[3], 27.0f);
+}
+
+// Tile repeats a [1,2] int64 tensor twice along each axis.
+TEST(EngineKernels, TileRepeatsEachAxis) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Tile");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<int64_t> in = {1, 2};
+    std::vector<int64_t> repeats = {2, 2};
+    std::vector<int64_t> out(8, 0);
+    engine::Node node = MakeNode("tile0", "Tile");
+    std::vector<engine::TensorView> inputs = {Int64View(in, {1, 2}), Int64View(repeats, {2})};
+    std::vector<engine::TensorView> outputs = {Int64View(out, {2, 4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<int64_t>{1, 2, 1, 2, 1, 2, 1, 2}));
+}
+
+// AveragePool with a 2x2 window and stride 1 averages each overlapping block.
+TEST(EngineKernels, AveragePoolTwoByTwoStrideOne) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("AveragePool");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("avg_2x2", "AveragePool");
+    node.attributes.emplace_back("kernel_shape", std::vector<int64_t>{2, 2});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 3, 3})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{3.0f, 4.0f, 6.0f, 7.0f}));
+}
+
+// AveragePool over a padded border divides by the in-bounds count unless
+// count_include_pad is set, in which case padded positions count too.
+TEST(EngineKernels, AveragePoolCountIncludePad) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("AveragePool");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("avg_pad", "AveragePool");
+    node.attributes.emplace_back("kernel_shape", std::vector<int64_t>{2, 2});
+    node.attributes.emplace_back("strides", std::vector<int64_t>{2, 2});
+    node.attributes.emplace_back("pads", std::vector<int64_t>{1, 1, 1, 1});
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f}));
+
+    node.attributes.emplace_back("count_include_pad", int64_t{1});
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{0.25f, 0.5f, 0.75f, 1.0f}));
+}
+
+// ConvTranspose with a 2x2 all-ones kernel and stride 2 expands each input
+// pixel into a 2x2 block, plus the bias.
+TEST(EngineKernels, ConvTransposeStrideTwoUpsamples) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConvTranspose");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> b = {0.5f};
+    std::vector<float> out(16, 0.0f);
+    engine::Node node = MakeNode("deconv_s2", "ConvTranspose");
+    node.attributes.emplace_back("strides", std::vector<int64_t>{2, 2});
+    std::vector<engine::TensorView> inputs = {
+        FloatView(x, {1, 1, 2, 2}), FloatView(w, {1, 1, 2, 2}), FloatView(b, {1})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 4, 4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.5f, 1.5f, 2.5f, 2.5f, 1.5f, 1.5f, 2.5f, 2.5f, 3.5f, 3.5f, 4.5f, 4.5f, 3.5f,
+                                       3.5f, 4.5f, 4.5f}));
+}
+
+// ConvTranspose with stride 1 sums overlapping contributions; pads crop the
+// border back to the centre.
+TEST(EngineKernels, ConvTransposeOverlapAndPads) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConvTranspose");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> out(9, 0.0f);
+    engine::Node node = MakeNode("deconv_s1", "ConvTranspose");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 2, 2}), FloatView(w, {1, 1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 3, 3})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 3.0f, 2.0f, 4.0f, 10.0f, 6.0f, 3.0f, 7.0f, 4.0f}));
+
+    std::vector<float> centre(1, 0.0f);
+    node.attributes.emplace_back("pads", std::vector<int64_t>{1, 1, 1, 1});
+    outputs = {FloatView(centre, {1, 1, 1, 1})};
+    kernel(node, inputs, outputs);
+    EXPECT_EQ(centre, (std::vector<float>{10.0f}));
+}
+
+// Resize driven by a sizes input doubles the width with nearest/floor.
+TEST(EngineKernels, ResizeFromSizesInput) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("Resize");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f};
+    std::vector<int64_t> sizes = {1, 1, 1, 4};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("resize_sizes", "Resize");
+    node.attributes.emplace_back("mode", std::string("nearest"));
+    node.attributes.emplace_back("coordinate_transformation_mode", std::string("asymmetric"));
+    node.attributes.emplace_back("nearest_mode", std::string("floor"));
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 1, 2}), engine::TensorView{}, engine::TensorView{},
+                                              Int64View(sizes, {4})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 1, 4})};
+
+    kernel(node, inputs, outputs);
+
+    EXPECT_EQ(out, (std::vector<float>{1.0f, 1.0f, 2.0f, 2.0f}));
+}
+
+// ConvTranspose rejects an output view whose shape disagrees with the window.
+TEST(EngineKernelsNegative, ConvTransposeRejectsWrongOutputShape) {
+    engine::KernelFn kernel = engine::CpuDevice().kernels().find("ConvTranspose");
+    ASSERT_NE(kernel, nullptr);
+
+    std::vector<float> x = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> w = {1.0f, 1.0f, 1.0f, 1.0f};
+    std::vector<float> out(4, 0.0f);
+    engine::Node node = MakeNode("deconv_bad", "ConvTranspose");
+    std::vector<engine::TensorView> inputs = {FloatView(x, {1, 1, 2, 2}), FloatView(w, {1, 1, 2, 2})};
+    std::vector<engine::TensorView> outputs = {FloatView(out, {1, 1, 2, 2})};
+
+    try {
+        kernel(node, inputs, outputs);
+        FAIL() << "expected InferenceException";
+    } catch (const engine::InferenceException& error) {
+        EXPECT_NE(std::string(error.what()).find("ConvTranspose"), std::string::npos) << error.what();
     }
 }

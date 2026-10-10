@@ -548,6 +548,60 @@ TEST_F(EngineLoader, HermeticConstantFoldingFloat)
     EXPECT_EQ(std::get<std::vector<float>>(folded.values), values);
 }
 
+// Hermetic positive: a DOUBLE Constant (an exporter anchor grid) and its
+// DOUBLE value-info entry load as float32, the only compute type.
+TEST_F(EngineLoader, HermeticDoubleConstantNarrowsToFloat)
+{
+    const std::vector<double> values{0.5, 79.5};
+    const std::string raw(reinterpret_cast<const char*>(values.data()),
+        values.size() * sizeof(double));
+    std::string body;
+    put_sub(body, 1,
+        encode_constant_node("const_d0", "c0",
+            encode_constant_tensor(11 /*DOUBLE*/, {2}, raw)));
+    put_sub(body, 1, encode_node("cast0", "Cast", {"c0"}, {"c1"},
+        {encode_attribute_int("to", 1)}));
+    put_sub(body, 1, encode_node("add0", "Add", {"x", "c1"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+    put_sub(body, 13, encode_value_info("c0", 11, {2}));
+
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("const_fold_double.onnx", encode_model(body)));
+    ASSERT_EQ(graph.initializers.count("c0"), 1U);
+    const engine::Initializer& folded = graph.initializers.at("c0");
+    EXPECT_EQ(folded.dtype, engine::DataType::Float32);
+    EXPECT_EQ(std::get<std::vector<float>>(folded.values),
+        (std::vector<float>{0.5F, 79.5F}));
+    ASSERT_EQ(graph.tensors.count("c0"), 1U);
+    EXPECT_EQ(graph.tensors.at("c0").dtype, engine::DataType::Float32);
+}
+
+// Hermetic positive: an identical repeated value-info entry (torch 2.12
+// exports every entry twice) loads; a conflicting repeat is rejected by name.
+TEST_F(EngineLoader, HermeticDuplicateValueInfo)
+{
+    std::string body;
+    put_sub(body, 1, encode_node("relu0", "Relu", {"x"}, {"h"}, {}));
+    put_sub(body, 1, encode_node("relu1", "Relu", {"h"}, {"y"}, {}));
+    put_sub(body, 11, encode_value_info("x", 1, {2}));
+    put_sub(body, 12, encode_value_info("y", 1, {2}));
+    put_sub(body, 13, encode_value_info("h", 1, {2}));
+    std::string same = body;
+    put_sub(same, 13, encode_value_info("h", 1, {2}));
+    const engine::Graph graph = engine::LoadGraphFromFile(
+        write_model_bytes("dup_value_info.onnx", encode_model(same)));
+    EXPECT_EQ(graph.tensors.at("h").dims, (std::vector<std::int64_t>{2}));
+
+    std::string conflict = body;
+    put_sub(conflict, 13, encode_value_info("h", 1, {3}));
+    const std::string message =
+        load_error_message(encode_model(conflict), "dup_value_info_bad.onnx");
+    EXPECT_NE(message.find("conflicting"), std::string::npos)
+        << "message: " << message;
+    EXPECT_NE(message.find("'h'"), std::string::npos) << "message: " << message;
+}
+
 // Hermetic positive: an int64 Constant folds into initializers and feeds
 // Reshape, mirroring the survey oracle's int64 Constants.
 TEST_F(EngineLoader, HermeticConstantFoldingInt64)

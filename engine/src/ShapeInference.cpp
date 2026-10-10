@@ -510,6 +510,12 @@ std::optional<EvalTensor> eval_node(
     const StaticContext& ctx, const Node& node, int depth)
 {
     const std::string& op = node.op_type;
+    if (op == "Identity") {
+        if (node.inputs.size() != 1) {
+            return std::nullopt;
+        }
+        return eval_tensor(ctx, node.inputs[0], depth);
+    }
     if (op == "Shape") {
         if (node.inputs.size() != 1) {
             return std::nullopt;
@@ -1139,7 +1145,7 @@ TensorInfo cast_shape(const Node& node,
     fail(node, "Cast 'to' names an unsupported element type");
 }
 
-TensorInfo resize_shape(const Graph& graph, const Node& node,
+TensorInfo resize_shape(const StaticContext& ctx, const Node& node,
     const std::vector<const TensorInfo*>& inputs)
 {
     if (inputs.empty() || inputs[0] == nullptr) {
@@ -1149,12 +1155,25 @@ TensorInfo resize_shape(const Graph& graph, const Node& node,
     const int64_t rank = static_cast<int64_t>(in.size());
     const bool has_scales = node.inputs.size() > 2 && !node.inputs[2].empty();
     const bool has_sizes = node.inputs.size() > 3 && !node.inputs[3].empty();
+    if (has_sizes && has_scales) {
+        fail(node, "Resize takes exactly one of scales and sizes");
+    }
     if (has_sizes) {
-        fail(node, "Resize takes scales, not sizes, here");
+        const std::vector<int64_t> sizes =
+            int64_constant(ctx, node, node.inputs[3]);
+        if (static_cast<int64_t>(sizes.size()) != rank) {
+            fail(node, "Resize sizes rank must match the input rank");
+        }
+        for (const int64_t dim : sizes) {
+            if (dim <= 0) {
+                fail(node, "Resize produces a non-positive output dim");
+            }
+        }
+        return TensorInfo{inputs[0]->dtype, sizes};
     }
     if (has_scales) {
         const std::vector<float> scales =
-            float32_constant(graph, node, node.inputs[2]);
+            float32_constant(ctx.graph, node, node.inputs[2]);
         if (static_cast<int64_t>(scales.size()) != rank) {
             fail(node, "Resize scales rank must match the input rank");
         }
@@ -1346,6 +1365,126 @@ TensorInfo reducemax_shape(const StaticContext& ctx, const Node& node,
     return TensorInfo{DataType::Float32, out};
 }
 
+TensorInfo averagepool_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.empty() || inputs[0] == nullptr) {
+        fail(node, "AveragePool requires an input");
+    }
+    const std::vector<int64_t>& x = inputs[0]->dims;
+    if (x.size() != 4) {
+        fail(node, "AveragePool input must be rank 4 (NCHW)");
+    }
+    const std::vector<int64_t> kernel = attr_ints(node, "kernel_shape");
+    if (kernel.size() != 2) {
+        fail(node, "AveragePool kernel_shape must have two spatial entries");
+    }
+    const std::vector<int64_t> in_spatial = {x[2], x[3]};
+    std::vector<int64_t> strides = attr_ints(node, "strides");
+    if (strides.empty()) {
+        strides = {1, 1};
+    }
+    if (strides.size() != 2) {
+        fail(node, "AveragePool strides must have two spatial entries");
+    }
+    const std::vector<int64_t> dilations = {1, 1};
+    const bool ceil_mode = attr_int(node, "ceil_mode", 0) != 0;
+    std::vector<int64_t> pad_begin;
+    std::vector<int64_t> pad_end;
+    resolve_pads(node, attr_str(node, "auto_pad", "NOTSET"), in_spatial,
+        kernel, dilations, strides, attr_ints(node, "pads"), pad_begin, pad_end);
+
+    std::vector<int64_t> out = {x[0], x[1]};
+    for (size_t i = 0; i < 2; ++i) {
+        out.push_back(window_output(in_spatial[i], kernel[i], 1, pad_begin[i],
+            pad_end[i], strides[i], ceil_mode, node, "AveragePool"));
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+// ConvTranspose: stride*(in-1) + output_padding + dilation*(k-1) + 1 - pads.
+TensorInfo convtranspose_shape(const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || inputs[1] == nullptr) {
+        fail(node, "ConvTranspose requires an input and a weight");
+    }
+    const std::vector<int64_t>& x = inputs[0]->dims;
+    const std::vector<int64_t>& w = inputs[1]->dims;
+    if (x.size() != 4 || w.size() != 4) {
+        fail(node, "ConvTranspose input and weight must be rank 4");
+    }
+    const int64_t group = attr_int(node, "group", 1);
+    if (group <= 0 || x[1] % group != 0) {
+        fail(node, "ConvTranspose input channels are not divisible by group");
+    }
+    if (w[0] != x[1]) {
+        fail(node, "ConvTranspose weight channel dim does not match input");
+    }
+    std::vector<int64_t> strides = attr_ints(node, "strides");
+    std::vector<int64_t> dilations = attr_ints(node, "dilations");
+    std::vector<int64_t> output_padding = attr_ints(node, "output_padding");
+    std::vector<int64_t> pads = attr_ints(node, "pads");
+    if (strides.empty()) {
+        strides = {1, 1};
+    }
+    if (dilations.empty()) {
+        dilations = {1, 1};
+    }
+    if (output_padding.empty()) {
+        output_padding = {0, 0};
+    }
+    if (pads.empty() || attr_str(node, "auto_pad", "NOTSET") == "VALID") {
+        pads = {0, 0, 0, 0};
+    }
+    if (strides.size() != 2 || dilations.size() != 2 ||
+        output_padding.size() != 2 || pads.size() != 4) {
+        fail(node, "ConvTranspose strides, dilations, output_padding, and "
+                   "pads must be 2-D");
+    }
+    std::vector<int64_t> out = {x[0], w[1] * group};
+    for (size_t i = 0; i < 2; ++i) {
+        if (strides[i] <= 0 || dilations[i] <= 0) {
+            fail(node, "ConvTranspose stride and dilation must be positive");
+        }
+        const int64_t dim = strides[i] * (x[2 + i] - 1) + output_padding[i] +
+            dilations[i] * (w[2 + i] - 1) + 1 - pads[i] - pads[2 + i];
+        if (dim <= 0) {
+            fail(node, "ConvTranspose produces a non-positive output dim");
+        }
+        out.push_back(dim);
+    }
+    if (inputs.size() > 2 && inputs[2] != nullptr) {
+        const std::vector<int64_t>& bias = inputs[2]->dims;
+        if (bias.size() != 1 || bias[0] != out[1]) {
+            fail(node, "ConvTranspose bias must be rank-1 of length M");
+        }
+    }
+    return TensorInfo{DataType::Float32, out};
+}
+
+TensorInfo tile_shape(const StaticContext& ctx, const Node& node,
+    const std::vector<const TensorInfo*>& inputs)
+{
+    if (inputs.size() < 2 || inputs[0] == nullptr || node.inputs[1].empty()) {
+        fail(node, "Tile requires an input and a repeats input");
+    }
+    const std::vector<int64_t>& in = inputs[0]->dims;
+    const std::vector<int64_t> repeats =
+        int64_constant(ctx, node, node.inputs[1]);
+    if (repeats.size() != in.size()) {
+        fail(node, "Tile repeats must have one entry per input axis");
+    }
+    std::vector<int64_t> out(in.size());
+    for (size_t i = 0; i < in.size(); ++i) {
+        if (repeats[i] < 1) {
+            fail(node, "Tile repeats must be positive");
+        }
+        out[i] = in[i] * repeats[i];
+    }
+    return TensorInfo{inputs[0]->dtype, out};
+}
+
 std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& node,
     const std::vector<const TensorInfo*>& inputs)
 {
@@ -1375,7 +1514,7 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
         return {TensorInfo{lhs.dtype,
             broadcast_shape(lhs.dims, rhs.dims, node)}};
     }
-    if (op == "Relu" || op == "Sigmoid" || op == "Softmax") {
+    if (op == "Relu" || op == "Sigmoid" || op == "Softmax" || op == "Floor") {
         return {TensorInfo{DataType::Float32, need(0).dims}};
     }
     if (op == "MatMul") {
@@ -1425,7 +1564,7 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
         return {cast_shape(node, inputs)};
     }
     if (op == "Resize") {
-        return {resize_shape(ctx.graph, node, inputs)};
+        return {resize_shape(ctx, node, inputs)};
     }
     if (op == "Slice") {
         return {slice_shape(ctx, node, inputs)};
@@ -1458,6 +1597,28 @@ std::vector<TensorInfo> compute_outputs(const StaticContext& ctx, const Node& no
     }
     if (op == "ReduceMax") {
         return {reducemax_shape(ctx, node, inputs)};
+    }
+    if (op == "Identity") {
+        return {need(0)};
+    }
+    if (op == "Pow") {
+        const TensorInfo& base = need(0);
+        const TensorInfo& exponent = need(1);
+        if (base.dtype != DataType::Float32 ||
+            exponent.dtype != DataType::Float32) {
+            fail(node, "Pow inputs must be Float32");
+        }
+        return {TensorInfo{DataType::Float32,
+            broadcast_shape(base.dims, exponent.dims, node)}};
+    }
+    if (op == "Tile") {
+        return {tile_shape(ctx, node, inputs)};
+    }
+    if (op == "AveragePool") {
+        return {averagepool_shape(node, inputs)};
+    }
+    if (op == "ConvTranspose") {
+        return {convtranspose_shape(node, inputs)};
     }
     fail(node, "unsupported op_type");
 }

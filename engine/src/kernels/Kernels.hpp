@@ -120,5 +120,26 @@ void ConstantOfShape(const Node& node, const std::vector<TensorView>& inputs,
 // K largest elements along `axis`, descending; float32 values, int64 indices.
 void TopK(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
 
+// Elementwise round toward negative infinity; float32.
+void Floor(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Copy of the input; float32, int64, or bool data.
+void Identity(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Elementwise float32 base^exponent with NumPy multidirectional broadcasting.
+void Pow(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// Repeat the input along each axis by the int64 repeats input; float32, int64,
+// or bool data.
+void Tile(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// NCHW average pooling with a required kernel_shape, strides, explicit or
+// automatic padding, ceil_mode, and count_include_pad.
+void AveragePool(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
+// NCHW transposed convolution with groups, strides, dilations, explicit pads,
+// output_padding, and an optional rank-1 bias.
+void ConvTranspose(const Node& node, const std::vector<TensorView>& inputs, const std::vector<TensorView>& outputs);
+
 } // namespace kernels
 } // namespace engine
