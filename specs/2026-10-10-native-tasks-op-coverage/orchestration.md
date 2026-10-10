@@ -72,6 +72,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - D3 — README quick start builds NERT, the branch default (maintainer, 2026-10-10)
 - R3 — NERT becomes its own repository, `olibartfast/nert` in `../nert` (maintainer, 2026-10-10)
 - R4 — Neuriplo consumes NERT as a pinned dependency; after R3
+- X1 — register NERT in `neuriplo-platform` (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -430,6 +431,22 @@ reverted); (4) NERT is labelled experimental.
   The planner then configures without the override (network fetch at the
   pin) and runs `act --dryrun` on job `nert`.
 - **Budget:** 60 turns. Tier: `sonnet`.
+
+### Packet X1 — register NERT in `neuriplo-platform`
+
+Cross-repository packet: the worker edits `neuriplo-platform` in a worktree
+(`../neuriplo-platform-w-nert`, branch `feature/register-nert` from
+`origin/main`), mirroring how `neuriplo-ui` was registered (platform commit
+`5c0af1a`). Facts: repository `olibartfast/nert`, public, MIT, version 0.1.0
+unreleased (`wip` in `versions.yaml`), ref
+`81b6b1f824655403742e727853afe05261dae5d0`; a first-party, dependency-free
+ONNX runtime (CPU reference, opset 18), experimental; consumed by `neuriplo`
+as backend `NERT` through `NERT_VERSION` + FetchContent (on `feature/nert`,
+merging into `develop`); depends on nothing; validated families as in
+`validation.md`. The platform's spec packet is drafted by the worker and
+reviewed by the planner. Acceptance: `scripts/check_platform.py`,
+`scripts/check_benchmark_baseline.py versions.yaml`,
+`scripts/generate_compat_report.py --check`. Tier: `sonnet`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
