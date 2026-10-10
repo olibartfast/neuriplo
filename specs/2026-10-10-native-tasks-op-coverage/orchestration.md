@@ -68,6 +68,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3g — DETR comparison mode in the model-zoo test
 - D2 — NERT becomes `DEFAULT_BACKEND` on `feature/nert` (maintainer, 2026-10-10)
 - P3h — RT-DETR v4, D-FINE/DEIM, DEIMv2 end to end (goal-scoped)
+- P4a — RAFT end to end (tier 4, goal-scoped); after P3h
 
 ### Packet P3a — elementwise math
 
@@ -293,6 +294,34 @@ float32 `[1,Q]`, Q = 300, selected by an internal TopK (so [D-16] applies).
 - **Acceptance (once):** the R2 build (NERT + ONNX_RUNTIME), `ctest -R
   "^engine_|NertInferTest"`, the model-zoo test on `tier3b_detr.manifest`,
   the 18.1.3 format check.
+- **Budget:** 80 turns. Tier: `opus`.
+
+### Packet P4a — RAFT end to end (tier 4)
+
+Survey: torchvision RAFT-large, 2562 nodes (the refinement iterations are
+unrolled; no Loop op), opset 16 converted to 18; inputs `input1`, `input2`
+float32 `[N,3,H,W]` with symbolic H, W (fixed per load, [D-8]); output
+`flow_prediction`. Missing op at survey time: InstanceNormalization; the
+other tier-4 needs (AveragePool, GridSample, Pad, Range, ReduceSum, Sqrt,
+Tanh, Tile) exist.
+
+- **Starting revision:** the branch head after P3h integrates.
+- **Writable:** `engine/src/**`, `engine/include/engine/**`,
+  `engine/test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp`,
+  `backends/nert/test/ModelZooParityTest.cpp` (input-file handling only).
+- **Required final state:**
+  1. InstanceNormalization (opset 6 semantics: per-instance, per-channel
+     normalization over spatial axes with `epsilon`, scale and bias per
+     channel), with shape rule, loader entry and hand-computed tests.
+  2. Further gaps closed generally, or reported if they need a design change.
+  3. The manifest input column accepts several files separated by `;`,
+     filling the float32 graph inputs in order (one file still fills the
+     first float input, as now).
+  4. `raft` passes `parity` (atol 1e-3, per element) on
+     `~/.cache/neuriplo-op-inventory/tier4_raft.manifest`: a real image pair,
+     `bus.jpg` at 256x320 in [-1, 1] and the same image shifted 4 px.
+- **Acceptance (once):** the R2 build, `ctest -R "^engine_|NertInferTest"`,
+  the model-zoo test on `tier4_raft.manifest`, the 18.1.3 format check.
 - **Budget:** 80 turns. Tier: `opus`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
