@@ -135,7 +135,7 @@ PROVIDES = {
 # Quoted includes that belong to an SDK rather than to this repo. Without this,
 # an SDK that spells its own includes with quotes reads as a hole in the
 # closure. Adding to this list is the intended fix when the check reports one.
-EXTERNAL_QUOTED_PREFIXES = ("openvino/",)
+EXTERNAL_QUOTED_PREFIXES = ("openvino/", "engine/")
 
 CONTAINER_HEADERS = {"array", "vector", "map", "unordered_map", "set", "unordered_set", "string", "tuple", "utility"}
 
