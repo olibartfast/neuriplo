@@ -52,7 +52,9 @@ echo "Setting up OpenVINO Python tools..."
 venv_dir="$dir/python_env"
 python3 -m venv "$venv_dir"
 source "$venv_dir/bin/activate"
-pip install openvino-dev
+# openvino-dev (with the legacy `mo`) ended at 2024.6 and breaks against a newer
+# runtime; the openvino wheel ships `ovc`. Pin it to the toolkit version.
+pip install "openvino==${version}"
 deactivate
 
 # Create wrapper script for ovc
