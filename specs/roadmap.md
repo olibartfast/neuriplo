@@ -300,7 +300,7 @@ need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
 
 _Revision: 2026-10-10 - renamed the first-party backend again, `NEURIPLO_ENGINE`
-to `NERT` (maintainer decision; packet R2). `NRT` was rejected because it is
+to `NERT`, Neuriplo Engine Runtime (maintainer decision; packet R2). `NRT` was rejected because it is
 already AWS Neuron's runtime (`libnrt`). The engine library (`engine/`,
 `neuriplo_engine`) keeps its name._
 
