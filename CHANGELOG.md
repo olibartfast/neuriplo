@@ -7,6 +7,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `NERT` is an experimental backend, consumed from olibartfast/nert at
+  `NERT_VERSION` (versions.env) with CMake FetchContent; use
+  `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>` for a local checkout.
+- `NERT` backend (experimental, from olibartfast/nert at `NERT_VERSION`): YOLO26-nano detection coverage (23 ops: Mul/Div/Sub,
+  Sigmoid/Cast/Softmax/ReduceMax/Mod/Equal/Where, Concat/Split/Unsqueeze/
+  Expand/Transpose/Slice/Gather/GatherElements/Resize/Flatten/Shape/
+  ConstantOfShape/TopK), int64/bool intermediate tensors, `Constant` folding,
+  load-time shape-parameter evaluation, and per-shape planning seams.
+  Validated on a real photo against `ONNX_RUNTIME`: 6 confident rows, min
+  IoU 0.999999, max score diff 2.7e-06. Background-tail exact cell selection
+  is explicitly out of scope (backend-noise-dependent near-tie selection).
+- `NERT` backend (experimental): every YOLO family neuriplo-tasks uses (v5–v12, YOLO11 and
+  YOLO26 detection, segmentation and pose). New ops Floor, Identity, Pow, Tile,
+  AveragePool and ConvTranspose; load-time constant folding; Resize from a
+  `sizes` input; DOUBLE constants narrowed to float32. 13 exports, converted to
+  opset 18, match `ONNX_RUNTIME` within 1e-3 scaled. New
+  `nert_model_zoo_parity_test` runs a manifest of local exports.
+- `NERT` backend (experimental): ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and
+  TimeSformer. New ops Erf, LayerNormalization, Sqrt, Squeeze, Tanh and IsNaN;
+  1-D/3-D Conv; linear Resize with every ONNX coordinate transform (absent
+  attributes now take the ONNX defaults); Shape `start`/`end`; BOOL constants;
+  symbolic input dims fixed per load through `input_sizes`. All six match
+  `ONNX_RUNTIME` within 3e-5 scaled.
 - LibTorch backend: AOTInductor packages. `LibtorchRuntimeFactory` now picks
   the runtime from the model extension: `.pt2` loads through
   `torch::inductor::AOTIModelPackageLoader` (`LibtorchAOTIInfer`), anything
@@ -18,6 +41,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--path-file` names the pointer file it writes.
 
 ### Changed
+- The NERT engine moved to its own repository (olibartfast/nert), pinned by
+  `NERT_VERSION`; the in-tree `engine/` directory is removed. `DEFAULT_BACKEND`
+  remains `OPENCV_DNN`.
 - TensorRT pinned to 11.2.1.2 (four-part NVIDIA version) with a new
   `TENSORRT_CUDA_VERSION=13.3`: TensorRT 11.2.1.2 is published for CUDA 13.3
   and 12.9 only, and runs on the 13.4 toolkit through minor-version
@@ -38,6 +64,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   old `cxx11-abi` name returns 404 for current releases. The Docker image
   pins pip `torch` to `PYTORCH_VERSION`, since a `.pt2` only loads in the
   LibTorch release that compiled it.
+
+### Fixed
+- `NERT` backend (experimental): the loader accepts identical repeated value-info
+  entries, which torch 2.12 writes for every tensor; the pinned YOLO26 fixture
+  failed to load without it.
+- `NERT` backend: `GatherElements` now strides the gather axis on the data
+  grid (was indices grid; dormant in equal-stride fixtures, proven by a
+  hermetic unequal-stride test); unconsumed node outputs get arena buffers;
+  `Reshape` kernel implements `-1`/`0` semantics; `Expand` is max-broadcast.
 
 ## [0.10.0] - 2026-10-03
 
@@ -61,6 +96,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vector that a concurrent load could reallocate.
 
 ### Added
+- First-party `NATIVE` backend: an ONNX loader with a typed graph IR, static
+  shape inference, a liveness-based arena memory planner, CPU reference
+  kernels (Conv/Gemm/MatMul/Add/Relu/MaxPool/ReduceMean/Reshape), a sequential
+  executor, and the `InferenceInterface` adapter. The adapter is validated
+  elementwise against `ONNX_RUNTIME` on the ResNet-18 fixture (max abs diff
+  3.15e-05, budget 1e-4); a GPU request is rejected in this phase.
 - Consumer C ABI, `include/neuriplo/neuriplo_c.h` (`NEURIPLO_C_API_VERSION`
   1): a stable, versioned entry point that any language or toolchain can use.
   It covers the engine lifecycle, backend listing, metadata views, inference

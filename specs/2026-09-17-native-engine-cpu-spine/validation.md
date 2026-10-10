@@ -1,0 +1,191 @@
+# Validation — Native Engine: CPU Reference Spine
+
+Written before implementation. Every check below is defined against a
+requirement in `requirements.md`; nothing is marked checked unless the command
+was actually run.
+
+## Automated Checks
+
+Run from the repository root.
+
+```text
+# Existing default path must stay green — NATIVE must not intrude on it
+cmake -S . -B build-ocv -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON
+cmake --build build-ocv
+ctest --test-dir build-ocv --output-on-failure
+# expected: configures with no CUDA and no engine sources compiled; all tests pass
+```
+
+```text
+# Native backend build and test
+cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON
+cmake --build build-native
+ctest --test-dir build-native --output-on-failure
+# expected: engine unit tests, kernel tests, and shared contract tests pass
+```
+
+```text
+# Parity against ONNX Runtime on the same file.
+# The fixture is provisioned explicitly first ([T-27a]); the parity test must
+# fail rather than skip or fall back to a mock if it is absent.
+cmake -S . -B build-parity -DDEFAULT_BACKEND=NATIVE -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+  -DBUILD_INFERENCE_ENGINE_TESTS=ON
+cmake --build build-parity --target native_parity_fixture
+cmake --build build-parity
+ctest --test-dir build-parity -R parity --output-on-failure
+# expected: the resolved fixture path is printed and identical for both
+# backends; a missing fixture fails the run, it does not skip it
+```
+
+- [ ] [V-1] → [R-1], [R-4]: no translation unit under `engine/` includes
+      `include/neuriplo/`, `backends/src/`, or `src/`. Enforced by the [T-6]
+      guard; independently spot-checked with
+      `grep -rn "neuriplo\|InferenceInterface" engine/ --include=*.hpp --include=*.cpp`
+      → expected: no matches.
+- [ ] [V-2] → [R-2]: loader test asserts node count, op types, initializer
+      count, and declared input/output shapes for the ResNet-18 fixture.
+- [ ] [V-3] → [R-3]: three negative tests — unsupported op, unsupported
+      attribute combination, unresolvable dynamic dimension — each throwing
+      `ModelLoadException` with the node name and op type in the message.
+      Asserted on the message content, not just the exception type.
+- [ ] [V-4] → [R-5]: every kernel has a unit test with at least one
+      hand-computed expected value — computed by hand, not captured from
+      another runtime.
+- [ ] [V-4a] → [R-5]: additionally, every kernel that *has* configurable
+      attributes is tested in a non-default configuration: stride, padding, and
+      dilation for `Conv`; `transA`/`transB` (and alpha/beta if supported) for
+      `Gemm`; kernel shape, stride, and padding for `MaxPool`; a non-trivial
+      target shape for `Reshape`; non-default `axes`/`keepdims` for
+      `ReduceMean`. `Add`, `Relu`, and `MatMul` have no such
+      configuration and are covered by [V-4] alone — the earlier blanket
+      wording made this item impossible to mark honestly.
+- [ ] [V-5] → [R-6]: arena test asserts (a) allocation count per inference ≤ 1
+      and (b) planned arena size is strictly less than the sum of all
+      intermediate tensor sizes for this graph — proving reuse rather than
+      concatenation.
+- [ ] [V-6] → [R-10], [A-2]: parity test, elementwise max absolute difference
+      against `ONNX_RUNTIME` on identical input. Threshold 1e-4; the
+      **observed** figure is recorded in the evidence log, not just pass/fail.
+- [ ] [V-7] → [R-8]: shared backend contract tests pass with
+      `DEFAULT_BACKEND=NATIVE`, including the `get_infer_results_raw` path and
+      metadata assertions.
+- [ ] [V-8] → [R-9]: a GPU request on `NATIVE` is rejected at both boundaries,
+      each asserted where that boundary's contract actually lives.
+      (a) The factory, called directly, throws `InferenceException` and the
+      message names the phase limitation — asserted on message content.
+      (b) Both `setup_inference_engine` overloads (legacy `use_gpu = true` and
+      `EngineOptions`) return `nullptr` and log, because they translate
+      exceptions by design; asserting a throw through the public API would be
+      asserting against the existing contract, not for it.
+      In both cases: no inference runs, and no silent CPU execution.
+- [ ] [V-9] → [R-11]: `python3 scripts/gen_backend_docs.py --check` clean; the
+      15 IDs in `cmake/BackendRegistry.cmake` and `docs/backends.yaml` agree.
+- [ ] [V-9a] → [R-11]: the other two inventories [R-11] names are checked too,
+      not just the two above — otherwise every V-9 assertion goes green while
+      `NATIVE` is missing from the surfaces that actually run it. Enumerate and
+      compare: the `dockerfile` field of every `docs/backends.yaml` entry
+      against `docker/`, and the backend identifiers in
+      `.github/workflows/ci.yml`, `windows-build.yml`, and `cache-prune.yml`.
+      Intentional absences are stated explicitly rather than left unchecked —
+      `NATIVE` has no setup script and no `versions.env` entry by design
+      ([T-5]), and whether it gets its own Dockerfile is a decision recorded
+      here, not an omission.
+- [ ] [V-10] → constraints: `./scripts/quality/run.sh` and
+      `./scripts/quality/format.sh --check` clean; engine tests additionally run
+      under ASan and UBSan with no findings.
+- [ ] [V-11] → constraints: the `OPENCV_DNN` configure/build/test path above is
+      unchanged, and no OpenCV appears in the `NATIVE` link closure — direct or
+      transitive. Inspect the generated link command and the target graph, not
+      `CMakeCache.txt`: the cache holds configure-time variables, so a cached
+      OpenCV path there proves nothing either way and would produce both false
+      passes and false failures. Use
+      `grep -ril opencv build-native/CMakeFiles/*/link.txt` (expected: no
+      matches) plus a verbose link (`cmake --build build-native -v`) and, for
+      the transitive half, a CMake assertion over `neuriplo_engine`'s
+      `LINK_LIBRARIES` / `INTERFACE_LINK_LIBRARIES`.
+- [ ] [V-12] → [R-1]: the engine extracts cleanly and the extracted tree builds
+      on its own. Proves the extraction option [D-1] claims is real rather than
+      aspirational. Run it as a throwaway, leaving no branch behind:
+      `git subtree split --prefix=engine/` (no `-b`) to get the split commit,
+      then `git archive <commit> | tar -x -C "$(mktemp -d)"` and configure and
+      build there. Creating an `engine-extract` branch instead would leave a
+      branch not based on `develop`, contrary to AGENTS.md, and would make the
+      check fail on its second run.
+- [ ] [V-13] → [R-12], [A-3]: the planner is called twice with two different
+      input shapes for the same loaded graph, and both plans are correct — the
+      second produced with no reload, no reparse, and no change to any kernel.
+      Asserted on the plans, not on a comment. Proves the dynamic-shape work in
+      Phase N2 is additive; a failure here means [A-3] was wrong and N2 is a
+      rewrite, which is worth knowing now rather than then.
+
+## Manual Checks
+
+- [ ] [M-1] → [D-4]: `engine/README.md` states the interpreter design, the
+      one-device-per-graph rule, and that CPU kernels are a correctness
+      reference and not a performance target. Read as a newcomer would.
+- [ ] [M-2] → [A-1]: node list of the actual exported fixture compared against
+      the [R-5] kernel set; any extra op is either implemented or the fixture
+      export is pinned to avoid it, with the choice recorded.
+- [ ] [M-3] → [R-7]: code inspection confirming no host↔device transfer or
+      device-selection decision exists at node granularity anywhere in the
+      executor. This is cheap to verify now and expensive to unwind after
+      Phase N1.
+- [ ] [M-4] → [Q-2]: adding, renaming, or removing `NATIVE` locally does not
+      leave the maintained inventories silently inconsistent, given the
+      `version_var: null` / `setup_script: null` case.
+- [ ] [M-5] → constraints: constitution amendment reviewed — `mission.md` and
+      `tech-stack.md` no longer contradict the existence of a first-party
+      runtime, and still read in under five minutes each.
+- [ ] [M-6] → [D-2]: the OpenCV 5 `dnn` engine appears in this branch as a
+      design reference and nowhere else. Checked: no OpenCV include, link, or
+      `find_package` under `engine/`; `versions.env` `OPENCV_VERSION` and the
+      `OPENCV_DNN` backend untouched by this change
+      (`git diff origin/develop -- versions.env cmake/ backends/opencv-dnn/`
+      → expected: empty).
+
+## Evidence Log
+
+| ID | Command/Check | Result | Date | Notes |
+|----|---------------|--------|------|-------|
+| V-1 | `grep` + configure guard | Pass | 2026-10-01 | No TU under `engine/` includes the abstraction (grep clean); guard is `engine/CMakeLists.txt:17-38` (`ENGINE_FORBIDDEN_PATTERNS`, `FATAL_ERROR` at configure) |
+| V-2 | `ctest -R engine_loader` | Pass | 2026-09-30 | 8 cases green. Real fixture: 49 nodes, ops histogram matches [A-1]; 44 initializers (42 FLOAT + 2 INT64, [D-9]); IO FLOAT `[1,3,224,224]` → `[1,1000]` |
+| V-3 | `ctest -R engine_loader_negative` | Pass | 2026-09-30 | 6 cases green, each asserting node/op/dtype in the `ModelLoadException` message: unknown op, unsupported attribute, INT64 graph input, FLOAT16 initializer, dynamic dim, missing file |
+| V-4 | `ctest -R engine_kernels` | Pass | 2026-09-30 | All eight [R-5] kernels have hand-computed unit cases written in the test: Relu, Add, Reshape, ReduceMean, Gemm, MatMul, Conv, MaxPool |
+| V-4a | `ctest -R engine_kernels` (attribute cases) | Pass | 2026-09-30 | Non-default configurations covered: Conv stride/pad/dilation and group, Gemm transA/transB + alpha/beta + bias, MaxPool ceil with padding, Reshape rank change, ReduceMean keepdims 0/1 and Int64 axes |
+| V-5 | `ctest -R "engine_plan|engine_executor"` | Pass | 2026-09-30 | (a) `EngineExecutor.ArenaAllocatedOnceAndReused` (counting device) asserts one arena allocation across construction + two `Run`s and none in `Run`. (b) `EnginePlan.SequentialArenaSmallerThanSum` asserts `arena_size` (512) < sum of buffer sizes (768); `EnginePlan.OutputNeverAliasesItsInput` proves no output shares bytes with its defining node's inputs |
+| V-6 | `ctest -R parity` (`build-parity`, NATIVE + ONNX_RUNTIME) | Pass | 2026-09-30 | observed max abs diff: **3.14713e-05** (budget 1e-4 per [A-2]). Same provisioned file and identical `1×3×224×224` float input through both backends; one 1000-element output each. Fixture provisioned by `native_parity_fixture` (opset 18, torchvision 0.27.0 pinned); missing fixture fails, never skips |
+| V-7 | `ctest --test-dir build-native` | Partial | 2026-09-30 | NATIVE adapter contract covered by `NativeInferTest` under `DEFAULT_BACKEND=NATIVE`: metadata (one input, one output `[1,1000]`), typed path, and `get_infer_results_raw` (`FP32`, `{1,1000}`, 4000 bytes). The *shared* `BackendHybridTestBase` template is not instantiated for NATIVE (it is compile-only for `MockInferenceInterface`, and its `TestEdgeCases` asserts `std::invalid_argument` while the real interface throws `InferenceExecutionException`); tracked for Group 7 |
+| V-8 | `ctest -R NativeInfer` | Pass | 2026-09-30 | (a) factory `create_backend(path, use_gpu=true)` throws `InferenceException` naming the CPU-only limitation. (b) `setup_inference_engine(EngineOptions{backend_id="NATIVE", use_gpu=true})` and the legacy `setup_inference_engine(path, true, 1, {})` both return `nullptr`; a `use_gpu=false` control returns a Ready backend. No inference runs in either rejected path |
+| V-9 | `gen_backend_docs.py --check` | Pass | 2026-10-01 | Clean after Group 7b (`dockerfile: null` + `test_exe: NativeInferTest` on NATIVE produce no GEN diff); 15 registry IDs agree with 15 yaml IDs |
+| V-9a | Docker + CI inventory enumeration | Pass | 2026-10-01 | 13/15 yaml `dockerfile` paths exist; NATIVE `null` intentional (no SDK, exercised via `-DDEFAULT_BACKEND=NATIVE`); CI matrix (10 backends) is a vendor-image subset, NATIVE/CACTUS/LLAMACPP/EXECUTORCH/DALI absent by construction; `windows-build.yml`/`cache-prune.yml` carry no backend identifiers. Two pre-existing gaps noted, untouched: DALI references missing `docker/Dockerfile.dali`, MIGRAPHX entry spells `Dockerfile.migrachx` vs file `Dockerfile.migraphx` |
+| V-10 | `scripts/quality/run.sh`, ASan/UBSan | Pass | 2026-10-01 | `run.sh` green (format 105 files, includes 113 files, cppcheck 49 files) after adding `engine/include` to `check_includes.py INCLUDE_ROOTS` (the one failing gate; tool-config gap, not a code defect). Engine + `NativeInfer` 12/12 clean under ASan+UBSan (`-DSANITIZERS=ON` Debug) |
+| V-11 | `OPENCV_DNN` path + link inspection | Pass | 2026-10-01 | `grep -ril opencv build-native/CMakeFiles/*/link.txt` clean; `neuriplo_engine` codemodel `linkLibraries: null`, zero OpenCV occurrences; `libneuriplo_engine.a` archives 16 engine objects only |
+| V-12 | `git subtree split` + standalone build | Pass | 2026-10-01 | Split commit `c8e05c6`; extracted tree (`CMakeLists`, `include`, `README`, `src`, `test`) configures+builds standalone, `ctest` 11/11; no branch left behind |
+| V-13 | `ctest -R "engine_shapes|engine_plan"` | Pass | 2026-09-30 | Shape half: `EngineShapes.PerShapeSeamWithoutReload` shapes one loaded graph at `[1,3,4,4]` then `[4,3,4,4]` with no reload; fixture batch-1 output `[1,1000]` asserted while batch 2 correctly fails at the pinned `Reshape`. Plan half: `EnginePlan.PerShapeSeamWithoutReload` plans one loaded two-`Conv` graph at 8×8 (arena 1024) then 16×16 (arena 4096) with no reload. No parser, IR, or kernel change between calls |
+| M-1 | README read-through | Pass | 2026-10-01 | `engine/README.md` states interpreter design, one-device-per-graph rejection, CPU kernels as correctness oracle and explicitly not a performance target; no spec legend IDs; build/test commands verified against the actual CMake targets |
+| M-2 | fixture node list vs kernel set | Pass | 2026-10-01 | Provisioned fixture: opset 18, 49 nodes (Add 8, Conv 20, Gemm 1, MaxPool 1, ReduceMean 1, Relu 17, Reshape 1) — all ⊆ 8-op kernel set, zero extra ops; MatMul unexercised by fixture |
+| M-3 | executor inspection | Pass | 2026-10-01 | Device chosen once per graph (`Executor.cpp:44-54`); `Run` (:62-166) has no transfer call and no device decision — only kernel-table lookup (:111) and dispatch (:147) |
+| M-4 | inventory drift walkthrough | Pass | 2026-10-01 | Rename probe: NATIVE co-occurs in registry, `Native.cmake`, yaml, factory registration; `gen_backend_docs.py --check` clean; no maintained inventory inconsistent |
+| M-5 | constitution review | Pass | 2026-10-01 | `mission.md` (108 lines) admits one first-party runtime; `tech-stack.md` (188 lines) binds the engine rules; both read in under five minutes, no contradictions |
+| M-6 | OpenCV containment check | Pass | 2026-10-01 | `versions.env` and `backends/opencv-dnn/` diffs empty; `cmake/` diff is exactly the landed NATIVE wiring (new `Native.cmake`, registry + versions branches); no OpenCV include/link/`find_package` under `engine/` |
+
+## Deviations
+
+- [V-7] Partial (standing, 2026-10-01): the *shared* `BackendHybridTestBase`
+  template is not instantiated for NATIVE. Instantiating it would require
+  changing the shared template itself — it is compile-only for
+  `MockInferenceInterface` and its `TestEdgeCases` asserts
+  `std::invalid_argument` while the real interface contract throws
+  `InferenceExecutionException`. The NATIVE adapter contract (metadata, typed
+  and raw paths, lifecycle, GPU rejection) is covered by `NativeInferTest`
+  instead. Reworking the shared template is a cross-backend change tracked as a
+  follow-up outside this phase.
+
+## Definition of Done (integration)
+
+- [ ] Every automated and manual check executed, with evidence and dates recorded
+- [ ] Evidence traced to [R-n]; deviations documented
+- [ ] Spec, code, roadmap, changelog, and generated docs agree — merged as one
+      coherent change into `develop`
+- [ ] Durable discoveries propagated to `specs/tech-stack.md` (notably the
+      [Q-1] parsing decision and the [Q-4] vendor-kernel policy before Phase N1)

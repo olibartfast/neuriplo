@@ -10,6 +10,12 @@ if (backend STREQUAL "OPENCV_DNN")
     target_include_directories(${target} SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/opencv-dnn/src)
     target_link_libraries(${target} PRIVATE ${OpenCV_LIBS})
+elseif (backend STREQUAL "NERT")
+    # The adapter lives beside the InferenceInterface implementation and links
+    # the NERT engine library fetched by cmake/Nert.cmake. nert::nert carries
+    # the engine include directories.
+    target_include_directories(${target} PRIVATE ${INFER_ROOT}/nert/src)
+    target_link_libraries(${target} PRIVATE nert::nert)
 elseif (backend STREQUAL "ONNX_RUNTIME")
     target_include_directories(${target} SYSTEM PRIVATE ${ONNX_RUNTIME_DIR}/include)
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/onnx-runtime/src)
