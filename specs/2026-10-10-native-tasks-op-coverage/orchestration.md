@@ -69,6 +69,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - D2 — NERT becomes `DEFAULT_BACKEND` on `feature/nert` (maintainer, 2026-10-10)
 - P3h — RT-DETR v4, D-FINE/DEIM, DEIMv2 end to end (goal-scoped)
 - P4a — RAFT end to end (tier 4, goal-scoped); after P3h
+- D3 — README quick start builds NERT, the branch default (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -323,6 +324,25 @@ Tanh, Tile) exist.
 - **Acceptance (once):** the R2 build, `ctest -R "^engine_|NertInferTest"`,
   the model-zoo test on `tier4_raft.manifest`, the 18.1.3 format check.
 - **Budget:** 80 turns. Tier: `opus`.
+
+### Packet D3 — README quick start on NERT
+
+Maintainer correction 2026-10-10: on `feature/nert` the quick start must
+build the default backend, NERT, not OpenCV DNN. D2 kept the quick start on
+OpenCV DNN (a planner decision in the D2 packet); that decision is reversed.
+
+- **Writable:** `Readme.md` only.
+- **Required final state:** the Quick Start installs no OpenCV, builds with a
+  bare `cmake -S . -B build` (NERT is the default), and tests by first
+  provisioning the ResNet-18 model with
+  `python3 backends/nert/test/provision_parity_fixture.py fixtures` (needs
+  `torch==2.12` and `torchvision==0.27`, as that script pins) and then
+  `NERT_FIXTURE=fixtures/resnet18.onnx ctest --test-dir build
+  --output-on-failure`; step 4 still shows switching to another backend
+  (OpenCV DNN needs `libopencv-dev`). No other section changes.
+- **Acceptance:** `! grep -n "DEFAULT_BACKEND=OPENCV_DNN" Readme.md | grep -i "quick" ; sed -n '/## Quick Start/,/## Using/p' Readme.md`
+  reviewed by the planner.
+- **Budget:** 10 turns. Tier: `sonnet`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
