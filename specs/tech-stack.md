@@ -51,9 +51,9 @@ live in `versions.env`; the human-readable backend inventory lives in
 - `RawOutputTensor` is the typed contiguous-buffer path. Avoid materializing
   per-element variants in performance-critical backend overrides.
 
-## First-Party Native Engine
+## First-Party Neuriplo Engine
 
-Neuriplo admits one runtime it implements itself, to be exposed as the `NATIVE`
+Neuriplo admits one runtime it implements itself, to be exposed as the `NEURIPLO_ENGINE`
 backend. It is landing on `feature/native-engine-cpu-spine` — Phase N0 in `specs/roadmap.md` tracks the work,
 that lands it, and the backend inventory above remains the registered set until
 it does. The rules below are binding on that work from the moment it starts;
@@ -64,7 +64,7 @@ peer library, not an adapter:
   includes nothing from `include/neuriplo/`, `backends/src/`, or `src/`. The
   dependency arrow points one way; a build-time guard enforces it, so extraction
   into its own repository stays a `git subtree split`.
-- `backends/native/` holds only the thin adapter to `InferenceInterface`, the
+- `backends/neuriplo-engine/` holds only the thin adapter to `InferenceInterface`, the
   same shape as every other backend directory.
 - The engine is an interpreter: parse, infer shapes, plan memory, execute
   node by node. It is deliberately not a plan-building compiler with autotuning
@@ -128,11 +128,11 @@ with `python3 scripts/gen_backend_docs.py` in the same change.
 - No framework or language migration merely to simplify one feature.
 - No dependency from `engine/` on the abstraction layer, in either the build
   graph or the include graph.
-- No per-operator device fallback inside the native engine.
-- No optimization of the native engine's CPU reference kernels without an
+- No per-operator device fallback inside the neuriplo engine.
+- No optimization of the neuriplo engine's CPU reference kernels without an
   approved packet; they exist to be correct and readable.
 - No OpenCV in `engine/`, and no change to the pinned OpenCV version or to how
-  `OPENCV_DNN` is built as a side effect of native-engine work. Reading another
+  `OPENCV_DNN` is built as a side effect of neuriplo-engine work. Reading another
   engine's design is not adopting it.
 - No backend-specific setup, model-format, Docker, build, or troubleshooting
   expansion in `Readme.md`; keep those details in the appropriate `docs/` guide.
@@ -167,14 +167,14 @@ full local job described in `docs/LOCAL_CI.md`.
 - Define representative performance baselines without pretending unlike
   backend, model, device, and architecture combinations are directly
   interchangeable.
-- Decide how the native engine reads ONNX: protobuf plus a vendored
+- Decide how the neuriplo engine reads ONNX: protobuf plus a vendored
   `onnx.proto`, or a minimal first-party wire-format reader with no new
-  dependency. Required before native-engine parsing work begins.
-- Decide whether the native engine's accelerated kernels may use vendor
+  dependency. Required before neuriplo-engine parsing work begins.
+- Decide whether the neuriplo engine's accelerated kernels may use vendor
   libraries (cuBLAS, cuDNN) or are first-party throughout, with vendor
   libraries available behind an opt-in flag as a performance baseline.
   Required before any accelerated kernel is written.
-- Decide whether `NATIVE` eventually becomes `DEFAULT_BACKEND` and what that
+- Decide whether `NEURIPLO_ENGINE` eventually becomes `DEFAULT_BACKEND` and what that
   implies for `OPENCV_DNN` and for OpenCV's absence from the default build.
   This is a public-behavior migration and needs a deprecation window.
 

@@ -1,4 +1,4 @@
-# Orchestration — neuriplo-tasks Operator Coverage on the Native Engine
+# Orchestration — neuriplo-tasks Operator Coverage on the Neuriplo Engine
 
 Workflow: `orchestrate-ai-coding-workflows` (maintainer rule, 2026-10-10: all
 development goes through it). Branch discipline from the earlier native
@@ -35,16 +35,16 @@ acceptance.
 ## Acceptance (planner-owned; workers run it once, as their final action)
 
 ```bash
-cmake -S . -B build-native -DDEFAULT_BACKEND=NATIVE -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
-  && nice -n 10 cmake --build build-native --parallel 2 \
-  && NEURIPLO_NATIVE_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
-     ctest --test-dir build-native -R "engine_" --output-on-failure \
+cmake -S . -B build-ne -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
+  && nice -n 10 cmake --build build-ne --parallel 2 \
+  && NEURIPLO_ENGINE_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
+     ctest --test-dir build-ne -R "engine_" --output-on-failure \
   && ./scripts/quality/format.sh --check && git status --short
 ```
 
 Integration gate (planner, after merging a packet): the same build in
-`build-parity` (NATIVE + ONNX_RUNTIME), `NativeInferTest`, ResNet-18 and
-YOLO26 parity, then `native_model_zoo_parity_test` on every manifest whose
+`build-parity` (NEURIPLO_ENGINE + ONNX_RUNTIME), `NeuriploEngineInferTest`, ResNet-18 and
+YOLO26 parity, then `neuriplo_engine_model_zoo_parity_test` on every manifest whose
 families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 
 ## Packet index
@@ -56,7 +56,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3c — ReduceSum, Range, Pad (with load-time evaluation)
 - P3d — GridSample, Einsum
 - P3e — int64 and bool graph I/O ([D-14]); written at dispatch
-- R1 — rename the backend `NATIVE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
+- R1 — rename the backend `NEURIPLO_ENGINE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -127,13 +127,41 @@ orchestrator-owned and updated by the planner, not the worker.
   cmake -S . -B build-ne -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
     && nice -n 10 cmake --build build-ne --parallel 2 \
     && NEURIPLO_ENGINE_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
-       ctest --test-dir build-ne -R "engine_|NeuriploEngineInferTest" --output-on-failure \
+       ctest --test-dir build-ne -R "^engine_|NeuriploEngineInferTest" --output-on-failure \
     && python3 scripts/gen_backend_docs.py --check && ./scripts/quality/format.sh --check \
-    && ! git grep -nIE "\bNATIVE\b|NativeInfer|NativeRuntimeFactory|USE_NATIVE|backends/native|Native\.cmake|native_(parity|yolo|model_zoo)|NEURIPLO_NATIVE_FIXTURE" -- ':!specs' \
+    && ! git grep -nIE "\bNATIVE\b|NativeInfer|NativeRuntimeFactory|USE_NATIVE|backends/native|Native\.cmake|native_(parity|yolo|model_zoo)|NEURIPLO_NATIVE_FIXTURE" -- ':!specs' ':!CHANGELOG.md' \
     && git status --short
   ```
 - **Budget:** 60 turns. **Handback:** `PACKET R1 HANDBACK pass|fail`,
   acceptance tail, deviations, `git status --short`.
+- **Scoreboard correction (planner, after attempt 4):** the original filter
+  `engine_` also matched the renamed `neuriplo_engine_parity*` tests, which
+  need provisioned fixtures; it is now `^engine_`. CHANGELOG.md leaves the
+  grep, because released sections keep the old name; the planner reviews
+  `[Unreleased]` by hand.
+
+### Packet R1-repair
+
+Fresh worker, same worktree, continuing from the R1 diff.
+
+- **Writable:** `backends/neuriplo-engine/**`, `CHANGELOG.md`, `Readme.md`.
+- **Required final state:**
+  1. `./scripts/quality/format.sh --check` passes: run `clang-format -i`
+     only on the files under `backends/neuriplo-engine/` that the check
+     reports.
+  2. `CHANGELOG.md`: everything from `## [0.10.0]` down is byte-identical to
+     the starting revision (released history keeps `NATIVE`); `[Unreleased]`
+     uses `NEURIPLO_ENGINE`.
+  3. `Readme.md`: the link into `specs/roadmap.md` targets the renamed
+     heading `#neuriplo-engine-track`, and its link text reads "Neuriplo
+     Engine Track"; link text "Native engine, Phase N0" reads "Neuriplo
+     engine, Phase N0".
+  4. gtest names `NativeAndOnnxRuntimeAgreeElementwise` and
+     `NativeAndOnnxRuntimeConfidentRowsAgree` become
+     `NeuriploEngineAndOnnxRuntimeAgreeElementwise` and
+     `NeuriploEngineAndOnnxRuntimeConfidentRowsAgree`.
+- **Acceptance:** the corrected R1 scoreboard above, once. The planner then
+  checks that `git diff 2b1d5bf -- CHANGELOG.md` touches `[Unreleased]` only.
 
 ### Packet P3b — comparison and logic
 
@@ -155,4 +183,5 @@ Written at dispatch. Survey: GridSample 4-D, bilinear, `padding_mode` zeros,
 | --- | --- | --- | --- | --- | --- |
 | 1 | T1 | orchestrator (not delegated) | pass | pass: 13 YOLO exports | Implemented before the orchestration rule; commit `fbefc95` |
 | 2 | T2 | orchestrator (not delegated) | pass after two orchestrator fixes | pass: 6 transformer exports + YOLO regression | Implemented before the rule; the YOLO regression rerun caught two defects (empty initializers, empty Resize scales), fixed by the orchestrator |
-| 3 | P3a | worker (`sonnet`, worktree `wip/native-p3a`) | pass on the worker's second run (the first build failed on a typo in its own generated `Abs.cpp`; deviation: acceptance run twice) | pass: engine 12/12, NativeInferTest, ResNet-18 and YOLO26 parity, format | Diff inside the writable list; planner review found no defects |
+| 3 | P3a | worker (`sonnet`, worktree `wip/native-p3a`) | pass on the worker's second run (the first build failed on a typo in its own generated `Abs.cpp`; deviation: acceptance run twice) | pass: engine 12/12, NeuriploEngineInferTest, ResNet-18 and YOLO26 parity, format | Diff inside the writable list; planner review found no defects |
+| 4 | R1 | worker (`sonnet`, worktree `wip/native-r1`) | fail: scoreboard defect (planner-owned filter matched fixture-dependent parity tests) | planner re-score with corrected scoreboard: tests 13/13, docs in sync, no leftover names; format check fails on two moved test files | Review also found: released 0.10.0 CHANGELOG entry renamed; README anchor and two gtest names left. Sent to R1-repair |

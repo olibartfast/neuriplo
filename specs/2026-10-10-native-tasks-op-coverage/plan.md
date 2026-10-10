@@ -1,4 +1,4 @@
-# Plan — neuriplo-tasks Operator Coverage on the Native Engine
+# Plan — neuriplo-tasks Operator Coverage on the Neuriplo Engine
 
 One tier per phase; each ends with its families loading and matching
 `ONNX_RUNTIME` through the model-zoo parity test ([V-3]). Branch:
@@ -8,11 +8,11 @@ One tier per phase; each ends with its families loading and matching
 
 - [T-1] Kernels, shape rules, loader entries and unit tests: Floor, Identity,
   Pow, Tile, AveragePool, ConvTranspose.
-- [T-2] Load-time constant folding pass ([D-4]), called by `NativeInfer`
+- [T-2] Load-time constant folding pass ([D-4]), called by `NeuriploEngineInfer`
   between load and planning.
 - [T-3] DOUBLE narrowing ([D-5]); identical duplicate value-info ([D-6]);
   Resize `sizes` ([D-7]).
-- [T-4] Model-zoo parity test `native_model_zoo_parity_test`, driven by a
+- [T-4] Model-zoo parity test `neuriplo_engine_model_zoo_parity_test`, driven by a
   manifest (`NEURIPLO_MODEL_ZOO_MANIFEST`); modes `parity`, `e2e`, `load`.
 
 ## Tier 2 — Transformer encoders
