@@ -66,6 +66,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - D1 — main README: NERT row and status (maintainer, 2026-10-10); after R2
 - P3f — RF-DETR and RF-DETR-Seg end to end (goal-scoped)
 - P3g — DETR comparison mode in the model-zoo test
+- D2 — NERT becomes `DEFAULT_BACKEND` on `feature/nert` (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -232,6 +233,37 @@ policies the op survey could not see (first: ConstantOfShape with a FLOAT
   `~/.cache/neuriplo-op-inventory/tier3_detr.manifest`, the 18.1.3 format
   check.
 - **Budget:** 30 turns. Tier: `sonnet`.
+
+### Packet D2 — NERT is the default backend on `feature/nert`
+
+Maintainer decision 2026-10-10: on this branch `DEFAULT_BACKEND` is `NERT`.
+Roadmap Phase N3 stays the place where the default for `develop` and
+releases is decided; this is the branch's default.
+
+- **Writable:** `CMakeLists.txt` (the `DEFAULT_BACKEND` cache default and its
+  help text), `.github/workflows/ci.yml`, `.github/workflows/windows-build.yml`,
+  `docker/Dockerfile.*`, `scripts/**` (only where they rely on the default),
+  `docs/backends.yaml` (default marker, if any), `docs/DEPENDENCY_MANAGEMENT.md`
+  (regenerated only), `Readme.md`, `docs/*.md` (statements of which backend
+  is the default only). Nothing else.
+- **Required final state:**
+  1. `cmake -S . -B b` with no `-DDEFAULT_BACKEND` selects `NERT`.
+  2. Every CI job, Dockerfile and script that configured without
+     `-DDEFAULT_BACKEND` (inspect each multi-line `cmake` call) now pins
+     the backend it was effectively building before (`OPENCV_DNN`), so no CI
+     job changes what it builds. List each one in the handback.
+  3. The README marks `NERT` as the default in the backend table and the
+     build-options table; the quick start keeps building OpenCV DNN, now
+     named explicitly as such rather than as "the default" (NERT's test
+     suites need a provisioned ResNet-18 model, so a bare `ctest` on a fresh
+     clone would fail). Docs that say "the default backend (OpenCV DNN)"
+     are corrected.
+- **Acceptance (once):** configure with no `DEFAULT_BACKEND` and check the
+  log reports `Default backend: NERT`; build; `ctest -R
+  "^engine_|NertInferTest"` with `NERT_FIXTURE`; `gen_backend_docs.py --check`;
+  the 18.1.3 format check; `git grep` shows no remaining "default
+  (OPENCV_DNN|OpenCV DNN)" claims outside `CHANGELOG.md` and `specs/`.
+- **Budget:** 40 turns. Tier: `sonnet`.
 
 ### Packet R2 — rename `NEURIPLO_ENGINE` to `NERT`
 
