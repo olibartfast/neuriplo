@@ -218,13 +218,13 @@ Exit criteria:
   against an installed neuriplo package with no access to its source tree.
 - The existing C++ API and `neuriplo-infer` are unchanged.
 
-## Neuriplo Engine Track
+## NERT Track
 
-A parallel track, not a renumbering of Phases 1-6. It delivers the `NEURIPLO_ENGINE`
+A parallel track, not a renumbering of Phases 1-6. It delivers the `NERT`
 backend: a first-party inference runtime implemented in this repository, aimed
 at the slot `OPENCV_DNN` occupies today — a small, self-contained engine with no
 vendor SDK underneath. Sequencing against Phase 1 is an open decision recorded
-in the Phase N0 packet; Phase 1 first is the cheaper order, because `NEURIPLO_ENGINE` is
+in the Phase N0 packet; Phase 1 first is the cheaper order, because `NERT` is
 a new inventory entry with no external SDK version or setup script.
 
 The design reference for the track is OpenCV 5's rewritten `dnn` engine — a
@@ -235,13 +235,13 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 ### Phase N0 - CPU Reference Spine
 
-- Status: Implemented, merge on hold (YOLO26-nano runs on `NEURIPLO_ENGINE`: 6
+- Status: Implemented, merge on hold (YOLO26-nano runs on `NERT`: 6
   confident rows, min IoU 0.999999 vs `ONNX_RUNTIME`; spec
   `specs/2026-10-01-yolo26-native/`, branch `feature/native-engine-cpu-spine`
   in review into `develop`). Vision-op coverage was pulled forward onto
   the branch per the 2026-10-01 maintainer gate.
 - Merge gate (maintainer, 2026-10-10): the branch merges into `develop` only
-  once `NEURIPLO_ENGINE` implements every operator needed by these neuriplo-tasks
+  once `NERT` implements every operator needed by these neuriplo-tasks
   families: YOLO detection (all supported versions, including SiLU,
   HardSwish, LeakyRelu, Clip and pooling variants); ViT classification;
   RT-DETR, D-FINE, DEIM and RF-DETR; ViTPose; Depth Anything V2; VideoMAE,
@@ -250,7 +250,7 @@ does not change how `OPENCV_DNN` is built or pinned.
   gate. This supersedes the 2026-10-10 hold-lift proposal. Backlog and
   evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tiers 1-2 of 5 done
   2026-10-10: YOLO families and transformer encoders).
-- Outcome: one classification model runs end to end through `NEURIPLO_ENGINE` on CPU,
+- Outcome: one classification model runs end to end through `NERT` on CPU,
   with outputs matching `ONNX_RUNTIME` on the same file within a recorded
   tolerance.
 - Proves: the whole spine — ONNX parsing, graph IR, static shape inference,
@@ -284,7 +284,7 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 - Status: Blocked; needs the deprecation-window policy named in
   `specs/mission.md` open questions
-- Outcome: a decision, with migration notes, on whether `NEURIPLO_ENGINE` becomes
+- Outcome: a decision, with migration notes, on whether `NERT` becomes
   `DEFAULT_BACKEND` and what happens to `OPENCV_DNN`.
 - Proves: nothing technical; it is a compatibility decision and must be
   specified as one.
@@ -298,6 +298,11 @@ validation defined before implementation and evidence recorded after execution.
 Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
+
+_Revision: 2026-10-10 - renamed the first-party backend again, `NEURIPLO_ENGINE`
+to `NERT` (maintainer decision; packet R2). `NRT` was rejected because it is
+already AWS Neuron's runtime (`libnrt`). The engine library (`engine/`,
+`neuriplo_engine`) keeps its name._
 
 _Revision: 2026-10-10 - renamed the first-party backend `NATIVE` to
 `NEURIPLO_ENGINE` (maintainer decision; packet R1 in

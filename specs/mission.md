@@ -68,9 +68,9 @@ The project is succeeding when:
 - Neuriplo orchestrates inference runtimes, including one first-party runtime of
   its own. It does not reimplement vendor SDKs for their own sake, and it never
   hides their real model-format and hardware constraints.
-- The first-party neuriplo engine is a supported backend alongside third-party
+- The first-party NERT engine is a supported backend alongside third-party
   runtimes, not a substitute for them. The vendor backends remain the
-  correctness and performance reference the neuriplo engine is measured against,
+  correctness and performance reference NERT is measured against,
   and stay first-class supported paths for that reason.
 - Task-specific pre/postprocessing, serving APIs, capture, and product UI belong
   in consumer or sibling projects. DALI is intentionally supported as a GPU

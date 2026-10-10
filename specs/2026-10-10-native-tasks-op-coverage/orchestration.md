@@ -1,4 +1,4 @@
-# Orchestration — neuriplo-tasks Operator Coverage on the Neuriplo Engine
+# Orchestration — neuriplo-tasks Operator Coverage on the NERT
 
 Workflow: `orchestrate-ai-coding-workflows` (maintainer rule, 2026-10-10: all
 development goes through it). Branch discipline from the earlier native
@@ -35,9 +35,9 @@ acceptance.
 ## Acceptance (planner-owned; workers run it once, as their final action)
 
 ```bash
-cmake -S . -B build-ne -DDEFAULT_BACKEND=NEURIPLO_ENGINE -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B build-ne -DDEFAULT_BACKEND=NERT -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_BUILD_TYPE=Release \
   && nice -n 10 cmake --build build-ne --parallel 2 \
-  && NEURIPLO_ENGINE_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
+  && NERT_FIXTURE=$HOME/.cache/neuriplo-op-inventory/fixtures/resnet18.onnx \
      ctest --test-dir build-ne -R "engine_" --output-on-failure \
   && PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check \
   && git status --short
@@ -48,8 +48,8 @@ wraps the `clang-format==18.1.3` wheel); the machine's clang-format 21, and
 even 18.1.8, accept lines CI rejects. Corrected after attempt 7.
 
 Integration gate (planner, after merging a packet): the same build in
-`build-parity` (NEURIPLO_ENGINE + ONNX_RUNTIME), `NeuriploEngineInferTest`, ResNet-18 and
-YOLO26 parity, then `neuriplo_engine_model_zoo_parity_test` on every manifest whose
+`build-parity` (NERT + ONNX_RUNTIME), `NertInferTest`, ResNet-18 and
+YOLO26 parity, then `nert_model_zoo_parity_test` on every manifest whose
 families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 
 ## Packet index
@@ -61,7 +61,7 @@ families the packet touches, plus the YOLO and Tier 2 manifests as regression.
 - P3c — ReduceSum, Range, Pad (with load-time evaluation)
 - P3d — GridSample, Einsum
 - P3e — int64 and bool graph I/O ([D-14]); written at dispatch
-- R1 — rename the backend `NEURIPLO_ENGINE` → `NEURIPLO_ENGINE` (maintainer, 2026-10-10)
+- R1 — rename the backend `NERT` → `NERT` (maintainer, 2026-10-10)
 
 ### Packet P3a — elementwise math
 
@@ -105,10 +105,10 @@ the adapter's marshalling contract.
 - **Writable:** `engine/include/engine/Executor.hpp`, `engine/src/Executor.cpp`,
   `engine/src/ModelLoader.cpp` (graph input/output element types only),
   `engine/src/ShapeInference.cpp` (`InferShapes` input dtypes only),
-  `backends/neuriplo-engine/src/NeuriploEngineInfer.{hpp,cpp}`,
+  `backends/nert/src/NertInfer.{hpp,cpp}`,
   `engine/test/{ExecutorTest,LoaderTest}.cpp`,
-  `backends/neuriplo-engine/test/NeuriploEngineInferTest.cpp`,
-  `backends/neuriplo-engine/test/ModelZooParityTest.cpp` (input generation
+  `backends/nert/test/NertInferTest.cpp`,
+  `backends/nert/test/ModelZooParityTest.cpp` (input generation
   and comparison for non-float inputs/outputs). Nothing else.
 - **Required final state:**
   1. The loader accepts FLOAT, INT64 and BOOL graph inputs and outputs;
@@ -120,7 +120,7 @@ the adapter's marshalling contract.
      every graph output in its own dtype. The existing float-only `Run` and
      `InferenceResult` keep compiling and behaving as before (callers and
      tests depend on them); it may delegate to the typed path.
-  4. `NeuriploEngineInfer` marshals each input buffer by the graph input's
+  4. `NertInfer` marshals each input buffer by the graph input's
      dtype (float32 4 bytes, int64 8, bool 1 per element), reports input and
      output dtypes in its metadata (`TensorDataType::Int64` / `Bool`), and
      returns int64 outputs as `int64_t` and bool outputs as `uint8_t`
@@ -133,13 +133,13 @@ the adapter's marshalling contract.
      negative tests that asserted rejection (keep one rejection for an
      unsupported type such as INT32); an executor test running a graph with
      an int64 input and a bool output; an adapter test with an int64 input.
-- **Acceptance:** the R1 scoreboard (NEURIPLO_ENGINE + ONNX_RUNTIME build,
-  `ctest -R "^engine_|NeuriploEngineInferTest"`, docs and format checks).
+- **Acceptance:** the R1 scoreboard (NERT + ONNX_RUNTIME build,
+  `ctest -R "^engine_|NertInferTest"`, docs and format checks).
 - **Budget:** 60 turns.
 
 ### Packet F1 — formatting under CI's clang-format
 
-- **Writable:** `backends/neuriplo-engine/test/YoloParityTest.cpp` only.
+- **Writable:** `backends/nert/test/YoloParityTest.cpp` only.
 - **Required final state:** the format check above (clang-format 18.1.3)
   passes; the diff is whitespace-only.
 - **Acceptance:** `PATH=$HOME/.cache/neuriplo-op-inventory/cf18-shim:$PATH ./scripts/quality/format.sh --check && git diff --stat`.
@@ -245,7 +245,7 @@ Fresh worker, same worktree, continuing from the R1 diff.
      a Reshape).
   5. clang-format only on new kernel files; existing files edited by hand.
 - **Acceptance:** the packet scoreboard at the top of this file, with
-  `-DDEFAULT_BACKEND=NEURIPLO_ENGINE`, build dir `build-ne`, and ctest filter
+  `-DDEFAULT_BACKEND=NERT`, build dir `build-ne`, and ctest filter
   `^engine_`.
 - **Budget:** 40 turns.
 

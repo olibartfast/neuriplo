@@ -1,7 +1,7 @@
-# Requirements — neuriplo-tasks Operator Coverage on the Neuriplo Engine
+# Requirements — neuriplo-tasks Operator Coverage on the NERT
 
 Maintainer decision (2026-10-10): `feature/native-engine-cpu-spine` merges into
-`develop` only once `NEURIPLO_ENGINE` implements every operator needed by these
+`develop` only once `NERT` implements every operator needed by these
 neuriplo-tasks families (recorded as the merge gate in `specs/roadmap.md`,
 Phase N0):
 
@@ -46,7 +46,7 @@ Gaps that are not operators, found by the same survey:
 - **Attribute policies.** Several admitted ops accept only the configuration
   the first fixtures used (for example Resize: nearest/asymmetric/floor). A
   model can name only admitted ops and still be rejected.
-- **Adapter contract.** `NeuriploEngineInfer` takes full shapes in `input_sizes`;
+- **Adapter contract.** `NertInfer` takes full shapes in `input_sizes`;
   `ORTInfer` takes per-input dims without the batch axis plus `batch_size`.
 
 ## Scope
@@ -56,7 +56,7 @@ In:
 - [R-1] Every operator in tiers 1–5 has a CPU reference kernel, shape
   inference, a loader allowlist entry with its opset-18 attribute policy, and
   hand-computed unit tests.
-- [R-2] Every gated family loads and runs on `NEURIPLO_ENGINE` from its export,
+- [R-2] Every gated family loads and runs on `NERT` from its export,
   converted to opset 18 where needed ([D-2]).
 - [R-3] Outputs match `ONNX_RUNTIME` on identical input: every element within
   `|native - ort| <= atol * (1 + |ort|)`, `atol = 1e-3` unless the packet
@@ -94,7 +94,7 @@ Out:
 - [D-7] Resize accepts a `sizes` input as well as `scales`, never both.
 - [D-8] A named or unknown dimension (`dim_param`, or no value) loads as -1;
   the caller fixes it per load through `input_sizes` (full shapes for
-  `NEURIPLO_ENGINE`), and `NeuriploEngineInfer` names the input when it is missing. An
+  `NERT`), and `NertInfer` names the input when it is missing. An
   explicit non-positive `dim_value` is still rejected. This resolves [Q-3]
   for symbolic batch dims; RAFT's spatial dims follow the same rule.
 - [D-9] Resize implements `nearest` and `linear` with the four plain
