@@ -309,10 +309,15 @@ float32 `[N,3,H,W]` with symbolic H, W (fixed per load, [D-8]); output
 other tier-4 needs (AveragePool, GridSample, Pad, Range, ReduceSum, Sqrt,
 Tanh, Tile) exist.
 
-- **Starting revision:** the branch head after P3h integrates.
-- **Writable:** `engine/src/**`, `engine/include/engine/**`,
-  `engine/test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp`,
-  `backends/nert/test/ModelZooParityTest.cpp` (input-file handling only).
+- **Retargeted after R3/R4:** the engine lives in `olibartfast/nert`. Engine
+  work happens in a NERT worktree (`../nert-w-p4a`, branch `wip/p4a` from
+  `main`); the comparison-test change in a Neuriplo worktree
+  (`../neuriplo-w-p4a`, from `feature/nert`). The parity run builds Neuriplo
+  with `-DFETCHCONTENT_SOURCE_DIR_NERT=../nert-w-p4a`.
+- **Writable:** NERT `src/**`, `include/engine/**`,
+  `test/{KernelsTest,ShapeInferenceTest,LoaderTest}.cpp`, `CHANGELOG.md`;
+  Neuriplo `backends/nert/test/ModelZooParityTest.cpp` (input-file handling
+  only).
 - **Required final state:**
   1. InstanceNormalization (opset 6 semantics: per-instance, per-channel
      normalization over spatial axes with `epsilon`, scale and bias per
@@ -705,3 +710,6 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 19 | D3 | worker (`sonnet`, worktree `wip/nert-d3`) | pass | quick start reviewed: bare `cmake -S . -B build` (NERT), no OpenCV, fixture provisioning before ctest | Worker corrected the packet: the provisioning script pins torchvision 0.27.0 only, not torch |
 | 20 | R3 | worker (`sonnet`, `/home/oli/repos/nert`) | pass | standalone build, 12/12 engine suites, install + `find_package(nert)` consumer, format check; pushed as `olibartfast/nert@81b6b1f` | Finding: Neuriplo's format check never covered `engine/` (its scope is `src`, `include`, `backends`, `test`); NERT's check covers its tree with 28 not-yet-clean files listed explicitly. CI pins match Neuriplo's `nert` job |
 | 21 | R4 | worker (`sonnet`, worktree `wip/nert-r4`) | pass | planner: fresh configure fetching `olibartfast/nert@81b6b1f` over the network, build, NertInferTest, ResNet-18 3.8e-06, YOLO26 IoU 0.999999, docs, `act --dryrun` of job `nert` green | `engine/` removed; DEFAULT_BACKEND back to OPENCV_DNN; NERT labelled experimental. Noted: CMP0077 dev warning (harmless), two comments still name `engine/src/ModelLoader.cpp` (adapter test files, out of scope) |
+| 22 | X1 | worker (`sonnet`, `neuriplo-platform` worktree) | pass (validators) | review: two wrong assumptions (nert default branch `master`; guessed repo paths) | Sent to X1-repair |
+| 23 | X1-repair | worker (`haiku`) | pass | validators pass; worker flagged one wrong sentence left in CONTRIBUTING.md | Sent to X1-repair-2 |
+| 24 | X1-repair-2 | worker (`haiku`) | pass | validators pass; planner review of the 22-file diff; committed `bc902b7`, PR olibartfast/neuriplo-platform#10 | — |

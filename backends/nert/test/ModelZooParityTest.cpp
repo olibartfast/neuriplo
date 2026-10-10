@@ -21,7 +21,7 @@ namespace {
 constexpr const char* kManifestEnv = "NEURIPLO_MODEL_ZOO_MANIFEST";
 constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 
-// One manifest row: `name  path  dims[;dims...]  mode  atol  [input.bin|-]
+// One manifest row: `name  path  dims[;dims...]  mode  atol  [in.bin[;in.bin...]|-]
 // [int64=<v>]`, whitespace separated. `dims` is one `AxBxC` shape per graph input. `mode` is
 // `parity` (run both backends, compare every output), `e2e` (end-to-end
 // detection output [1,N,C>=6] with the score in column 4: compare only rows ONNX Runtime scores above 0.25,
@@ -41,8 +41,10 @@ constexpr const char* kOnlyEnv = "NEURIPLO_MODEL_ZOO_ONLY";
 // plan it; nothing runs). Inputs are generated per graph input dtype: float32
 // inputs get the seeded uniform [0, 1) values, int64 inputs (RT-DETR's
 // orig_target_sizes, token ids) are filled with the `int64=<v>` value (default
-// 1), and bool inputs are filled with false. The optional input file (`-` for
-// none) replaces the seeded values of the first float32 input. In `parity` mode
+// 1), and bool inputs are filled with false. The optional input files (`-` for
+// none), separated by `;`, replace the seeded values of the float32 graph
+// inputs in order: the first file fills the first float32 input, the second
+// file the second, and so on. Each file must hold exactly its input's bytes. In `parity` mode
 // each float element must satisfy |native - ort| <= atol * (1 + |ort|), and
 // int64 / bool outputs must match exactly.
 struct ZooEntry {
@@ -51,8 +53,8 @@ struct ZooEntry {
     std::vector<std::vector<int64_t>> input_sizes;
     std::string mode;
     double atol = 1e-4;
-    std::string input_file; // optional raw little-endian float32 input
-    int64_t int64_fill = 1; // value for every int64 graph input
+    std::vector<std::string> input_files; // optional raw little-endian float32 inputs, in order
+    int64_t int64_fill = 1;               // value for every int64 graph input
 };
 
 std::vector<int64_t> parse_dims(const std::string& text) {
@@ -76,12 +78,21 @@ std::vector<ZooEntry> read_manifest(const std::string& path) {
         std::stringstream fields(line);
         ZooEntry entry;
         std::string shapes;
-        fields >> entry.name >> entry.path >> shapes >> entry.mode >> entry.atol >> entry.input_file;
+        std::string files;
+        fields >> entry.name >> entry.path >> shapes >> entry.mode >> entry.atol >> files;
         if (entry.name.empty()) {
             continue;
         }
-        if (entry.input_file == "-") {
-            entry.input_file.clear();
+        if (!files.empty() && files != "-") {
+            std::stringstream file_stream(files);
+            std::string file;
+            while (std::getline(file_stream, file, ';')) {
+                if (file.empty()) {
+                    ADD_FAILURE() << "manifest row " << entry.name << ": empty input file in " << files;
+                    continue;
+                }
+                entry.input_files.push_back(file);
+            }
         }
         std::string token;
         while (fields >> token) {
@@ -420,20 +431,30 @@ void check_entry(const ZooEntry& entry) {
     }
     const std::vector<LayerInfo> layers = native->get_inference_metadata().getInputs();
     auto inputs = make_inputs(layers, entry.int64_fill);
-    if (!entry.input_file.empty()) {
-        size_t target = layers.size();
+    if (!entry.input_files.empty()) {
+        std::vector<size_t> float_inputs;
         for (size_t i = 0; i < layers.size(); ++i) {
             if (layers[i].datatype == TensorDataType::Float32) {
-                target = i;
-                break;
+                float_inputs.push_back(i);
             }
         }
-        ASSERT_LT(target, layers.size()) << "an input file needs a float32 graph input";
-        std::ifstream stream(entry.input_file, std::ios::binary);
-        ASSERT_TRUE(stream.good()) << "cannot open input file " << entry.input_file;
-        stream.read(reinterpret_cast<char*>(inputs[target].data()),
-                    static_cast<std::streamsize>(inputs[target].size()));
-        ASSERT_EQ(stream.gcount(), static_cast<std::streamsize>(inputs[target].size())) << "input file is truncated";
+        ASSERT_LE(entry.input_files.size(), float_inputs.size())
+            << entry.name << ": " << entry.input_files.size() << " input file(s) but only " << float_inputs.size()
+            << " float32 graph input(s)";
+        for (size_t f = 0; f < entry.input_files.size(); ++f) {
+            const std::string& file = entry.input_files[f];
+            std::vector<uint8_t>& target = inputs[float_inputs[f]];
+            std::error_code error;
+            const std::uintmax_t file_size = std::filesystem::file_size(file, error);
+            ASSERT_FALSE(error) << "cannot stat input file " << file << ": " << error.message();
+            ASSERT_EQ(file_size, static_cast<std::uintmax_t>(target.size()))
+                << "input file " << file << " does not match graph input " << layers[float_inputs[f]].name << " ("
+                << target.size() << " bytes)";
+            std::ifstream stream(file, std::ios::binary);
+            ASSERT_TRUE(stream.good()) << "cannot open input file " << file;
+            stream.read(reinterpret_cast<char*>(target.data()), static_cast<std::streamsize>(target.size()));
+            ASSERT_EQ(stream.gcount(), static_cast<std::streamsize>(target.size())) << "input file is truncated";
+        }
     }
     std::vector<std::vector<TensorElement>> native_out;
     std::vector<std::vector<int64_t>> native_shapes;
