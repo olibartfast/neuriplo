@@ -18,8 +18,9 @@ DEPENDENCY_ROOT="${DEPENDENCY_ROOT:-$HOME/dependencies}"
 version="$TENSORRT_VERSION"
 dir="$DEPENDENCY_ROOT/TensorRT-$version"
 
-# The CUDA suffix selects which CUDA line the TensorRT build targets. CUDA_VERSION
-# in versions.env is the version the CI images are built on; a developer machine
+# The CUDA suffix selects which CUDA line the TensorRT build targets.
+# TENSORRT_CUDA_VERSION in versions.env is the line the pinned TensorRT is
+# published for (it can trail CUDA_VERSION, the toolkit); a developer machine
 # may be on a different line, and a TensorRT built for CUDA 13 will not run
 # against a CUDA 12 toolkit. Prefer the locally installed CUDA, falling back to
 # the pinned value. Set TRT_CUDA_VERSION to override.
@@ -30,20 +31,21 @@ detect_local_cuda_major() {
 }
 
 if [ -z "${TRT_CUDA_VERSION:-}" ]; then
-    TRT_CUDA_VERSION="$CUDA_VERSION"
+    pinned_trt_cuda="${TENSORRT_CUDA_VERSION:-$CUDA_VERSION}"
+    TRT_CUDA_VERSION="$pinned_trt_cuda"
     local_cuda_major="$(detect_local_cuda_major)"
-    pinned_cuda_major="${CUDA_VERSION%%.*}"
+    pinned_cuda_major="${pinned_trt_cuda%%.*}"
     if [ -n "$local_cuda_major" ] && [ "$local_cuda_major" != "$pinned_cuda_major" ]; then
         case "$local_cuda_major" in
             12) TRT_CUDA_VERSION=12.9 ;;
-            13) TRT_CUDA_VERSION=13.0 ;;
+            13) TRT_CUDA_VERSION=13.3 ;;
             *)
                 echo "Warning: local CUDA $local_cuda_major.x has no known TensorRT build;" >&2
-                echo "         falling back to the pinned CUDA $CUDA_VERSION." >&2
+                echo "         falling back to the pinned CUDA $pinned_trt_cuda." >&2
                 ;;
         esac
-        if [ "$TRT_CUDA_VERSION" != "$CUDA_VERSION" ]; then
-            echo "Note: local CUDA toolkit is ${local_cuda_major}.x but versions.env pins CUDA ${CUDA_VERSION};"
+        if [ "$TRT_CUDA_VERSION" != "$pinned_trt_cuda" ]; then
+            echo "Note: local CUDA toolkit is ${local_cuda_major}.x but versions.env pins CUDA ${pinned_trt_cuda};"
             echo "      selecting the TensorRT build for CUDA ${TRT_CUDA_VERSION}."
             echo "      Set TRT_CUDA_VERSION to override."
         fi
@@ -61,10 +63,22 @@ if [[ -d "$dir" && "$FORCE" != "true" ]]; then
 fi
 
 # Derive the URL components from versions.env. The download path uses the
-# three-component version (10.14.1) while the tarball keeps the full build
-# number (10.14.1.48).
+# three-component version (11.2.1); the tarball keeps the full build number
+# (11.2.1.2). TensorRT 11 renamed the archive and switched it to zstd; both
+# unpack to TensorRT-<version>/.
 trt_short="$(echo "$version" | cut -d. -f1-3)"
-tarball="TensorRT-${version}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz"
+trt_major="${version%%.*}"
+if [ "$trt_major" -ge 11 ]; then
+    tarball="TensorRT-Enterprise-${version}-Linux-x86_64-cuda-${TRT_CUDA_VERSION}-Release-external.tar.zst"
+    tar_flags="--zstd -xf"
+    if ! command -v zstd &> /dev/null; then
+        echo "Error: TensorRT $version is a .tar.zst archive; install zstd first" >&2
+        exit 1
+    fi
+else
+    tarball="TensorRT-${version}.Linux.x86_64-gnu.cuda-${TRT_CUDA_VERSION}.tar.gz"
+    tar_flags="-xzf"
+fi
 download_url="https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/${trt_short}/tars/${tarball}"
 
 echo "Installing TensorRT $version (CUDA $TRT_CUDA_VERSION)..."
@@ -79,7 +93,8 @@ wget -q -O "$tarball" "$download_url" || {
 }
 
 # Extract TensorRT
-tar -xzf "$tarball" -C "$DEPENDENCY_ROOT" || {
+# shellcheck disable=SC2086 # tar_flags is a deliberate word list
+tar $tar_flags "$tarball" -C "$DEPENDENCY_ROOT" || {
     echo "Error: Failed to extract TensorRT"
     rm -f "$tarball"
     exit 1

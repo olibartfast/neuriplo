@@ -89,7 +89,7 @@ TEST_F(LibtorchInferTest, BasicInference) {
     ASSERT_FALSE(output_vectors.empty());
     ASSERT_FALSE(shape_vectors.empty());
 
-    ASSERT_EQ(shape_vectors[0].size(), 2);
+    ASSERT_EQ(shape_vectors[0].size(), 2U);
     ASSERT_EQ(shape_vectors[0][0], 1);
     ASSERT_EQ(shape_vectors[0][1], 1000);
 
@@ -100,7 +100,7 @@ TEST_F(LibtorchInferTest, BasicInference) {
     ASSERT_NO_THROW({ (void)std::get<float>(output_vectors[0][0]); });
 
     // Size checking
-    ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
+    ASSERT_EQ(output_vectors[0].size(), static_cast<size_t>(shape_vectors[0][1]));
 
     // Check all elements are of the expected type
     ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
@@ -120,7 +120,7 @@ TEST_F(LibtorchInferTest, IntegrationTest) {
 
     // Verify real model produces reasonable results
     ASSERT_FALSE(output_vectors.empty());
-    ASSERT_EQ(output_vectors[0].size(), 1000); // ImageNet classes
+    ASSERT_EQ(output_vectors[0].size(), 1000U); // ImageNet classes
 
     // Check that output values are in reasonable range for probabilities/logits
     for (const auto& element : output_vectors[0]) {
@@ -140,7 +140,7 @@ TEST_F(LibtorchInferTest, MockUnitTest) {
     auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
 
     // Test mock-specific behavior
-    ASSERT_EQ(output_vectors[0].size(), 1000);
+    ASSERT_EQ(output_vectors[0].size(), 1000U);
 
     // Verify mock data pattern
     for (int i = 0; i < 10; ++i) {
@@ -168,7 +168,7 @@ TEST_F(LibtorchInferTest, GPUTest) {
 
         // Basic validation
         ASSERT_FALSE(output_vectors.empty());
-        ASSERT_EQ(output_vectors[0].size(), 1000);
+        ASSERT_EQ(output_vectors[0].size(), 1000U);
     } catch (const std::exception& e) {
         // GPU not available or error occurred
         GTEST_SKIP() << "Skipping GPU test - GPU not available or error: " << e.what();

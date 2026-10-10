@@ -32,7 +32,10 @@ mkdir -p "$DEPENDENCY_ROOT" && cd "$DEPENDENCY_ROOT"
 tarball="openvino_${version}.tgz"
 if [[ ! -f "$tarball" ]]; then
     echo "Downloading OpenVINO toolkit..."
-    curl -L "https://storage.openvinotoolkit.org/repositories/openvino/packages/2025.2/linux/openvino_toolkit_ubuntu24_${version}.19140.c01cd93e24d_x86_64.tgz" --output "$tarball"
+    # Archive names carry the build number and hash (OPENVINO_FULL_ID); the
+    # directory on the server is the major.minor release.
+    short_version="$(echo "$version" | cut -d. -f1-2)"
+    curl -fL "https://storage.openvinotoolkit.org/repositories/openvino/packages/${short_version}/linux/openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64.tgz" --output "$tarball"
 fi
 
 # Extract and move to final location
@@ -41,7 +44,7 @@ tar -xf "$tarball"
 if [[ -d "$dir" ]]; then
     rm -rf "$dir"
 fi
-mv openvino_toolkit_ubuntu24_${version}.19140.c01cd93e24d_x86_64 "$dir"
+mv "openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64" "$dir"
 rm -f "$tarball"
 
 # Create a local Python virtual environment for OpenVINO tools
@@ -49,7 +52,9 @@ echo "Setting up OpenVINO Python tools..."
 venv_dir="$dir/python_env"
 python3 -m venv "$venv_dir"
 source "$venv_dir/bin/activate"
-pip install openvino-dev
+# openvino-dev (with the legacy `mo`) ended at 2024.6 and breaks against a newer
+# runtime; the openvino wheel ships `ovc`. Pin it to the toolkit version.
+pip install "openvino==${version}"
 deactivate
 
 # Create wrapper script for ovc
