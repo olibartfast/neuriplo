@@ -28,9 +28,16 @@ mkdir -p "${TARGET}"
 workdir="$(mktemp -d)"
 trap 'rm -rf "${workdir}"' EXIT
 
+cuda_major="${CUDA_VERSION%%.*}"
+if [ "${cuda_major:-0}" -ge 13 ]; then
+    dali_pkg="nvidia-dali-cuda130==${DALI_VERSION}"
+else
+    dali_pkg="nvidia-dali-cuda120==${DALI_VERSION}"
+fi
+
 python3 -m pip download --no-deps --dest "${workdir}" \
     --extra-index-url https://pypi.nvidia.com \
-    "nvidia-dali-cuda120==${DALI_VERSION}"
+    "${dali_pkg}"
 
 wheel="$(find "${workdir}" -name 'nvidia_dali*.whl' -print -quit)"
 if [[ -z "${wheel}" ]]; then

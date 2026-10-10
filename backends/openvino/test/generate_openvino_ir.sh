@@ -6,16 +6,11 @@ set -e
 
 echo "Generating OpenVINO IR for testing..."
 
-# Check if mo (Model Optimizer) is available
-if ! command -v mo &> /dev/null; then
-    echo "OpenVINO Model Optimizer (mo) not found. Trying ovc..."
-    if ! command -v ovc &> /dev/null; then
-        echo "OpenVINO conversion tools not found. Please ensure OpenVINO is properly installed and sourced."
-        exit 1
-    fi
-    CONVERTER="ovc"
-else
-    CONVERTER="mo"
+# ovc ships with the openvino wheel; the legacy Model Optimizer (mo) ended with
+# openvino-dev 2024.6 and no longer works against the pinned runtime.
+if ! command -v ovc &> /dev/null; then
+    echo "OpenVINO converter (ovc) not found. Install the openvino wheel matching OPENVINO_VERSION."
+    exit 1
 fi
 
 # First, check if we have an ONNX model, if not generate one
@@ -58,22 +53,11 @@ EOF
 fi
 
 # Convert ONNX to OpenVINO IR
-echo "Converting ONNX to OpenVINO IR using $CONVERTER..."
-
-if [ "$CONVERTER" = "mo" ]; then
-    # Using legacy Model Optimizer
-    mo --input_model resnet18.onnx \
-       --output_dir . \
-       --model_name resnet18 \
-       --input_shape [1,3,224,224] \
-       --compress_to_fp16
-else
-    # Using new OpenVINO Converter (ovc)
-    ovc resnet18.onnx \
-        --output_model resnet18 \
-        --input_shape [1,3,224,224] \
-        --compress_to_fp16
-fi
+echo "Converting ONNX to OpenVINO IR using ovc..."
+ovc resnet18.onnx \
+    --output_model resnet18 \
+    --input "[1,3,224,224]" \
+    --compress_to_fp16=True
 
 if [ -f "resnet18.xml" ] && [ -f "resnet18.bin" ]; then
     echo "OpenVINO IR generated successfully:"

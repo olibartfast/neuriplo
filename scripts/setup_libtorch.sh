@@ -45,7 +45,7 @@ fi
 # asked for (backends/libtorch/src/LibtorchInfer.cpp:21). Nothing fails; the
 # work just silently stops using the GPU. Choose the variant deliberately.
 #
-# Override with LIBTORCH_VARIANT=cpu|cu118|cu121|... to pin an exact build.
+# Override with LIBTORCH_VARIANT=cpu|cu126|cu130|... to pin an exact build.
 
 # The highest CUDA release this machine can run. Only the driver decides: the
 # shared-with-deps archives bundle their own CUDA runtime, so a cu121 LibTorch
@@ -68,7 +68,7 @@ detect_cuda_release() {
 }
 
 libtorch_url() {
-    printf 'https://download.pytorch.org/libtorch/%s/libtorch-cxx11-abi-shared-with-deps-%s%%2B%s.zip' \
+    printf 'https://download.pytorch.org/libtorch/%s/libtorch-shared-with-deps-%s%%2B%s.zip' \
         "$1" "$version" "$1"
 }
 
@@ -76,8 +76,8 @@ variant_published() {
     wget -q --spider --tries=1 --timeout=20 "$(libtorch_url "$1")" 2> /dev/null
 }
 
-# Which CUDA builds exist differs per PyTorch release -- 2.3.0 ships cu118 and
-# cu121 but no cu120, so deriving the variant from the local CUDA version alone
+# Which CUDA builds exist differs per PyTorch release -- 2.14.0 ships cu126,
+# cu130 and cu132 but no cu128 or cu131, so deriving the variant from the local CUDA version alone
 # produces a URL that 404s. Ask the server instead: walk down from the release
 # this machine supports and take the newest build it actually publishes.
 newest_published_cuda_variant() {

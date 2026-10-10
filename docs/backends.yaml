@@ -58,7 +58,7 @@ backends:
     dir_default: "$DEPENDENCY_ROOT/libtorch"
     dockerfile: docker/Dockerfile.libtorch
     test_exe: LibtorchInferTest
-    model_format: "TorchScript (.pt)"
+    model_format: "TorchScript (.pt), AOTInductor (.pt2)"
     model_source: "`backends/libtorch/test/generate_model.sh`"
     arch: [x86_64, arm64]
     gpu: false
