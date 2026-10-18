@@ -236,5 +236,6 @@ backends:
     model_format: ONNX
     model_source: "fixture exported by the ResNet-18 provisioning step (plan.md [T-27a])"
     arch: [x86_64, arm64]
-    gpu: false
+    gpu: true
+    gpu_note: "opt-in at build time with -DNEURIPLO_NERT_CUDA=ON (needs nvcc); CPU by default"
     experimental: true

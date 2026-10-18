@@ -139,8 +139,10 @@ and examples.
 | `GGML` | GGML | GGML | Experimental: returns placeholder output |
 | `TVM` | Apache TVM | compiled module | Experimental: returns placeholder output |
 
-> **NERT (experimental):** CPU only. Loads opset-18 ONNX models (convert others with
-> `onnx.version_converter`). Outputs match `ONNX_RUNTIME` on YOLO (v5–v10, v12
+> **NERT (experimental):** CPU by default, GPU opt-in. Loads opset-18 ONNX models (convert others with
+> `onnx.version_converter`). Build with `-DNEURIPLO_NERT_CUDA=ON` (needs nvcc) to enable the CUDA
+> device: `use_gpu=true` then runs the NERT CUDA kernels, falling back to a load error (never silent
+> CPU) for graphs with ops outside the device table. Outputs match `ONNX_RUNTIME` on YOLO (v5–v10, v12
 > detection; YOLO11 segmentation and pose; YOLO26 detection, segmentation and
 > pose) and on ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and TimeSformer.
 > RAFT and open-vocabulary coverage continue in the

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "InferenceInterface.hpp"
-#include "engine/Executor.hpp"
-#include "engine/Graph.hpp"
+#include "nert/executor.hpp"
+#include "nert/graph.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -11,10 +11,10 @@
 #include <tuple>
 #include <vector>
 
-// Adapter exposing the first-party `engine` runtime through the shared
-// InferenceInterface contract. Runs on the CPU reference spine only: the
-// device layer currently supplies just CpuDevice(), so a GPU request is
-// rejected rather than silently downgraded.
+// Adapter exposing the first-party `nert` runtime through the shared
+// InferenceInterface contract. The device follows the GPU request: CPU
+// reference device by default, CUDA device when use_gpu is set and the
+// engine was built with CUDA support (NEURIPLO_NERT_CUDA).
 class NertInfer : public InferenceInterface {
   public:
     NertInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
@@ -29,8 +29,8 @@ class NertInfer : public InferenceInterface {
     // Shared input-marshalling + engine execution path for both output shapes.
     // Each input byte buffer is read in its graph input's dtype (float32,
     // int64, or bool); every output comes back in its own dtype.
-    engine::HostTensorMap run_engine(const std::vector<std::vector<uint8_t>>& input_tensors);
+    nert::HostTensorMap run_engine(const std::vector<std::vector<uint8_t>>& input_tensors);
 
-    engine::Graph graph_;
-    std::unique_ptr<engine::Model> model_;
+    nert::Graph graph_;
+    std::unique_ptr<nert::Model> model_;
 };

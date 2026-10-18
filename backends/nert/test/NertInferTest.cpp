@@ -224,33 +224,87 @@ TEST_F(NertInferTest, RawAndTypedValuesAgreeElementwise) {
 TEST(NertRuntimeFactoryTest, RejectsGpuRequests) {
     NertRuntimeFactory factory;
 
+#ifdef NEURIPLO_NERT_CUDA
+    auto backend = factory.create_backend(write_typed_io_model(), true, 1, {});
+    ASSERT_NE(backend, nullptr);
+    EXPECT_EQ(backend->state(), BackendState::Ready);
+#else
     try {
         (void)factory.create_backend("unused.onnx", true, 1, {});
         FAIL() << "expected a GPU request to be rejected";
     } catch (const ::InferenceException& ex) {
         EXPECT_NE(std::string(ex.what()).find("CPU only"), std::string::npos) << ex.what();
     }
+#endif
 
     EXPECT_STREQ(factory.name(), "NertRuntimeFactory");
     EXPECT_NE(factory.create_allocator(), nullptr);
     EXPECT_NE(factory.create_converter(), nullptr);
 }
 
-// [V-8]b: the NERT factory rejects GPU requests by throwing the global
-// InferenceException; the public boundary translates that throw into the
-// nullptr contract. No engine is constructed and no inference runs.
+// [V-8]b: without CUDA support the NERT factory rejects GPU requests by
+// throwing the global InferenceException; the public boundary translates
+// that throw into the nullptr contract. With NEURIPLO_NERT_CUDA the same
+// requests construct ready GPU backends (covered below).
 TEST_F(NertInferTest, EngineOptionsGpuRequestReturnsNull) {
+#ifdef NEURIPLO_NERT_CUDA
+    // The ResNet fixture needs cuDNN-gated Conv rows, so the GPU-ready
+    // check runs on the hermetic typed_io model (cuDNN-free CUDA rows).
+    EngineOptions gpu_options;
+    gpu_options.model_path = write_typed_io_model();
+    gpu_options.backend_id = "NERT";
+    gpu_options.use_gpu = true;
+    auto backend = setup_inference_engine(gpu_options);
+    ASSERT_NE(backend, nullptr);
+    EXPECT_EQ(backend->state(), BackendState::Ready);
+#else
     EngineOptions options;
     options.model_path = fixture_;
     options.backend_id = "NERT";
     options.use_gpu = true;
-
     EXPECT_EQ(setup_inference_engine(options), nullptr);
+#endif
 }
 
 TEST_F(NertInferTest, LegacyOverloadGpuRequestReturnsNull) {
+#ifdef NEURIPLO_NERT_CUDA
+    auto backend = setup_inference_engine(write_typed_io_model(), /*use_gpu=*/true, 1, {});
+    ASSERT_NE(backend, nullptr);
+    EXPECT_EQ(backend->state(), BackendState::Ready);
+#else
     EXPECT_EQ(setup_inference_engine(fixture_, /*use_gpu=*/true, 1, {}), nullptr);
+#endif
 }
+
+#ifdef NEURIPLO_NERT_CUDA
+// Typed-I/O GPU-vs-CPU parity: Add/Greater/Cast agree exactly on both
+// devices (integer and bool paths are bitwise; Cast is exact).
+TEST_F(NertInferTest, TypedIoGpuMatchesCpu) {
+    NertInfer cpu(write_typed_io_model());
+    NertInfer gpu(write_typed_io_model(), /*use_gpu=*/true);
+    const std::vector<std::vector<uint8_t>> input = {int64_bytes({1, 5})};
+
+    auto [cpu_typed, cpu_shapes] = cpu.get_infer_results(input);
+    auto [gpu_typed, gpu_shapes] = gpu.get_infer_results(input);
+    ASSERT_EQ(gpu_typed.size(), cpu_typed.size());
+    ASSERT_EQ(gpu_shapes, cpu_shapes);
+    for (size_t o = 0; o < cpu_typed.size(); ++o) {
+        ASSERT_EQ(gpu_typed[o].size(), cpu_typed[o].size());
+        for (size_t i = 0; i < cpu_typed[o].size(); ++i) {
+            EXPECT_EQ(gpu_typed[o][i], cpu_typed[o][i]) << "output " << o << " index " << i;
+        }
+    }
+
+    const std::vector<RawOutputTensor> cpu_raw = cpu.get_infer_results_raw(input);
+    const std::vector<RawOutputTensor> gpu_raw = gpu.get_infer_results_raw(input);
+    ASSERT_EQ(gpu_raw.size(), cpu_raw.size());
+    for (size_t o = 0; o < cpu_raw.size(); ++o) {
+        EXPECT_EQ(gpu_raw[o].dtype, cpu_raw[o].dtype);
+        EXPECT_EQ(gpu_raw[o].shape, cpu_raw[o].shape);
+        EXPECT_EQ(gpu_raw[o].bytes, cpu_raw[o].bytes);
+    }
+}
+#endif
 
 // Control: the same NERT backend with the GPU request removed must construct
 // a ready backend. This proves the nulls above come from the GPU rejection and

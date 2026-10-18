@@ -1,9 +1,9 @@
 #include "NertInfer.hpp"
 
-#include "engine/ConstantFolding.hpp"
-#include "engine/Device.hpp"
-#include "engine/ModelLoader.hpp"
-#include "engine/Shapes.hpp"
+#include "nert/constant_folding.hpp"
+#include "nert/device.hpp"
+#include "nert/model_loader.hpp"
+#include "nert/shapes.hpp"
 
 #include <cstring>
 #include <map>
@@ -13,19 +13,19 @@
 namespace {
 
 // The backend boundary owns the global exception types; every engine failure
-// crosses it translated so no engine::-typed exception escapes the adapter.
-engine::Graph load_graph_or_throw(const std::string& model_path) {
+// crosses it translated so no nert::-typed exception escapes the adapter.
+nert::Graph load_graph_or_throw(const std::string& model_path) {
     try {
-        return engine::LoadGraphFromFile(model_path);
-    } catch (const engine::ModelLoadException& ex) {
+        return nert::LoadGraphFromFile(model_path);
+    } catch (const nert::ModelLoadException& ex) {
         throw ::ModelLoadException(ex.what());
     }
 }
 
 // Resolve one concrete, positive shape per declared graph input: a caller size
 // wins when supplied, otherwise the model's declared dims are used.
-engine::ShapeMap build_input_shapes(const engine::Graph& graph, const std::vector<std::vector<int64_t>>& input_sizes) {
-    engine::ShapeMap shapes;
+nert::ShapeMap build_input_shapes(const nert::Graph& graph, const std::vector<std::vector<int64_t>>& input_sizes) {
+    nert::ShapeMap shapes;
     for (size_t i = 0; i < graph.inputs.size(); ++i) {
         const std::string& name = graph.inputs[i].first;
         std::vector<int64_t> dims =
@@ -45,22 +45,22 @@ engine::ShapeMap build_input_shapes(const engine::Graph& graph, const std::vecto
 }
 
 // The backend metadata tag for an engine graph I/O dtype.
-TensorDataType to_tensor_data_type(engine::DataType dtype, const std::string& name) {
+TensorDataType to_tensor_data_type(nert::DataType dtype, const std::string& name) {
     switch (dtype) {
-    case engine::DataType::Float32:
+    case nert::DataType::Float32:
         return TensorDataType::Float32;
-    case engine::DataType::Int64:
+    case nert::DataType::Int64:
         return TensorDataType::Int64;
-    case engine::DataType::Bool:
+    case nert::DataType::Bool:
         return TensorDataType::Bool;
-    case engine::DataType::Unknown:
+    case nert::DataType::Unknown:
         break;
     }
     throw ::ModelLoadException("NERT tensor '" + name + "' has no supported element type");
 }
 
 // The resolved dtype of graph tensor `name`, falling back to its declaration.
-engine::DataType resolved_dtype(const engine::Model& model, const std::string& name, engine::DataType declared) {
+nert::DataType resolved_dtype(const nert::Model& model, const std::string& name, nert::DataType declared) {
     const auto resolved = model.shapes().tensors.find(name);
     return resolved != model.shapes().tensors.end() ? resolved->second.dtype : declared;
 }
@@ -78,17 +78,22 @@ size_t element_count(const std::vector<int64_t>& dims) {
 NertInfer::NertInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                      const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
+#ifdef NEURIPLO_NERT_CUDA
+    const nert::Device& device = use_gpu ? nert::CudaDevice() : nert::CpuDevice();
+#else
     if (use_gpu) {
         throw ::InferenceException("NERT runs on CPU only in this phase");
     }
+    const nert::Device& device = nert::CpuDevice();
+#endif
 
     graph_ = load_graph_or_throw(model_path);
-    engine::FoldConstants(graph_, engine::CpuDevice());
+    nert::FoldConstants(graph_, device);
 
-    const engine::ShapeMap shapes = build_input_shapes(graph_, input_sizes);
+    const nert::ShapeMap shapes = build_input_shapes(graph_, input_sizes);
     try {
-        model_ = std::make_unique<engine::Model>(graph_, shapes, engine::CpuDevice());
-    } catch (const engine::ModelLoadException& ex) {
+        model_ = std::make_unique<nert::Model>(graph_, shapes, device);
+    } catch (const nert::ModelLoadException& ex) {
         throw ::ModelLoadException(ex.what());
     }
 
@@ -112,17 +117,17 @@ NertInfer::NertInfer(const std::string& model_path, bool use_gpu, size_t batch_s
     state_ = BackendState::Ready;
 }
 
-engine::HostTensorMap NertInfer::run_engine(const std::vector<std::vector<uint8_t>>& input_tensors) {
+nert::HostTensorMap NertInfer::run_engine(const std::vector<std::vector<uint8_t>>& input_tensors) {
     validate_input(input_tensors);
 
     const auto& inputs = inference_metadata_.getInputs();
-    engine::HostTensorMap engine_inputs;
+    nert::HostTensorMap engine_inputs;
     for (size_t i = 0; i < input_tensors.size(); ++i) {
         const LayerInfo& info = inputs[i];
-        engine::HostTensor host;
+        nert::HostTensor host;
         host.dtype = model_->shapes().tensors.at(info.name).dtype;
         host.dims = info.shape;
-        const size_t expected_bytes = element_count(info.shape) * engine::HostElementSize(host.dtype);
+        const size_t expected_bytes = element_count(info.shape) * nert::HostElementSize(host.dtype);
         if (input_tensors[i].size() != expected_bytes) {
             throw ::InferenceExecutionException("NERT input '" + info.name + "' expects " +
                                                 std::to_string(expected_bytes) + " bytes, got " +
@@ -134,14 +139,14 @@ engine::HostTensorMap NertInfer::run_engine(const std::vector<std::vector<uint8_
 
     try {
         return model_->RunTyped(engine_inputs);
-    } catch (const engine::InferenceException& ex) {
+    } catch (const nert::InferenceException& ex) {
         throw ::InferenceExecutionException(ex.what());
     }
 }
 
 namespace {
 
-const engine::HostTensor& find_output(const engine::HostTensorMap& result, const std::string& name) {
+const nert::HostTensor& find_output(const nert::HostTensorMap& result, const std::string& name) {
     const auto output = result.find(name);
     if (output == result.end()) {
         throw ::InferenceExecutionException("NERT engine produced no output named '" + name + "'");
@@ -152,7 +157,7 @@ const engine::HostTensor& find_output(const engine::HostTensorMap& result, const
 // Widen one engine output into TensorElements: float32 as float, int64 as
 // int64_t, and bool as uint8_t (0 or 1), per the HostTensorConverter rule.
 template <typename T, typename Element>
-void append_elements(const engine::HostTensor& host, std::vector<TensorElement>& elements) {
+void append_elements(const nert::HostTensor& host, std::vector<TensorElement>& elements) {
     const size_t count = host.bytes.size() / sizeof(T);
     elements.reserve(count);
     for (size_t i = 0; i < count; ++i) {
@@ -162,15 +167,15 @@ void append_elements(const engine::HostTensor& host, std::vector<TensorElement>&
     }
 }
 
-TensorDtype to_raw_dtype(engine::DataType dtype) {
+TensorDtype to_raw_dtype(nert::DataType dtype) {
     switch (dtype) {
-    case engine::DataType::Float32:
+    case nert::DataType::Float32:
         return TensorDtype::FP32;
-    case engine::DataType::Int64:
+    case nert::DataType::Int64:
         return TensorDtype::INT64;
-    case engine::DataType::Bool:
+    case nert::DataType::Bool:
         return TensorDtype::UINT8;
-    case engine::DataType::Unknown:
+    case nert::DataType::Unknown:
         break;
     }
     throw ::InferenceExecutionException("NERT output has no supported element type");
@@ -180,25 +185,25 @@ TensorDtype to_raw_dtype(engine::DataType dtype) {
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
 NertInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) {
-    const engine::HostTensorMap result = run_engine(input_tensors);
+    const nert::HostTensorMap result = run_engine(input_tensors);
 
     std::vector<std::vector<TensorElement>> output_tensors;
     std::vector<std::vector<int64_t>> shapes;
     for (const LayerInfo& info : inference_metadata_.getOutputs()) {
-        const engine::HostTensor& output = find_output(result, info.name);
+        const nert::HostTensor& output = find_output(result, info.name);
 
         std::vector<TensorElement> elements;
         switch (output.dtype) {
-        case engine::DataType::Float32:
+        case nert::DataType::Float32:
             append_elements<float, float>(output, elements);
             break;
-        case engine::DataType::Int64:
+        case nert::DataType::Int64:
             append_elements<int64_t, int64_t>(output, elements);
             break;
-        case engine::DataType::Bool:
+        case nert::DataType::Bool:
             append_elements<uint8_t, uint8_t>(output, elements);
             break;
-        case engine::DataType::Unknown:
+        case nert::DataType::Unknown:
             throw ::InferenceExecutionException("NERT output '" + info.name + "' has no supported element type");
         }
         output_tensors.push_back(std::move(elements));
@@ -209,7 +214,7 @@ NertInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
 }
 
 std::vector<RawOutputTensor> NertInfer::get_infer_results_raw(const std::vector<std::vector<uint8_t>>& input_tensors) {
-    engine::HostTensorMap result = run_engine(input_tensors);
+    nert::HostTensorMap result = run_engine(input_tensors);
 
     std::vector<RawOutputTensor> outputs;
     outputs.reserve(inference_metadata_.getOutputs().size());

@@ -23,7 +23,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
-| `NERT` | NERT (Neuriplo Engine Runtime, experimental) | `81b6b1f824655403742e727853afe05261dae5d0` | x86_64, ARM64 | no |
+| `NERT` | NERT (Neuriplo Engine Runtime, experimental) | `b4c284d38cb4510f95f733ccf10a8663d8d4a955` | x86_64, ARM64 | yes |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -232,7 +232,7 @@ Per-backend version overrides (default from `versions.env`):
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
 | `DALI_VERSION` | `2.2.0` |
-| `NERT_VERSION` | `81b6b1f824655403742e727853afe05261dae5d0` |
+| `NERT_VERSION` | `b4c284d38cb4510f95f733ccf10a8663d8d4a955` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts

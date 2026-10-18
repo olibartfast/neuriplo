@@ -24,6 +24,16 @@ FetchContent_Declare(nert
 # NERT also honours BUILD_INFERENCE_ENGINE_TESTS, so shadow it with a normal
 # variable while NERT is configured and drop the shadow afterwards.
 set(NERT_BUILD_TESTS OFF CACHE BOOL "Build the NERT tests" FORCE)
+
+# Opt-in CUDA device layer for the NERT backend: builds NERT with
+# NERT_ENABLE_CUDA=ON (needs nvcc) and marks the adapter/tests with
+# NEURIPLO_NERT_CUDA so they may select nert::CudaDevice(). OFF keeps the
+# CPU-only closure and the previous behavior byte-identical.
+option(NEURIPLO_NERT_CUDA "Build the NERT backend with CUDA device support" OFF)
+if(NEURIPLO_NERT_CUDA)
+    set(NERT_ENABLE_CUDA ON CACHE BOOL "Build NERT with the CUDA device layer" FORCE)
+    add_compile_definitions(NEURIPLO_NERT_CUDA)
+endif()
 if(DEFINED BUILD_INFERENCE_ENGINE_TESTS)
     set(_neuriplo_nert_saved_tests "${BUILD_INFERENCE_ENGINE_TESTS}")
     set(_neuriplo_nert_had_tests TRUE)

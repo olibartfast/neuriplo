@@ -18,9 +18,11 @@ class NertRuntimeFactory : public IBackendRuntimeFactory {
   public:
     std::unique_ptr<InferenceInterface> create_backend(const std::string& model_path, bool use_gpu, size_t batch_size,
                                                        const std::vector<std::vector<int64_t>>& input_sizes) override {
+#ifndef NEURIPLO_NERT_CUDA
         if (use_gpu) {
             throw ::InferenceException("NERT runs on CPU only in this phase");
         }
+#endif
         return std::make_unique<NertInfer>(model_path, use_gpu, batch_size, input_sizes);
     }
 
