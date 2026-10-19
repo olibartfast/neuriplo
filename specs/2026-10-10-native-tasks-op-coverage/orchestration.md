@@ -350,12 +350,12 @@ OpenCV DNN (a planner decision in the D2 packet); that decision is reversed.
 ### Packet R3 — NERT as a standalone repository
 
 Maintainer decision 2026-10-10: NERT moves to its own public repository,
-`olibartfast/nert`, checked out at `/home/oli/repos/nert`. The planner
+`olibartfast/nert`, checked out at `$NERT_REPO`. The planner
 created it with `engine/`'s full history (`git subtree split --prefix=engine`,
 33 commits, branch `main`) and an empty GitHub remote. Neuriplo keeps the
 adapter (`backends/nert/`) and switches to the pinned dependency in R4.
 
-- **Writable:** everything in `/home/oli/repos/nert` except `.git`.
+- **Writable:** everything in `$NERT_REPO` except `.git`.
 - **Decisions fixed by the planner:** library target `nert` with aliases
   `nert::nert` and `neuriplo_engine` (so Neuriplo's `add_subdirectory` /
   `FetchContent` consumption keeps linking `neuriplo_engine` during R4);
@@ -423,7 +423,7 @@ reverted); (4) NERT is labelled experimental.
   5. CHANGELOG `[Unreleased]`: the NERT entries are introduced as an
      experimental backend, consumed from `olibartfast/nert` at `NERT_VERSION`.
 - **Acceptance (once):** configure with
-  `-DFETCHCONTENT_SOURCE_DIR_NERT=/home/oli/repos/nert -DDEFAULT_BACKEND=NERT
+  `-DFETCHCONTENT_SOURCE_DIR_NERT=$NERT_REPO -DDEFAULT_BACKEND=NERT
   -DNEURIPLO_BACKENDS=ONNX_RUNTIME -DBUILD_INFERENCE_ENGINE_TESTS=ON`, build,
   `ctest -R NertInferTest` with `NERT_FIXTURE`, the parity binaries with their
   fixtures, `gen_backend_docs.py --check`, the 18.1.3 format check, `test !
@@ -703,5 +703,5 @@ Fresh worker, same worktree, continuing from the R1 diff.
 | 17 | P3e | worker (`opus`, worktree `wip/native-p3e`) | pass | pass: 13/13, both parities, format; probe: D-FINE/DEIM and DEIMv2 load with int64 `orig_target_sizes`, RT-DETR v4 stops on a negative Slice step (P3h) | API: `HostTensor`, `HostTensorMap`, `Model::RunTyped`; float `Run` unchanged. Accepted deviations: `RunTyped` instead of a `Run` overload (an overload made an existing call ambiguous); the input file fills the first float32 input |
 | 18 | P3h | worker (`opus`, worktree `wip/nert-p3h`) | pass | RT-DETR v4 5 confident, IoU 0.999999, score diff 5.4e-07; D-FINE/DEIM 5, 0.999999, 2.4e-07; DEIMv2 5, 1.0, 3.0e-07 (`bus.jpg`, 640) | One gap: Slice negative steps (shape rule, evaluator, kernel). Tier 3 complete |
 | 19 | D3 | worker (`sonnet`, worktree `wip/nert-d3`) | pass | quick start reviewed: bare `cmake -S . -B build` (NERT), no OpenCV, fixture provisioning before ctest | Worker corrected the packet: the provisioning script pins torchvision 0.27.0 only, not torch |
-| 20 | R3 | worker (`sonnet`, `/home/oli/repos/nert`) | pass | standalone build, 12/12 engine suites, install + `find_package(nert)` consumer, format check; pushed as `olibartfast/nert@81b6b1f` | Finding: Neuriplo's format check never covered `engine/` (its scope is `src`, `include`, `backends`, `test`); NERT's check covers its tree with 28 not-yet-clean files listed explicitly. CI pins match Neuriplo's `nert` job |
+| 20 | R3 | worker (`sonnet`, `$NERT_REPO`) | pass | standalone build, 12/12 engine suites, install + `find_package(nert)` consumer, format check; pushed as `olibartfast/nert@81b6b1f` | Finding: Neuriplo's format check never covered `engine/` (its scope is `src`, `include`, `backends`, `test`); NERT's check covers its tree with 28 not-yet-clean files listed explicitly. CI pins match Neuriplo's `nert` job |
 | 21 | R4 | worker (`sonnet`, worktree `wip/nert-r4`) | pass | planner: fresh configure fetching `olibartfast/nert@81b6b1f` over the network, build, NertInferTest, ResNet-18 3.8e-06, YOLO26 IoU 0.999999, docs, `act --dryrun` of job `nert` green | `engine/` removed; DEFAULT_BACKEND back to OPENCV_DNN; NERT labelled experimental. Noted: CMP0077 dev warning (harmless), two comments still name `engine/src/ModelLoader.cpp` (adapter test files, out of scope) |

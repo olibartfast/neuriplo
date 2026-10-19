@@ -19,7 +19,7 @@ Defined before implementation.
 
 ```bash
 cmake -S . -B build-nert-cpu -DNEURIPLO_BACKENDS=NERT -DBUILD_INFERENCE_ENGINE_TESTS=ON && cmake --build build-nert-cpu --parallel "$(nproc)" && ctest --test-dir build-nert-cpu -R NertInfer --output-on-failure
-cmake -S . -B build-nert-cuda -DNEURIPLO_BACKENDS=NERT -DBUILD_INFERENCE_ENGINE_TESTS=ON -DNEURIPLO_NERT_CUDA=ON -DFETCHCONTENT_SOURCE_DIR_NERT=/home/oli/repos/nert && cmake --build build-nert-cuda --parallel "$(nproc)" && ctest --test-dir build-nert-cuda -R NertInfer --output-on-failure
+cmake -S . -B build-nert-cuda -DNEURIPLO_BACKENDS=NERT -DBUILD_INFERENCE_ENGINE_TESTS=ON -DNEURIPLO_NERT_CUDA=ON -DFETCHCONTENT_SOURCE_DIR_NERT=$NERT_REPO && cmake --build build-nert-cuda --parallel "$(nproc)" && ctest --test-dir build-nert-cuda -R NertInfer --output-on-failure
 ```
 
 ## Evidence
