@@ -3,8 +3,21 @@ name: CI
 on:
   push:
     branches: [master, develop, 'release/**', 'feature/**', 'refactor/**']
+    # Documentation-only pushes do not need the backend matrix. Keep this
+    # list in sync with pull_request below: if any non-doc file changes, CI
+    # still runs. `**.md` covers every Markdown file at any depth.
+    paths-ignore:
+      - 'docs/**'
+      - 'specs/**'
+      - '**.md'
+      - LICENSE
   pull_request:
     branches: [master, develop, 'release/**', 'feature/**']
+    paths-ignore:
+      - 'docs/**'
+      - 'specs/**'
+      - '**.md'
+      - LICENSE
 
 # github.ref differs between the two events that can start this workflow for
 # one branch -- refs/heads/<branch> on push, refs/pull/<n>/merge on
