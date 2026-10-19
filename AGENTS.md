@@ -20,13 +20,14 @@
 - Best practice: after merging a feature branch into `develop`, push local `develop` to `origin/develop`, remove the merged feature branch locally and remotely, and update related docs and `Readme.md` when behavior or workflow changes.
 - After completing a `release/*` or `hotfix/*` flow, delete the finished branch
   locally and on `origin`.
-- **Docs-only CI skip (mandatory).** Pushes and pull requests that change only
-  `docs/**`, `specs/**`, any `*.md` file, or `LICENSE` do not start
-  `.github/workflows/ci.yml`; the path filter enforces this automatically. Do
-  not add `[skip ci]` — GitHub Actions does not honor it. Mixed code+docs
-  changes run CI normally. Because CI is skipped, run the local docs checks
-  before pushing: `python3 scripts/gen_backend_docs.py --check` when
-  `docs/backends.yaml` changes, and the pre-push hook for the rest.
+- **Docs-only CI skip (mandatory).** `ci.yml` uses `paths-ignore` for
+  `docs/**`, `specs/**`, any `*.md` file, and `LICENSE`, so docs-only pushes
+  and pull requests do not start the matrix. Do not put `[skip ci]` on a
+  mixed code+docs commit: GitHub Actions honors it and would skip checks the
+  code needs. On a docs-only commit it is redundant. Because CI is skipped,
+  run the local docs checks before pushing:
+  `python3 scripts/gen_backend_docs.py --check` when `docs/backends.yaml`
+  changes, and the pre-push hook for the rest.
 - **Hyperlink verification:** When editing `Readme.md` or any documentation with hyperlinks, verify all relative links resolve to existing files and absolute GitHub URLs are reachable. Prefer absolute GitHub blob/tree URLs over fragile cross-repo relative paths.
 - Keep `Readme.md` as a general-purpose project entrypoint. Put backend-specific setup, model-format, Docker, build, and troubleshooting details in the appropriate docs section, such as `docs/DEPENDENCY_MANAGEMENT.md` or a backend-specific guide, and link from the README only when the link is broadly useful.
 - When debugging CI failures, build errors, or test failures, consult `docs/TROUBLESHOOTING.md` for known patterns and hard-won lessons before starting from scratch.
