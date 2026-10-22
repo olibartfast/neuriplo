@@ -17,6 +17,11 @@ The repo ships an `.actrc` that pins the runner image and wires the Docker socke
 
 All commands run from the repo root.
 
+The `changes` job classifies the diff and limits backend matrices to the
+touched backend. Shared runtime/build/test paths still select every backend;
+docs-only paths are ignored by the workflow trigger. Under `act`, event SHAs
+may be unavailable, so the detector fails open and runs the full matrix.
+
 ### Inspect a job without executing it
 
 ```bash

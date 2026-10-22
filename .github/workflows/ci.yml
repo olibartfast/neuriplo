@@ -37,6 +37,41 @@ concurrency:
 
 jobs:
 
+  # Select per-backend jobs from the actual change set. Backend-specific
+  # changes run that backend only; shared code/build/test changes run all
+  # registered backends; docs-only paths are already filtered by paths-ignore.
+  changes:
+    name: Changed backends
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.detect.outputs.backends }}
+      clang_tidy_matrix: ${{ steps.detect.outputs.clang_tidy_matrix }}
+      build_warnings_matrix: ${{ steps.detect.outputs.build_warnings_matrix }}
+      sanitizers_matrix: ${{ steps.detect.outputs.sanitizers_matrix }}
+      cpu_matrix: ${{ steps.detect.outputs.cpu_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed backends
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+          else
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
+          fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          for job in clang-tidy build-warnings sanitizers cpu; do
+            matrix="$(python3 scripts/ci/backend_matrices.py --job "$job" --backends "$BACKENDS")"
+            key="${job//-/_}"
+            echo "${key}_matrix=$matrix" >> "$GITHUB_OUTPUT"
+          done
+          echo "Changed backends: $BACKENDS"
+
   # =============================================================
   # Whole-tree checks (no backend SDK needed)
   # =============================================================
@@ -108,22 +143,14 @@ jobs:
   # =============================================================
 
   clang-tidy:
+    needs: changes
+    if: ${{ needs.changes.outputs.clang_tidy_matrix != '[]' }}
     name: "Clang-Tidy / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
-          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime }
-          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch }
-          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow }
-          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
-          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
-          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
-          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
-          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
-          - { backend: LITERT,        dockerfile: docker/Dockerfile.litert }
+        include: ${{ fromJSON(needs.changes.outputs.clang_tidy_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -167,22 +194,14 @@ jobs:
           '
 
   build-warnings:
+    needs: changes
+    if: ${{ needs.changes.outputs.build_warnings_matrix != '[]' }}
     name: "Werror / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
-          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime }
-          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch }
-          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow }
-          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
-          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
-          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
-          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
-          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
-          - { backend: LITERT,        dockerfile: docker/Dockerfile.litert }
+        include: ${{ fromJSON(needs.changes.outputs.build_warnings_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -219,19 +238,14 @@ jobs:
           '
 
   sanitizers:
+    needs: changes
+    if: ${{ needs.changes.outputs.sanitizers_matrix != '[]' }}
     name: "Sanitizers / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn,      test_exe: OCVDNNInferTest }
-          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime,   test_exe: ONNXRuntimeInferTest }
-          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch,        test_exe: LibtorchInferTest }
-          # LIBTENSORFLOW excluded: absl headers fail to compile in Debug+sanitizer mode
-          # OPENVINO excluded: TBB loads libtbbbind with RTLD_DEEPBIND, incompatible with ASan
-          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml,            test_exe: GGMLInferTest }
-          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm,             test_exe: TVMInferTest }
+        include: ${{ fromJSON(needs.changes.outputs.sanitizers_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -280,6 +294,8 @@ jobs:
   # runs every CApi* case ([D-21]).
   # =============================================================
   capi-consumer:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     name: "C ABI / symbols + consumer proof"
     runs-on: ubuntu-latest
     steps:
@@ -332,6 +348,8 @@ jobs:
           '
 
   capi-tsan:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     name: "C ABI / TSan"
     runs-on: ubuntu-latest
     steps:
@@ -390,62 +408,14 @@ jobs:
   # Runs on GitHub-hosted runners using Docker.
   # =============================================================
   build-and-test-cpu:
+    needs: changes
+    if: ${{ needs.changes.outputs.cpu_matrix != '[]' }}
     name: "${{ matrix.backend }}"
     runs-on: ${{ matrix.runs_on || 'ubuntu-latest' }}
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - backend: OPENCV_DNN
-            dockerfile: docker/Dockerfile.opencvdnn
-            image: neuriplo-opencvdnn
-            test_exe: OCVDNNInferTest
-
-          - backend: GGML
-            dockerfile: docker/Dockerfile.ggml
-            image: neuriplo-ggml
-            test_exe: GGMLInferTest
-
-          - backend: OPENVINO
-            dockerfile: docker/Dockerfile.openvino
-            image: neuriplo-openvino
-            test_exe: OpenVINOInferTest
-
-          - backend: ONNX_RUNTIME
-            dockerfile: docker/Dockerfile.onnx-runtime
-            image: neuriplo-onnxruntime
-            test_exe: ONNXRuntimeInferTest
-
-          - backend: LIBTENSORFLOW
-            dockerfile: docker/Dockerfile.libtensorflow
-            image: neuriplo-libtensorflow
-            test_exe: TensorFlowInferTest
-
-          - backend: TVM
-            dockerfile: docker/Dockerfile.tvm
-            image: neuriplo-tvm
-            test_exe: TVMInferTest
-
-          - backend: LIBTORCH
-            dockerfile: docker/Dockerfile.libtorch
-            image: neuriplo-libtorch-cpu
-            test_exe: LibtorchInferTest
-
-          - backend: CACTUS
-            dockerfile: docker/Dockerfile.cactus
-            image: neuriplo-cactus
-            test_exe: CactusInferTest
-            runs_on: ubuntu-24.04-arm
-          - backend: LLAMACPP
-            dockerfile: docker/Dockerfile.llamacpp
-            image: neuriplo-llamacpp
-            test_exe: LlamaCppInferTest
-
-          - backend: LITERT
-            dockerfile: docker/Dockerfile.litert
-            image: neuriplo-litert
-            test_exe: LiteRTInferTest
-
+        include: ${{ fromJSON(needs.changes.outputs.cpu_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -493,6 +463,8 @@ jobs:
   # OpenCV, CUDA, ONNX Runtime, or torch.
   # =============================================================
   default-nert:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'NERT') }}
     name: "Default NERT (no SDK)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -544,6 +516,8 @@ jobs:
   # plus the pinned torch export stack, hence this runs inside the onnx-runtime builder image.
   # =============================================================
   nert:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'NERT') }}
     name: "NERT"
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -607,6 +581,8 @@ jobs:
   # Tests are skipped — they require a real GPU (see build-and-test-gpu).
   # =============================================================
   build-tensorrt:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'TENSORRT') }}
     name: TENSORRT build-only
     runs-on: ubuntu-latest
     steps:
@@ -638,6 +614,8 @@ jobs:
   # model export requires Python torch install done separately)
   # =============================================================
   build-executorch:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'EXECUTORCH') }}
     name: EXECUTORCH build-only
     runs-on: ubuntu-latest
     steps:
@@ -682,13 +660,14 @@ jobs:
   prune-caches:
     name: Prune BuildKit caches
     needs:
+      - changes
       - clang-tidy
       - build-warnings
       - sanitizers
       - build-and-test-cpu
       - build-tensorrt
       - build-executorch
-    if: always() && github.event_name == 'push'
+    if: always() && github.event_name == 'push' && needs.changes.outputs.backends != '[]'
     permissions:
       actions: write
     uses: ./.github/workflows/cache-prune.yml
