@@ -21,9 +21,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 TEST_RESULTS_DIR="$PROJECT_ROOT/test_results"
+NERT_FIXTURE="${NERT_FIXTURE:-}"
 
 # Define backends directly (was in backends.conf)
-BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP" "EXECUTORCH" "LITERT" "DALI")
+BACKENDS=("OPENCV_DNN" "ONNX_RUNTIME" "LIBTORCH" "LIBTENSORFLOW" "TENSORRT" "OPENVINO" "GGML" "TVM" "MIGRAPHX" "CACTUS" "LLAMACPP" "EXECUTORCH" "LITERT" "DALI" "NERT")
 
 # Backend directory mapping
 declare -A BACKEND_DIRS=(
@@ -41,6 +42,7 @@ declare -A BACKEND_DIRS=(
     ["EXECUTORCH"]="executorch"
     ["LITERT"]="litert"
     ["DALI"]="dali"
+    ["NERT"]="nert"
 )
 
 # Test executable mapping
@@ -59,6 +61,7 @@ declare -A BACKEND_TEST_EXES=(
     ["EXECUTORCH"]="ExecuTorchInferTest"
     ["LITERT"]="LiteRTInferTest"
     ["DALI"]="DALIInferTest"
+    ["NERT"]="NertInferTest"
 )
 
 # Helper functions
@@ -405,6 +408,22 @@ check_backend_availability() {
                 return 1
             fi
             ;;
+        "NERT")
+            # NERT is fetched from olibartfast/nert by CMake FetchContent, or
+            # built from a local checkout via -DFETCHCONTENT_SOURCE_DIR_NERT.
+            # There is no system package or setup script to detect; only the
+            # CMake version gate matters.
+            local nert_cmake_version
+            nert_cmake_version=$(cmake --version 2>/dev/null | head -n1 | awk '{print $3}')
+            if [ -n "$nert_cmake_version" ] && \
+               [ "$(printf '%s\n' "3.16" "$nert_cmake_version" | sort -V | head -n1)" = "3.16" ]; then
+                log_success "NERT ${NERT_VERSION:-<unset>} is fetched by CMake at configure time"
+                return 0
+            else
+                log_warning "NERT requires CMake 3.16 or newer"
+                return 1
+            fi
+            ;;
         *)
             log_error "Unknown backend: $backend"
             return 1
@@ -540,6 +559,20 @@ test_backend() {
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DLITERT_DIR="$HOME/dependencies/litert" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         elif [ "$backend" = "DALI" ]; then
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON -DDALI_DIR="$HOME/dependencies/dali" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
+        elif [ "$backend" = "NERT" ]; then
+            # Pass a local checkout when the caller provides one; otherwise
+            # FetchContent clones the NERT_VERSION pin.
+            local nert_source="${FETCHCONTENT_SOURCE_DIR_NERT:-}"
+            local nert_source_args=()
+            if [ -n "$nert_source" ]; then
+                nert_source_args=(-DFETCHCONTENT_SOURCE_DIR_NERT="$nert_source")
+            fi
+            local nert_fixture_args=()
+            if [ -n "$NERT_FIXTURE" ]; then
+                nert_fixture_args=(-DNERT_FIXTURE="$NERT_FIXTURE")
+            fi
+            cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+                "${nert_source_args[@]}" "${nert_fixture_args[@]}" .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         else
             cmake -DDEFAULT_BACKEND="$backend" -DBUILD_INFERENCE_ENGINE_TESTS=ON .. > "${TEST_RESULTS_DIR}/${backend_dir}_build.log" 2>&1
         fi
@@ -663,6 +696,13 @@ EOF
     local test_executable="${BUILD_DIR}/backends/${backend_dir}/test/${test_executable_name}"
     
     if [ -f "$test_executable" ]; then
+        if [ "$backend" = "NERT" ] && [ -z "$NERT_FIXTURE" ]; then
+            log_warning "NERT_FIXTURE is not set; NertInferTest is built but its fixture-backed tests are skipped"
+            return 0
+        fi
+        if [ "$backend" = "NERT" ]; then
+            export NERT_FIXTURE
+        fi
         log_info "Running tests for $backend..."
         
         # Run basic tests

@@ -23,7 +23,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
-| `NERT` | NERT (Neuriplo Engine Runtime, experimental) | `76cf285888a8bc6c63611411f6da18deb21a8c98` | x86_64, ARM64 | yes |
+| `NERT` (default) | NERT (Neuriplo Engine Runtime, experimental) | `76cf285888a8bc6c63611411f6da18deb21a8c98` | x86_64, ARM64 | no |
 <!-- /GEN:backend-overview -->
 
 ## Architecture

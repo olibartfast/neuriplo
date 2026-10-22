@@ -25,7 +25,7 @@ validate_scripts() {
 
 # Validate test files
 validate_test_files() {
-    local backends=("opencv-dnn" "libtorch" "onnx-runtime" "libtensorflow" "tensorrt" "openvino" "ggml" "tvm" "migraphx" "cactus" "llamacpp" "executorch" "litert")
+    local backends=("opencv-dnn" "libtorch" "onnx-runtime" "libtensorflow" "tensorrt" "openvino" "ggml" "tvm" "migraphx" "cactus" "llamacpp" "executorch" "litert" "nert")
     local all_valid=true
 
     for backend in "${backends[@]}"; do
@@ -56,7 +56,11 @@ test_model_downloader() {
 
 # Test backend availability
 test_backend_availability() {
-    pkg-config --exists opencv4 || pkg-config --exists opencv || echo "Warning: OpenCV not found"
+    # OpenCV is optional: it is only needed for an explicit
+    # -DDEFAULT_BACKEND=OPENCV_DNN build, not for the default NERT backend.
+    if ! pkg-config --exists opencv4 && ! pkg-config --exists opencv; then
+        echo "Info: OpenCV not found (optional; needed only for -DDEFAULT_BACKEND=OPENCV_DNN)"
+    fi
     for pkg in torch tensorflow onnxruntime; do
         python3 -c "import $pkg" >/dev/null 2>&1 || echo "Warning: Python package $pkg not found"
     done
@@ -68,8 +72,14 @@ test_backend_availability() {
 # Test build system
 test_build_system() {
     local test_dir=$(mktemp -d)
+    local nert_source_args=()
+    # The bare configure exercises the default NERT backend. Allow an offline
+    # run against a local checkout, exactly as the CI/dev workflow does.
+    if [[ -n "${FETCHCONTENT_SOURCE_DIR_NERT:-}" ]]; then
+        nert_source_args=(-DFETCHCONTENT_SOURCE_DIR_NERT="$FETCHCONTENT_SOURCE_DIR_NERT")
+    fi
     cd "$test_dir"
-    cmake "$PROJECT_ROOT" >/dev/null 2>&1 && { cd "$PROJECT_ROOT"; rm -rf "$test_dir"; return 0; }
+    cmake "$PROJECT_ROOT" "${nert_source_args[@]}" >/dev/null 2>&1 && { cd "$PROJECT_ROOT"; rm -rf "$test_dir"; return 0; }
     echo "Error: CMake configuration failed"
     cd "$PROJECT_ROOT"
     rm -rf "$test_dir"
@@ -91,7 +101,7 @@ generate_validation_report() {
         echo "Test Validation Report - $(date)"
         echo ""
         echo "Test Files Status:"
-        for backend in opencv-dnn libtorch onnx-runtime libtensorflow tensorrt openvino ggml tvm migraphx cactus llamacpp executorch litert; do
+        for backend in opencv-dnn libtorch onnx-runtime libtensorflow tensorrt openvino ggml tvm migraphx cactus llamacpp executorch litert nert; do
             local test_dir="$PROJECT_ROOT/backends/$backend/test"
             if [[ -d "$test_dir" ]]; then
                 echo "  $backend: Test directory exists"

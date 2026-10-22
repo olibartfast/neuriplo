@@ -508,6 +508,7 @@ jobs:
       - name: Configure, build, and test the default backend
         run: |
           cmake -S . -B build-default-nert \
+            -DWERROR=ON \
             -DBUILD_INFERENCE_ENGINE_TESTS=ON > configure.log 2>&1
           cat configure.log
           grep -q "Default backend: NERT" configure.log
@@ -517,6 +518,23 @@ jobs:
           # test must not be registered.
           ctest --test-dir build-default-nert -N > tests.txt
           ! grep -q NertInferTest tests.txt
+          # The compiled default is first in the runtime list ([R-1]); the
+          # C ABI suite asserts index 0 and ids.front().
+          ctest --test-dir build-default-nert -R "^CApi" --output-on-failure
+
+      - name: ASan + UBSan default backend
+        run: |
+          cmake -S . -B build-default-nert-asan \
+            -DSANITIZERS=ON \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON > configure-asan.log 2>&1
+          cat configure-asan.log
+          grep -q "Default backend: NERT" configure-asan.log
+          cmake --build build-default-nert-asan --parallel "$(nproc)"
+          export ASAN_OPTIONS="detect_leaks=1:abort_on_error=1"
+          export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
+          export LSAN_OPTIONS="suppressions=$PWD/scripts/quality/lsan-suppressions.txt:print_suppressions=0"
+          ctest --test-dir build-default-nert-asan --output-on-failure
 
   # =============================================================
   # NERT Backend (specs/2026-10-01-yolo26-native, Y12)
@@ -578,7 +596,9 @@ jobs:
               -DONNX_RUNTIME_DIR=/opt/onnxruntime >/dev/null
             cmake --build build-nert --target nert_parity_fixture nert_yolo_parity_fixture --parallel
             cmake --build build-nert --parallel
-            ctest --test-dir build-nert -R "NertInferTest|nert_parity|nert_yolo_parity" --output-on-failure
+            ctest --test-dir build-nert \
+              -R "NertInferTest|nert_parity|nert_yolo_parity|CApi.Lifecycle.AvailableBackends|CApiWrapper.BackendsListsFixtures" \
+              --output-on-failure
           '
 
   # =============================================================

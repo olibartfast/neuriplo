@@ -53,6 +53,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The NERT adapter fixture test (`NertInferTest`) is registered with CTest only
   when `-DNERT_FIXTURE=<path>` is set. The executable still builds without it;
   when registered, the test fails (never skips) if the fixture is unusable.
+- `-DWERROR=ON` and `-DSANITIZERS=ON` now apply to the `neuriplo` library and
+  the fetched NERT engine target, not only to test targets created later.
+  NERT keeps the strict warning set with two upstream unused-symbol
+  exceptions.
 - The NERT engine moved to its own repository (olibartfast/nert), pinned by
   `NERT_VERSION`; the in-tree `engine/` directory is removed.
 - TensorRT pinned to 11.2.1.2 (four-part NVIDIA version) with a new
@@ -77,6 +81,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   LibTorch release that compiled it.
 
 ### Fixed
+- Plugin loader: malformed plugin dtype values are inspected as raw underlying
+  bytes before enum validation. The expected rejection tests still pass, and
+  UBSan no longer reports an invalid enum load when the default NERT build is
+  sanitizer-instrumented.
 - `NERT` backend (experimental): the loader accepts identical repeated value-info
   entries, which torch 2.12 writes for every tensor; the pinned YOLO26 fixture
   failed to load without it.

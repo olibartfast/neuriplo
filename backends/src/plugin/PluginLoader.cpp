@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <glog/logging.h>
@@ -99,15 +100,27 @@ constexpr size_t kMaxLayerRank = 16;
 // check here compares the underlying integer, never the enum value itself.
 using NeuriploDtypeUnderlying = std::underlying_type_t<neuriplo_dtype_t>;
 
-bool dtype_is_valid(neuriplo_dtype_t dtype) {
-    const auto value = static_cast<NeuriploDtypeUnderlying>(dtype);
+// Plugin memory is untrusted: the fixtures deliberately write out-of-range
+// dtype values. Reading such a value as the enum type is undefined behavior
+// (and UBSan flags it), so inspect the raw underlying bytes first and only
+// cast after the range check.
+NeuriploDtypeUnderlying raw_dtype_value(const neuriplo_dtype_t& dtype) {
+    static_assert(sizeof(NeuriploDtypeUnderlying) == sizeof(neuriplo_dtype_t),
+                  "neuriplo_dtype_t must have a fixed underlying size");
+    NeuriploDtypeUnderlying value{};
+    std::memcpy(&value, &dtype, sizeof(value));
+    return value;
+}
+
+bool dtype_is_valid(const neuriplo_dtype_t& dtype) {
+    const auto value = raw_dtype_value(dtype);
     return value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_FP32) ||
            value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_INT32) ||
            value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_INT64) ||
            value == static_cast<NeuriploDtypeUnderlying>(NEURIPLO_DTYPE_UINT8);
 }
 
-bool metadata_dtype_is_valid(neuriplo_dtype_t dtype) { return dtype_is_valid(dtype); }
+bool metadata_dtype_is_valid(const neuriplo_dtype_t& dtype) { return dtype_is_valid(dtype); }
 
 // Only ever called after metadata_dtype_is_valid (or the output-side
 // dtype_is_valid) has accepted `dtype`; the throw below is defence in depth
