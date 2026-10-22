@@ -69,7 +69,7 @@ test_backend_availability() {
 test_build_system() {
     local test_dir=$(mktemp -d)
     cd "$test_dir"
-    cmake "$PROJECT_ROOT" -DDEFAULT_BACKEND=OPENCV_DNN >/dev/null 2>&1 && { cd "$PROJECT_ROOT"; rm -rf "$test_dir"; return 0; }
+    cmake "$PROJECT_ROOT" >/dev/null 2>&1 && { cd "$PROJECT_ROOT"; rm -rf "$test_dir"; return 0; }
     echo "Error: CMake configuration failed"
     cd "$PROJECT_ROOT"
     rm -rf "$test_dir"

@@ -7,7 +7,7 @@
 #   ./scripts/quality/run.sh --format     # format check only
 #   ./scripts/quality/run.sh --includes   # missing-include check only
 #   ./scripts/quality/run.sh --fix        # clang-format -i
-#   ./scripts/quality/run.sh --sanitizers # ASan+UBSan build+test (OPENCV_DNN default)
+#   ./scripts/quality/run.sh --sanitizers # ASan+UBSan build+test (NERT default)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

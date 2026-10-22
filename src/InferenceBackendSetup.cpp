@@ -5,6 +5,7 @@
 #include "decorators/ProfilingBackend.hpp"
 #include "plugin/PluginLoader.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <glog/logging.h>
 #include <memory>
@@ -98,6 +99,17 @@ std::vector<std::string> available_backend_ids(const std::string& plugin_dir) {
         }
         if (!already_registered) {
             ids.push_back(descriptor.id);
+        }
+    }
+
+    // C ABI contract: the compiled default is listed first when several
+    // backends are compiled in. The registry itself stays in declaration order
+    // (independent of the default); rotate the default id to the front here.
+    const BackendRuntimeRegistration* default_registration = get_compiled_backend_registration();
+    if (default_registration != nullptr) {
+        const auto default_position = std::find(ids.begin(), ids.end(), default_registration->id);
+        if (default_position != ids.end() && default_position != ids.begin()) {
+            std::rotate(ids.begin(), default_position, default_position + 1);
         }
     }
     return ids;

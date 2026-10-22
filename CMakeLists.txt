@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
 
+# cmake/Nert.cmake shadows BUILD_INFERENCE_ENGINE_TESTS as a normal variable
+# while NERT is configured, then restores it. Without CMP0077 in NEW mode the
+# later option(BUILD_INFERENCE_ENGINE_TESTS) sees that normal variable and
+# emits a developer warning. NEW keeps the restored value intact.
+if(POLICY CMP0077)
+    cmake_policy(SET CMP0077 NEW)
+endif()
+
 # Read version from VERSION file
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROJECT_VERSION_RAW)
 string(STRIP "${PROJECT_VERSION_RAW}" PROJECT_VERSION_RAW)
@@ -28,7 +36,7 @@ message(STATUS "neuriplo Cmake module path: ${CMAKE_MODULE_PATH}")
 
 # Read DEFAULT_BACKEND from the cache. If not set, provide a default.
 if(NOT DEFINED DEFAULT_BACKEND)
-    set(DEFAULT_BACKEND "OPENCV_DNN" CACHE STRING "Default backend for inference")
+    set(DEFAULT_BACKEND "NERT" CACHE STRING "Default backend for inference")
 endif()
 
 neuriplo_get_supported_backends(SUPPORTED_BACKENDS)
@@ -64,6 +72,17 @@ foreach(enabled_backend IN LISTS NEURIPLO_ENABLED_BACKENDS)
     endif()
 endforeach()
 neuriplo_check_backend_conflicts("${NEURIPLO_ENABLED_BACKENDS}")
+
+# NERT's own CMakeLists declares cmake_minimum_required(VERSION 3.16), and
+# FetchContent_MakeAvailable needs 3.14+. Fail here with a clear message instead
+# of a confusing error from inside the fetched project.
+if("NERT" IN_LIST NEURIPLO_ENABLED_BACKENDS AND CMAKE_VERSION VERSION_LESS "3.16")
+    message(FATAL_ERROR
+        "The NERT backend requires CMake 3.16 or newer (found ${CMAKE_VERSION}). "
+        "Upgrade CMake, or select a different backend explicitly, e.g. "
+        "-DDEFAULT_BACKEND=OPENCV_DNN.")
+endif()
+
 message(STATUS "Enabled backends: ${NEURIPLO_ENABLED_BACKENDS}")
 
 # Backends built as dlopen plugins (cmake/PluginBackends.cmake). Declared here

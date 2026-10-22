@@ -189,9 +189,18 @@ Static variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DEFAULT_BACKEND` | — | Backend to compile (required) |
-| `BUILD_INFERENCE_ENGINE_TESTS` | `OFF` | Build GTest executables |
+| `DEFAULT_BACKEND` | `NERT` | Backend compiled in and used by `setup_inference_engine`; set an explicit ID to opt out |
+| `BUILD_INFERENCE_ENGINE_TESTS` | `ON` | Build GTest executables |
 | `DEPENDENCY_ROOT` | `$HOME/dependencies` | Root for installed backends |
+
+NERT is the default backend but is not a system dependency. `cmake/Nert.cmake`
+declares it with `FetchContent` at the commit pinned by `NERT_VERSION` and
+builds it from source as a static library, so a bare configure needs CMake
+3.16+ and either network access to `olibartfast/nert` or
+`-DFETCHCONTENT_SOURCE_DIR_NERT=/path/to/nert`, which uses a local checkout and
+fetches nothing. The default NERT build does not require or link OpenCV.
+Opting into OpenCV DNN with `-DDEFAULT_BACKEND=OPENCV_DNN` uses the system
+OpenCV development package instead and does not run FetchContent.
 
 Per-backend install-path overrides:
 

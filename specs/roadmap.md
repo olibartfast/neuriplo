@@ -62,7 +62,7 @@ Exit criteria:
 
 - Adding, removing, or renaming a backend cannot leave the maintained
   inventories silently inconsistent.
-- The default `OPENCV_DNN` configure/build/test path and generated-doc check stay
+- The default `NERT` configure/build/test path and generated-doc check stay
   green.
 
 ## Phase 2 — Plugin ABI and Loader Hardening
@@ -251,7 +251,8 @@ does not change how `OPENCV_DNN` is built or pinned.
 - Gate lifted (maintainer, 2026-10-10, later the same day): NERT moved to its
   own repository, `olibartfast/nert`; `feature/nert` merges into `develop`
   once Neuriplo consumes NERT as a pinned dependency (packet R4), with NERT
-  labelled experimental and `DEFAULT_BACKEND` left at `OPENCV_DNN`. RAFT,
+  labelled experimental and `DEFAULT_BACKEND` left at `OPENCV_DNN` at that
+  point (superseded by Phase N3 on 2026-10-22). RAFT,
   OWLv2 and Grounding DINO coverage continues in the NERT repository. Backlog and
   evidence: `specs/2026-10-10-native-tasks-op-coverage/` (tiers 1-2 of 5 done
   2026-10-10: YOLO families and transformer encoders).
@@ -287,16 +288,20 @@ does not change how `OPENCV_DNN` is built or pinned.
 
 ### Phase N3 - Default Backend Migration
 
-- Branch default (maintainer, 2026-10-10): on `feature/nert`,
-  `DEFAULT_BACKEND` is `NERT` (packet D2). The default for `develop` and
-  releases is still this phase's decision.
-
-- Status: Blocked; needs the deprecation-window policy named in
-  `specs/mission.md` open questions
-- Outcome: a decision, with migration notes, on whether `NERT` becomes
-  `DEFAULT_BACKEND` and what happens to `OPENCV_DNN`.
-- Proves: nothing technical; it is a compatibility decision and must be
-  specified as one.
+- Status: Implemented (2026-10-22). On `develop`, `DEFAULT_BACKEND` is
+  `NERT`: a bare `cmake -S . -B build` configures and builds it (CMake
+  FetchContent at `NERT_VERSION`, CMake 3.16+, and
+  `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>` for a local checkout). `OPENCV_DNN`
+  remains a first-class backend selected explicitly with
+  `-DDEFAULT_BACKEND=OPENCV_DNN` and `libopencv-dev`; it is no longer the
+  default and is not part of the default build. On `feature/nert`,
+  `DEFAULT_BACKEND` was set to `NERT` by packet D2 on 2026-10-10.
+- Packet: [`specs/2026-10-22-default-backend-nert/`](2026-10-22-default-backend-nert/requirements.md).
+- Outcome: recorded decision, with migration notes, that `NERT` is
+  `DEFAULT_BACKEND` for `develop`, while `OPENCV_DNN` stays available through
+  explicit selection.
+- Proves: nothing technical; it is a compatibility decision and is specified as
+  one.
 
 ## Specification Rule
 
@@ -307,6 +312,12 @@ validation defined before implementation and evidence recorded after execution.
 Small contained fixes may use a concise PR-level specification; trivial fixes
 need no packet. Do not create speculative packets for inactive roadmap items or
 backfill packets for completed work.
+
+_Revision: 2026-10-22 - Phase N3 implemented: develop now defaults to `NERT`
+(CMake FetchContent at `NERT_VERSION`, CMake 3.16+), with `OPENCV_DNN`
+retained as an explicit `-DDEFAULT_BACKEND=OPENCV_DNN` option and no longer in
+the default build. Validation packet:
+`specs/2026-10-22-default-backend-nert/`._
 
 _Revision: 2026-10-10 - renamed the first-party backend again, `NEURIPLO_ENGINE`
 to `NERT`, Neuriplo Engine Runtime (maintainer decision; packet R2). `NRT` was rejected because it is

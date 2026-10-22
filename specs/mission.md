@@ -96,7 +96,10 @@ failure behavior without implying coverage that has not been validated.
 - Support tiers such as stable, experimental, deprecated, and hardware-only are
   described informally but do not yet have repository-wide entry/exit rules.
 - The compatibility policy for future public API migrations needs a more formal
-  deprecation window.
+  deprecation window. The 2026-10-22 NERT default-backend decision does not
+  remove `OPENCV_DNN` or any other backend; explicit selection remains
+  supported, so no deprecation window is required for that switch. Future
+  removals still need one.
 
 Until these are resolved, feature specifications must state their own measurable
 performance and compatibility requirements rather than inventing global targets.

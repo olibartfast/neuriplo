@@ -5,7 +5,7 @@
 #   ./scripts/quality/clang_tidy.sh [BUILD_DIR]
 #
 # Example:
-#   cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+#   cmake -S . -B build -DDEFAULT_BACKEND=NERT -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 #   ./scripts/quality/clang_tidy.sh build
 set -euo pipefail
 
@@ -24,7 +24,7 @@ TIDY="$(quality_clang_tidy)" || {
 DB="${ROOT}/${BUILD_DIR}/compile_commands.json"
 if [[ ! -f "$DB" ]]; then
     echo "Missing ${DB}. Configure the build first, e.g.:" >&2
-    echo "  cmake -S . -B ${BUILD_DIR} -DDEFAULT_BACKEND=OPENCV_DNN -DCMAKE_EXPORT_COMPILE_COMMANDS=ON" >&2
+    echo "  cmake -S . -B ${BUILD_DIR} -DDEFAULT_BACKEND=NERT -DCMAKE_EXPORT_COMPILE_COMMANDS=ON" >&2
     exit 1
 fi
 
@@ -35,6 +35,10 @@ seen = set()
 for entry in db:
     path = entry.get("file", "")
     if not path or path in seen:
+        continue
+    # FetchContent dependencies (including NERT) are not this repository's
+    # sources; lint only the adapter and the local tree.
+    if "/_deps/" in path:
         continue
     if "/backends/" in path or path.startswith("src/") or "/src/" in path or "/include/" in path:
         seen.add(path)

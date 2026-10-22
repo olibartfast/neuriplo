@@ -41,9 +41,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--path-file` names the pointer file it writes.
 
 ### Changed
+- `NERT` is the default backend on `develop`: a bare `cmake -S . -B build`
+  configures and builds NERT, fetched from olibartfast/nert at `NERT_VERSION`
+  (CMake 3.16+, network or `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`), with no
+  vendor SDK and no OpenCV. `OPENCV_DNN` remains a first-class explicit option
+  via `-DDEFAULT_BACKEND=OPENCV_DNN` plus `libopencv-dev`.
+- Migration: build trees configured before this change cache `DEFAULT_BACKEND`
+  and `NEURIPLO_BACKENDS`. Reconfigure with `cmake --fresh` (CMake 3.24+) or in
+  a new build directory. A bare `-DNEURIPLO_BACKENDS="A;B"` prepends NERT as
+  the compiled default unless `DEFAULT_BACKEND` is overridden.
+- The NERT adapter fixture test (`NertInferTest`) is registered with CTest only
+  when `-DNERT_FIXTURE=<path>` is set. The executable still builds without it;
+  when registered, the test fails (never skips) if the fixture is unusable.
 - The NERT engine moved to its own repository (olibartfast/nert), pinned by
-  `NERT_VERSION`; the in-tree `engine/` directory is removed. `DEFAULT_BACKEND`
-  remains `OPENCV_DNN`.
+  `NERT_VERSION`; the in-tree `engine/` directory is removed.
 - TensorRT pinned to 11.2.1.2 (four-part NVIDIA version) with a new
   `TENSORRT_CUDA_VERSION=13.3`: TensorRT 11.2.1.2 is published for CUDA 13.3
   and 12.9 only, and runs on the 13.4 toolkit through minor-version

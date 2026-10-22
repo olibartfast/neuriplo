@@ -218,12 +218,13 @@ backends:
     arch: [x86_64]
     gpu: true
 
-  # NERT is a first-party experimental backend. Its engine is fetched from
+  # NERT is the default backend. Its engine is fetched from
   # https://github.com/olibartfast/nert at the commit pinned by NERT_VERSION (CMake
   # FetchContent), so there is no setup script and no vendor Docker image. It is
-  # intentionally absent from the CI per-backend Docker matrix; it is exercised
-  # via -DDEFAULT_BACKEND=NERT. Build against a local checkout with
-  # -DFETCHCONTENT_SOURCE_DIR_NERT=<path>.
+  # intentionally absent from the CI per-backend Docker matrix; a bare configure
+  # exercises the default, and the dedicated CI job adds
+  # -DNEURIPLO_BACKENDS=ONNX_RUNTIME for the parity tests. Build against a local
+  # checkout with -DFETCHCONTENT_SOURCE_DIR_NERT=<path>.
   - id: NERT
     name: NERT (Neuriplo Engine Runtime, experimental)
     version_var: NERT_VERSION

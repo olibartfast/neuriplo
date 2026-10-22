@@ -17,19 +17,15 @@
 namespace {
 
 constexpr const char* kFixtureEnv = "NERT_FIXTURE";
-constexpr const char* kFixtureFallback = "/tmp/opencode/resnet18_export/resnet18.onnx";
 constexpr size_t kInputElements = 1u * 3u * 224u * 224u;
 
-// The fixture is resolved from the environment first (ctest passes the cache
-// variable through), then the well-known local export. A missing fixture is a
-// test failure, never a skip.
+// The fixture is resolved from the environment (ctest passes the cache
+// variable through). A missing fixture is a test failure, never a skip; the
+// CTest entry itself is registered only when the fixture is configured.
 std::string resolve_fixture() {
     const char* from_env = std::getenv(kFixtureEnv);
     if (from_env != nullptr && from_env[0] != '\0') {
         return from_env;
-    }
-    if (std::filesystem::exists(kFixtureFallback)) {
-        return kFixtureFallback;
     }
     return "";
 }
@@ -161,8 +157,8 @@ class NertInferTest : public ::testing::Test {
   protected:
     void SetUp() override {
         fixture_ = resolve_fixture();
-        ASSERT_FALSE(fixture_.empty()) << "ResNet-18 fixture not found; set " << kFixtureEnv << " or place it at "
-                                       << kFixtureFallback;
+        ASSERT_FALSE(fixture_.empty()) << "ResNet-18 fixture not found; set " << kFixtureEnv
+                                       << " (the CTest entry is registered only when it is configured)";
         ASSERT_TRUE(std::filesystem::exists(fixture_)) << "fixture does not exist: " << fixture_;
     }
 
