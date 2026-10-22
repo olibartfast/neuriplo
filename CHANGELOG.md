@@ -53,6 +53,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The NERT adapter fixture test (`NertInferTest`) is registered with CTest only
   when `-DNERT_FIXTURE=<path>` is set. The executable still builds without it;
   when registered, the test fails (never skips) if the fixture is unusable.
+- CI backend matrices are selected from the change set: backend-specific
+  edits run that backend, shared runtime/build/test paths run every backend,
+  and documentation-only paths are ignored. Matrix metadata lives in
+  `scripts/ci/backend_matrices.json`.
 - On the NERT default path, `-DWERROR=ON` and `-DSANITIZERS=ON` now apply to
   the `neuriplo` library and the fetched NERT engine target, not only to test
   targets created later. NERT keeps the strict warning set with two upstream
