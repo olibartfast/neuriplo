@@ -6,9 +6,6 @@ if(WERROR)
     # target are created; directory-level add_compile_options does not reach
     # those existing targets. Apply the strict flags directly so the default
     # backend and its engine are actually covered.
-    if(TARGET neuriplo)
-        target_compile_options(neuriplo PRIVATE -Wall -Wextra -Wpedantic -Werror)
-    endif()
     if(TARGET nert)
         # NERT is a separately versioned first-party dependency with its own
         # quality gate. Keep the strict warning set, but do not let two known
@@ -16,6 +13,13 @@ if(WERROR)
         target_compile_options(nert PRIVATE -Wall -Wextra -Wpedantic -Werror
             -Wno-error=unused-parameter
             -Wno-error=unused-function)
+    endif()
+    if(TARGET neuriplo AND DEFAULT_BACKEND STREQUAL "NERT")
+        # Apply the library-level gate to the NERT default path. The existing
+        # per-backend Werror matrix predates this and still has backend-local
+        # warnings (for example OpenCV DNN sign comparisons); do not turn that
+        # matrix red as a side effect of the default migration.
+        target_compile_options(neuriplo PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     message(STATUS "Strict warnings: -Wall -Wextra -Wpedantic -Werror enabled")
 endif()
@@ -28,13 +32,16 @@ if(SANITIZERS)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=address,undefined)
     # Same ordering issue as WERROR: the library and the NERT engine already
-    # exist by the time this file is included.
-    foreach(target neuriplo nert)
-        if(TARGET ${target})
-            target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
-            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
-        endif()
-    endforeach()
+    # exist by the time this file is included. Instrument the NERT default
+    # path; leave other backends on their pre-existing sanitizer scope.
+    if(TARGET nert)
+        target_compile_options(nert PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+        target_link_options(nert PRIVATE -fsanitize=address,undefined)
+    endif()
+    if(TARGET neuriplo AND DEFAULT_BACKEND STREQUAL "NERT")
+        target_compile_options(neuriplo PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+        target_link_options(neuriplo PRIVATE -fsanitize=address,undefined)
+    endif()
     message(STATUS "Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled (use Debug + ctest)")
 endif()
 

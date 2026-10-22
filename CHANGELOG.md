@@ -53,10 +53,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The NERT adapter fixture test (`NertInferTest`) is registered with CTest only
   when `-DNERT_FIXTURE=<path>` is set. The executable still builds without it;
   when registered, the test fails (never skips) if the fixture is unusable.
-- `-DWERROR=ON` and `-DSANITIZERS=ON` now apply to the `neuriplo` library and
-  the fetched NERT engine target, not only to test targets created later.
-  NERT keeps the strict warning set with two upstream unused-symbol
-  exceptions.
+- On the NERT default path, `-DWERROR=ON` and `-DSANITIZERS=ON` now apply to
+  the `neuriplo` library and the fetched NERT engine target, not only to test
+  targets created later. NERT keeps the strict warning set with two upstream
+  unused-symbol exceptions; explicit other backends keep their pre-existing
+  Werror/sanitizer scope.
 - The NERT engine moved to its own repository (olibartfast/nert), pinned by
   `NERT_VERSION`; the in-tree `engine/` directory is removed.
 - TensorRT pinned to 11.2.1.2 (four-part NVIDIA version) with a new
