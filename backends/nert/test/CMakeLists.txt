@@ -23,26 +23,22 @@ target_link_libraries(NertInferTest PRIVATE
     GTest::gtest_main
 )
 
-add_test(NAME NertInferTest COMMAND NertInferTest)
-
-# Fixture resolvable via env var or CMake cache variable of the same name, with
-# the well-known local export location as a fallback. The tests ASSERT (fail,
-# never skip) when the fixture is absent; the environment property below is the
-# channel from the cache variable to the test process.
+# The adapter test needs a real opset-18 ResNet-18 fixture. The executable is
+# still built without one (so it keeps compiling in the default build), but the
+# CTest entry is registered only when -DNERT_FIXTURE=<path> is set. A registered
+# test ASSERTs when the fixture is absent: it fails, never skips.
 set(NERT_FIXTURE "" CACHE PATH
     "Path to the opset-18 ResNet-18 ONNX fixture for the NERT adapter tests")
-if(NOT NERT_FIXTURE AND EXISTS
-    "/tmp/opencode/resnet18_export/resnet18.onnx")
-    set(NERT_FIXTURE
-        "/tmp/opencode/resnet18_export/resnet18.onnx")
-endif()
-
-# The fixture run takes ~30 s per inference; several cases run it more than once.
-set_tests_properties(NertInferTest PROPERTIES TIMEOUT 1800)
-
 if(NERT_FIXTURE)
+    add_test(NAME NertInferTest COMMAND NertInferTest)
+    # The fixture run takes ~30 s per inference; several cases run it more than once.
     set_tests_properties(NertInferTest PROPERTIES
+        TIMEOUT 1800
         ENVIRONMENT "NERT_FIXTURE=${NERT_FIXTURE}")
+else()
+    message(STATUS
+        "NERT_FIXTURE not set: NertInferTest will build but is not registered with CTest "
+        "(set -DNERT_FIXTURE=<path> to enable it)")
 endif()
 
 # ---------------------------------------------------------------------------

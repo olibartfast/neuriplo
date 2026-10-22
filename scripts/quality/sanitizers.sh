@@ -6,7 +6,7 @@
 #   ./scripts/quality/sanitizers.sh [OPTIONS]
 #
 # Options:
-#   --backend NAME   DEFAULT_BACKEND (default: OPENCV_DNN)
+#   --backend NAME   DEFAULT_BACKEND (default: NERT)
 #   --build-dir DIR  CMake build directory (default: build-asan)
 #   --no-test        Build only; skip ctest
 set -euo pipefail
@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common.sh"
 
 ROOT="$(quality_repo_root)"
-BACKEND="${DEFAULT_BACKEND:-OPENCV_DNN}"
+BACKEND="${DEFAULT_BACKEND:-NERT}"
 BUILD_DIR="build-asan"
 RUN_TESTS=1
 

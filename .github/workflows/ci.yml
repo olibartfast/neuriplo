@@ -487,6 +487,56 @@ jobs:
             "
 
   # =============================================================
+  # Default backend (specs/2026-10-22-default-backend-nert)
+  # No -DDEFAULT_BACKEND and no fixture: a bare configure must select NERT,
+  # build with tests, and pass the full fixture-free ctest. Deliberately no
+  # OpenCV, CUDA, ONNX Runtime, or torch.
+  # =============================================================
+  default-nert:
+    name: "Default NERT (no SDK)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential pkg-config \
+            libgoogle-glog-dev libgtest-dev libgmock-dev
+
+      - name: Configure, build, and test the default backend
+        run: |
+          cmake -S . -B build-default-nert \
+            -DWERROR=ON \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON > configure.log 2>&1
+          cat configure.log
+          grep -q "Default backend: NERT" configure.log
+          cmake --build build-default-nert --parallel "$(nproc)"
+          ctest --test-dir build-default-nert --output-on-failure
+          # Fixture tests are conditional: without NERT_FIXTURE the adapter
+          # test must not be registered.
+          ctest --test-dir build-default-nert -N > tests.txt
+          ! grep -q NertInferTest tests.txt
+          # The compiled default is first in the runtime list ([R-1]); the
+          # C ABI suite asserts index 0 and ids.front().
+          ctest --test-dir build-default-nert -R "^CApi" --output-on-failure
+
+      - name: ASan + UBSan default backend
+        run: |
+          cmake -S . -B build-default-nert-asan \
+            -DSANITIZERS=ON \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON > configure-asan.log 2>&1
+          cat configure-asan.log
+          grep -q "Default backend: NERT" configure-asan.log
+          cmake --build build-default-nert-asan --parallel "$(nproc)"
+          export ASAN_OPTIONS="detect_leaks=1:abort_on_error=1"
+          export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
+          export LSAN_OPTIONS="suppressions=$PWD/scripts/quality/lsan-suppressions.txt:print_suppressions=0"
+          ctest --test-dir build-default-nert-asan --output-on-failure
+
+  # =============================================================
   # NERT Backend (specs/2026-10-01-yolo26-native, Y12)
   # Experimental first-party engine, fetched from olibartfast/nert at the
   # NERT_VERSION pin (its own engine_* suites run in the NERT repository).
@@ -540,13 +590,15 @@ jobs:
             # into the build tree themselves at build time.
             python3 backends/nert/test/provision_parity_fixture.py /tmp/nert-fixture
             cmake -S . -B build-nert \
-              -DDEFAULT_BACKEND=NERT -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+              -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
               -DBUILD_INFERENCE_ENGINE_TESTS=ON \
               -DNERT_FIXTURE=/tmp/nert-fixture/resnet18.onnx \
               -DONNX_RUNTIME_DIR=/opt/onnxruntime >/dev/null
             cmake --build build-nert --target nert_parity_fixture nert_yolo_parity_fixture --parallel
             cmake --build build-nert --parallel
-            ctest --test-dir build-nert -R "NertInferTest|nert_parity|nert_yolo_parity" --output-on-failure
+            ctest --test-dir build-nert \
+              -R "NertInferTest|nert_parity|nert_yolo_parity|CApi.Lifecycle.AvailableBackends|CApiWrapper.BackendsListsFixtures" \
+              --output-on-failure
           '
 
   # =============================================================

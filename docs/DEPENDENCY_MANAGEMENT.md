@@ -23,7 +23,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
-| `NERT` | NERT (Neuriplo Engine Runtime, experimental) | `76cf285888a8bc6c63611411f6da18deb21a8c98` | x86_64, ARM64 | yes |
+| `NERT` (default) | NERT (Neuriplo Engine Runtime, experimental) | `76cf285888a8bc6c63611411f6da18deb21a8c98` | x86_64, ARM64 | no |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -189,9 +189,18 @@ Static variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DEFAULT_BACKEND` | — | Backend to compile (required) |
-| `BUILD_INFERENCE_ENGINE_TESTS` | `OFF` | Build GTest executables |
+| `DEFAULT_BACKEND` | `NERT` | Backend compiled in and used by `setup_inference_engine`; set an explicit ID to opt out |
+| `BUILD_INFERENCE_ENGINE_TESTS` | `ON` | Build GTest executables |
 | `DEPENDENCY_ROOT` | `$HOME/dependencies` | Root for installed backends |
+
+NERT is the default backend but is not a system dependency. `cmake/Nert.cmake`
+declares it with `FetchContent` at the commit pinned by `NERT_VERSION` and
+builds it from source as a static library, so a bare configure needs CMake
+3.16+ and either network access to `olibartfast/nert` or
+`-DFETCHCONTENT_SOURCE_DIR_NERT=/path/to/nert`, which uses a local checkout and
+fetches nothing. The default NERT build does not require or link OpenCV.
+Opting into OpenCV DNN with `-DDEFAULT_BACKEND=OPENCV_DNN` uses the system
+OpenCV development package instead and does not run FetchContent.
 
 Per-backend install-path overrides:
 

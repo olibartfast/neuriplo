@@ -42,7 +42,7 @@ Skip hooks when needed: `git commit --no-verify` or `SKIP=clang-format-check-all
 ./scripts/quality/check_includes.py    # std symbols used without their header
 ./scripts/quality/cppcheck.sh
 ./scripts/quality/clang_tidy.sh build  # needs compile_commands.json
-./scripts/quality/sanitizers.sh        # ASan+UBSan build + ctest (default OPENCV_DNN)
+./scripts/quality/sanitizers.sh        # ASan+UBSan build + ctest (default NERT)
 ```
 
 ### Include audit
@@ -71,7 +71,7 @@ prefix to `EXTERNAL_QUOTED_PREFIXES`, in the script.
 Requires a configured build with `CMAKE_EXPORT_COMPILE_COMMANDS=ON`:
 
 ```bash
-cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN \
+cmake -S . -B build -DDEFAULT_BACKEND=NERT \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DBUILD_INFERENCE_ENGINE_TESTS=ON
 cmake --build build
 ./scripts/quality/clang_tidy.sh build
@@ -82,10 +82,13 @@ CI runs clang-tidy per backend inside Docker images (see `clang-tidy` job in `ci
 ### Sanitizers (ASan + UBSan)
 
 CMake flag `-DSANITIZERS=ON` adds `-fsanitize=address,undefined` (see `cmake/SetCompilerFlags.cmake`).
+The script defaults to `NERT`; OpenCV is no longer a default build dependency, so
+select the OpenCV DNN backend explicitly (and install `libopencv-dev`) if used.
 
 ```bash
 ./scripts/quality/sanitizers.sh
-./scripts/quality/sanitizers.sh --backend OPENCV_DNN --build-dir build-asan
+./scripts/quality/sanitizers.sh --backend NERT --build-dir build-asan
+./scripts/quality/sanitizers.sh --backend OPENCV_DNN --build-dir build-asan-opencv
 ```
 
 Use Debug builds. Some backends are excluded in CI sanitizers (LibTensorFlow, OpenVINO TBB/ASan conflict) — see `sanitizers` job comments in `ci.yml`.
@@ -100,7 +103,7 @@ export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
 ### Werror
 
 ```bash
-cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN -DWERROR=ON
+cmake -S . -B build -DDEFAULT_BACKEND=NERT -DWERROR=ON
 cmake --build build
 ```
 

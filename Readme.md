@@ -9,8 +9,8 @@
 
 One C++ interface over many inference runtimes: ONNX Runtime, TensorRT,
 OpenVINO, LibTorch, ExecuTorch, LiteRT, llama.cpp and more, plus NVIDIA DALI for
-GPU preprocessing. Neuriplo also includes an experimental first-party runtime,
-NERT (Neuriplo Engine Runtime), developed in its own repository.
+GPU preprocessing. Neuriplo's default backend is NERT (Neuriplo Engine Runtime),
+an experimental first-party runtime developed in its own repository.
 
 Write your application once against `InferenceInterface`, then pick the runtime
 that fits your model and hardware at build time, without rewriting code around
@@ -37,28 +37,41 @@ behind the interface is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Quick Start
 
-Four steps on Ubuntu 24.04, using the default backend, OpenCV DNN (CPU: no GPU,
-no CUDA, no extra SDK).
+Four steps on Ubuntu 24.04. The default backend is NERT (Neuriplo Engine
+Runtime), the first-party CPU engine: CMake fetches it from
+[olibartfast/nert](https://github.com/olibartfast/nert) at the commit pinned in
+`versions.env`, so no vendor SDK is needed. That path requires CMake 3.16+ and
+network access on the first configure (or a local checkout, below).
 
 ### 1. Install the toolchain
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y cmake build-essential pkg-config \
-  libgoogle-glog-dev libgtest-dev libgmock-dev libopencv-dev
+  libgoogle-glog-dev libgtest-dev libgmock-dev
 ```
 
-OpenCV is needed only by the OpenCV DNN backend; every other backend builds
-without it.
+OpenCV is needed only by the OpenCV DNN backend; the default NERT build neither
+requires nor links it.
 
 ### 2. Build
 
 ```bash
 git clone https://github.com/olibartfast/neuriplo.git
 cd neuriplo
-cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN
+cmake -S . -B build            # fetches NERT at NERT_VERSION
 cmake --build build --parallel
 ```
+
+To build against a local NERT checkout instead of fetching:
+
+```bash
+cmake -S . -B build -DFETCHCONTENT_SOURCE_DIR_NERT=/path/to/nert
+```
+
+Existing build trees cache `DEFAULT_BACKEND` and `NEURIPLO_BACKENDS`, so a
+reconfigure in an old tree keeps the previous backend. Use `cmake --fresh`
+(CMake 3.24+) or a new build directory to pick up the new default.
 
 ### 3. Test
 
@@ -66,14 +79,29 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-### 4. Switch backend
+The NERT adapter fixture test is registered with CTest only when a fixture is
+provided at configure time: `cmake -S . -B build -DNERT_FIXTURE=/path/to/resnet18.onnx`.
+Without `NERT_FIXTURE` the executable still builds, but no `NertInferTest`
+entry is registered. When registered, the test fails (never skips) if the
+fixture is missing.
 
-Every other backend has a setup script that installs the pinned dependency into
-`~/dependencies`:
+### 4. Choose a different backend
+
+Most other backends have a setup script that installs the pinned
+dependency into `~/dependencies`:
 
 ```bash
 ./scripts/setup_dependencies.sh --backend ONNX_RUNTIME
 cmake -S . -B build -DDEFAULT_BACKEND=ONNX_RUNTIME
+cmake --build build --parallel
+```
+
+OpenCV DNN remains available as a zero-setup CPU alternative, using the
+distribution's OpenCV and no FetchContent (CMake 3.10+):
+
+```bash
+sudo apt-get install -y libopencv-dev
+cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN
 cmake --build build --parallel
 ```
 
@@ -123,8 +151,8 @@ and examples.
 
 | ID | Runtime | Model format | Best for |
 |----|---------|--------------|----------|
-| `OPENCV_DNN` (default) | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference |
-| `NERT` | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Experimental: self-contained CPU inference with no vendor SDK |
+| `NERT` (default) | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Experimental: self-contained CPU inference with no vendor SDK |
+| `OPENCV_DNN` | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference; explicit opt-in |
 | `ONNX_RUNTIME` | ONNX Runtime | `.onnx` | General CPU/GPU inference, many execution providers |
 | `TENSORRT` | TensorRT | `.engine` | Production on NVIDIA GPUs |
 | `OPENVINO` | OpenVINO | IR (`.xml` + `.bin`) | Intel CPUs and GPUs |
@@ -139,19 +167,24 @@ and examples.
 | `GGML` | GGML | GGML | Experimental: returns placeholder output |
 | `TVM` | Apache TVM | compiled module | Experimental: returns placeholder output |
 
-> **NERT (experimental):** CPU by default, GPU opt-in. Loads opset-18 ONNX models (convert others with
+> **NERT (default, experimental):** NERT is correctness-first and experimental;
+> it is not a performance target. CPU by default, GPU opt-in. The default
+> configure fetches the engine at the commit pinned by `NERT_VERSION` in
+> `versions.env` (CMake 3.16+, network access); build against a local checkout
+> with `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`. Loads opset-18 ONNX models
+> (convert others with
 > `onnx.version_converter`). Build with `-DNEURIPLO_NERT_CUDA=ON` (needs nvcc) to enable the CUDA
 > device: `use_gpu=true` then runs the NERT CUDA kernels, falling back to a load error (never silent
 > CPU) for graphs with ops outside the device table. Outputs match `ONNX_RUNTIME` on YOLO (v5–v10, v12
 > detection; YOLO11 segmentation and pose; YOLO26 detection, segmentation and
 > pose) and on ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and TimeSformer.
 > RAFT and open-vocabulary coverage continue in the
-> [NERT repository](https://github.com/olibartfast/nert). The engine is fetched
-> at the commit pinned by `NERT_VERSION` in `versions.env`; build against a local
-> checkout with `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`.
+> [NERT repository](https://github.com/olibartfast/nert).
 
 Several backends can be compiled into one library (`-DNEURIPLO_BACKENDS`), or
-built as runtime-loaded plugins (`-DNEURIPLO_PLUGIN_BACKENDS`); see
+built as runtime-loaded plugins (`-DNEURIPLO_PLUGIN_BACKENDS`). A bare
+`-DNEURIPLO_BACKENDS="A;B"` still prepends NERT as the compiled default unless
+`-DDEFAULT_BACKEND` is overridden; see
 [docs/PLUGIN_BACKENDS.md](docs/PLUGIN_BACKENDS.md). Per-backend setup notes,
 architecture and GPU support, and model sources are in
 [docs/DEPENDENCY_MANAGEMENT.md](docs/DEPENDENCY_MANAGEMENT.md).
@@ -169,7 +202,7 @@ architecture and GPU support, and model sources are in
 | Component | Requirement |
 |-----------|-------------|
 | C++ compiler | C++17 (C++20 when LibTorch is enabled) |
-| CMake | 3.10+ |
+| CMake | 3.16+ for the default NERT build; 3.10+ with an explicit non-NERT backend |
 | glog | any recent release |
 | CUDA | only for GPU backends; version pinned in `versions.env` |
 
@@ -179,7 +212,7 @@ architecture and GPU support, and model sources are in
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `-DDEFAULT_BACKEND=<ID>` | `OPENCV_DNN` | Backend compiled in and used by `setup_inference_engine` |
+| `-DDEFAULT_BACKEND=<ID>` | `NERT` | Backend compiled in and used by `setup_inference_engine`; `OPENCV_DNN` remains the zero-setup opt-in |
 | `-DNEURIPLO_BACKENDS="A;B"` | `DEFAULT_BACKEND` | Compile several backends into one library |
 | `-DNEURIPLO_PLUGIN_BACKENDS="A;B"` | empty | Build backends as runtime-loaded plugins |
 | `-DBUILD_INFERENCE_ENGINE_TESTS=ON/OFF` | `ON` | Build the test suites |
