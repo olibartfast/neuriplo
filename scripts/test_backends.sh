@@ -100,7 +100,7 @@ STRESS_TEST_ITERATIONS=500
 if [ -f "$PROJECT_ROOT/versions.env" ]; then
     source "$PROJECT_ROOT/versions.env"
     # Map versions to expected variable names
-    OPENCV_MIN_VERSION="$OPENCV_VERSION"
+    OPENCV_MIN_VERSION="${OPENCV_MIN_VERSION:-$OPENCV_VERSION}"
     LIBTORCH_VERSION="$PYTORCH_VERSION"
 else
     echo "Error: versions.env file not found"
