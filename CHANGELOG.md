@@ -41,6 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--path-file` names the pointer file it writes.
 
 ### Changed
+- Pin the default NERT backend to released `v0.2.0`
+  (`a5d426082a9f50b21e716ed09212a74a646d66a2`) instead of an unreleased
+  commit. Rebuild the adapter with NERT's updated graph/node layouts.
+  Supported ONNX forms now cover declared opsets 11+; backend/device selection
+  stays unchanged. Full-catalog AMD validation and persistent AMD CI remain
+  accepted known missing coverage in NERT's release.
 - `NERT` is the default backend on `develop`: a bare `cmake -S . -B build`
   configures and builds NERT, fetched from olibartfast/nert at `NERT_VERSION`
   (CMake 3.16+, network or `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`), with no
@@ -86,6 +92,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   LibTorch release that compiled it.
 
 ### Fixed
+- Apply NERT's strict host warning flags only to C++ compilation, so
+  `NEURIPLO_NERT_CUDA=ON` also builds with `WERROR=ON`; nvcc no longer receives
+  incompatible GCC driver options.
 - Plugin loader: malformed plugin dtype values are inspected as raw underlying
   bytes before enum validation. The expected rejection tests still pass, and
   UBSan no longer reports an invalid enum load when the default NERT build is

@@ -23,7 +23,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
-| `NERT` (default) | NERT (Neuriplo Engine Runtime, experimental) | `76cf285888a8bc6c63611411f6da18deb21a8c98` | x86_64, ARM64 | no |
+| `NERT` (default) | NERT (Neuriplo Engine Runtime, experimental) | `v0.2.0` | x86_64, ARM64 | no |
 <!-- /GEN:backend-overview -->
 
 ## Architecture
@@ -194,7 +194,7 @@ Static variables:
 | `DEPENDENCY_ROOT` | `$HOME/dependencies` | Root for installed backends |
 
 NERT is the default backend but is not a system dependency. `cmake/Nert.cmake`
-declares it with `FetchContent` at the commit pinned by `NERT_VERSION` and
+declares it with `FetchContent` at the release tag pinned by `NERT_VERSION` and
 builds it from source as a static library, so a bare configure needs CMake
 3.16+ and either network access to `olibartfast/nert` or
 `-DFETCHCONTENT_SOURCE_DIR_NERT=/path/to/nert`, which uses a local checkout and
@@ -241,7 +241,7 @@ Per-backend version overrides (default from `versions.env`):
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
 | `DALI_VERSION` | `2.2.0` |
-| `NERT_VERSION` | `76cf285888a8bc6c63611411f6da18deb21a8c98` |
+| `NERT_VERSION` | `v0.2.0` |
 <!-- /GEN:cmake-version-variables -->
 
 #### Environment variables written by setup scripts
@@ -600,7 +600,7 @@ time.
 | `setup_executorch.sh` | ExecuTorch — builds from source — do not delete cmake-out after install |
 | `setup_litert.sh` | LiteRT — formerly TensorFlow Lite - builds from TensorFlow source |
 | `setup_dali.sh` | NVIDIA DALI — GPU preprocessing, not an inference engine - extracts the C++ distribution from the nvidia-dali wheel |
-| _(none)_ | NERT (Neuriplo Engine Runtime, experimental) — experimental first-party engine, fetched from olibartfast/nert by CMake at the pinned commit; no script needed |
+| _(none)_ | NERT (Neuriplo Engine Runtime, experimental) — experimental first-party engine, fetched from olibartfast/nert by CMake at the pinned release tag; no script needed |
 | `build_cactus.sh` | Build the Cactus Docker image (ARM64 only) |
 <!-- /GEN:setup-scripts-table -->
 

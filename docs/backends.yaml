@@ -220,7 +220,7 @@ backends:
     gpu: true
 
   # NERT is the default backend. Its engine is fetched from
-  # https://github.com/olibartfast/nert at the commit pinned by NERT_VERSION (CMake
+  # https://github.com/olibartfast/nert at the release tag pinned by NERT_VERSION (CMake
   # FetchContent), so there is no setup script and no vendor Docker image. It is
   # intentionally absent from the CI per-backend Docker matrix; a bare configure
   # exercises the default, and the dedicated CI job adds
@@ -230,7 +230,7 @@ backends:
     name: NERT (Neuriplo Engine Runtime, experimental)
     version_var: NERT_VERSION
     setup_script: null
-    setup_note: "experimental first-party engine, fetched from olibartfast/nert by CMake at the pinned commit; no script needed"
+    setup_note: "experimental first-party engine, fetched from olibartfast/nert by CMake at the pinned release tag; no script needed"
     dir_var: null
     dir_default: null
     dockerfile: null
