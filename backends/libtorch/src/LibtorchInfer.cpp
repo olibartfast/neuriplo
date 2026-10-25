@@ -1,5 +1,7 @@
 #include "LibtorchInfer.hpp"
 
+#include "LibtorchTensorUtils.hpp"
+
 #include <sstream>
 
 std::string LibtorchInfer::print_shape(const std::vector<int64_t>& shape) {
@@ -262,32 +264,12 @@ LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
 
     // Helper function to process a single tensor
     auto process_tensor = [this](const torch::Tensor& tensor) {
-        std::vector<TensorElement> tensor_data;
-        tensor_data.reserve(tensor.numel());
-
-        const auto data_type = tensor.scalar_type();
-        switch (data_type) {
-        case torch::kFloat32: {
-            const float* output_data = tensor.data_ptr<float>();
-            for (size_t i = 0; i < tensor.numel(); ++i) {
-                tensor_data.emplace_back(output_data[i]);
-            }
-            break;
-        }
-        case torch::kInt64: {
-            const int64_t* output_data = tensor.data_ptr<int64_t>();
-            for (size_t i = 0; i < tensor.numel(); ++i) {
-                tensor_data.emplace_back(output_data[i]);
-            }
-            break;
-        }
-        default:
-            LOG(ERROR) << "Unsupported tensor type: " << data_type;
+        try {
+            return libtorch_tensor_to_elements(tensor);
+        } catch (const InferenceExecutionException&) {
             state_ = BackendState::Failed;
-            throw InferenceExecutionException("Unsupported output tensor type for LibTorch: " +
-                                              std::to_string(static_cast<int>(data_type)));
+            throw;
         }
-        return tensor_data;
     };
 
     if (output.isTuple()) {

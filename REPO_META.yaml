@@ -7,9 +7,12 @@ default_branches:
 
 entrypoints:
   configure:
-    - cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON
+    - cmake -S . -B build -DBUILD_INFERENCE_ENGINE_TESTS=ON
   build:
     - cmake --build build
+  # Valid without a NERT fixture: NertInferTest is registered only when
+  # -DNERT_FIXTURE=<path> is set, so the fixture-free default has no entry to
+  # fail or skip.
   test:
     - ctest --test-dir build --output-on-failure
   backend_matrix:
@@ -44,6 +47,8 @@ forbidden_change_classes:
   - new-dependency
 
 constraints:
+  # The 2026-10-22 develop default switch to NERT is a deliberate exception;
+  # explicit backend selection and the existing registry behavior are preserved.
   preserve_backend_selection_behavior: true
   preserve_device_placement_expectations: true
   review_runtime_version_changes: mandatory

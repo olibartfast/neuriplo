@@ -57,7 +57,8 @@ def gen_overview_table(backends, versions):
         arch = "ARM64 only" if arch_list == ["arm64"] else (
                "x86_64 only" if arch_list == ["x86_64"] else "x86_64, ARM64")
         gpu = "yes" if b.get("gpu") else "no"
-        rows.append(f"| `{b['id']}` | {b['name']} | `{ver}` | {arch} | {gpu} |")
+        marker = " (default)" if b.get("is_default") else ""
+        rows.append(f"| `{b['id']}`{marker} | {b['name']} | `{ver}` | {arch} | {gpu} |")
     return "\n".join(rows)
 
 

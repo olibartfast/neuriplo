@@ -9,8 +9,8 @@
 | Area | Current choice | Boundary |
 | --- | --- | --- |
 | Library | C++17 shared library | Do not raise the language standard without an explicit compatibility decision. Its public headers are the C++ API (same-toolchain consumers) and the consumer C ABI `include/neuriplo/neuriplo_c.h` (C99, stable, versioned) with the header-only wrapper `include/neuriplo/neuriplo.hpp`. |
-| Build | CMake 3.10 or newer | `CMakeLists.txt` and `cmake/` define backend selection, validation, compilation, linking, tests, and plugins. |
-| Required libraries | glog | Required by the common library. OpenCV is **not**: it is required only by the `OPENCV_DNN` backend and is linked from there (`cmake/LinkBackend.cmake`), so the other 13 backends build and test with no OpenCV installed. Backend SDKs remain selection-dependent. |
+| Build | CMake 3.10 or newer; 3.16+ for the default NERT backend | `CMakeLists.txt` and `cmake/` define backend selection, validation, compilation, linking, tests, and plugins. The default NERT build uses FetchContent, and NERT declares 3.16 as its own minimum. |
+| Required libraries | glog | Required by the common library. OpenCV is **not**: it is required only by the `OPENCV_DNN` backend and is linked from there (`cmake/LinkBackend.cmake`), so the default NERT build and the other backends build and test with no OpenCV installed. Backend SDKs remain selection-dependent. |
 | Backends | 14 registered runtime or pipeline backends | `cmake/BackendRegistry.cmake` is the CMake-visible backend-ID authority. |
 | Tests | GoogleTest and CTest | Backend-agnostic contract tests and selected-backend tests are enabled by `BUILD_INFERENCE_ENGINE_TESTS`. |
 | Automation | Bash, Python 3, Docker, GitHub Actions | Scripts should be reproducible locally; CI supplies backend-specific environments. |
@@ -51,6 +51,51 @@ live in `versions.env`; the human-readable backend inventory lives in
 - `RawOutputTensor` is the typed contiguous-buffer path. Avoid materializing
   per-element variants in performance-critical backend overrides.
 
+## First-Party NERT
+
+Neuriplo admits one runtime it implements itself, exposed as the `NERT` backend
+and, as of 2026-10-22 on `develop`, the default backend (Phase N3 in
+`specs/roadmap.md`). Consequences of that default: a bare
+`cmake -S . -B build` builds NERT at `NERT_VERSION` through CMake FetchContent
+(CMake 3.16+, network access or
+`-DFETCHCONTENT_SOURCE_DIR_NERT=<path>` for a local checkout), CPU-only unless
+`-DNEURIPLO_NERT_CUDA=ON` is set, and with neither OpenCV nor a vendor SDK
+required or linked. `OPENCV_DNN` remains selectable with
+`-DDEFAULT_BACKEND=OPENCV_DNN` and `libopencv-dev`; it is no longer in the
+default build. It is to be a
+peer library, not an adapter:
+
+- The engine lives in its own repository (`olibartfast/nert`, target
+  `nert::nert`) and includes nothing from `include/neuriplo/`,
+  `backends/src/`, or `src/`. The dependency arrow points one way;
+  `backends/nert/` is only the adapter. The engine is fetched at the
+  `NERT_VERSION` pin (or supplied with
+  `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`).
+- `backends/nert/` holds only the thin adapter to `InferenceInterface`, the
+  same shape as every other backend directory.
+- The engine is an interpreter: parse, infer shapes, plan memory, execute
+  node by node. It is deliberately not a plan-building compiler with autotuning
+  and serialized engines — `TENSORRT` occupies that slot.
+- Device is selected once per loaded graph, never per operator. A graph that
+  cannot run entirely on the requested device is rejected at load. Per-op host
+  round-trips are forbidden by design, not merely discouraged.
+- Core (parser, IR, shape inference, memory planner, executor) is
+  device-agnostic; allocator, transfer, and the op-keyed kernel table are
+  per-device. Adding a device means adding a kernel table, not a refactor.
+- CPU reference kernels are the executable specification and the correctness
+  oracle for accelerated kernels. They are intentionally unoptimized and must
+  not be read as a performance claim; optimizing them is separately approved
+  work.
+- Shape inference and memory planning are functions of concrete input shapes,
+  not load-time side effects. Static shapes are a phase boundary, not a design
+  property: dynamic shapes must land as per-shape re-planning behind a plan
+  cache, without reshaping the parser, IR, or kernels.
+- The design reference is OpenCV 5's rewritten `dnn` engine — typed operation
+  graph, shape inference, constant folding, fusion. It informs the design and
+  is never a dependency: the engine links nothing from OpenCV, and the pinned
+  `OPENCV_VERSION` and the `OPENCV_DNN` backend are unaffected by native-engine
+  work.
+
 ## Device and Fallback Assumptions
 
 - CPU remains the safe default except for runtimes that intrinsically require
@@ -88,6 +133,14 @@ with `python3 scripts/gen_backend_docs.py` in the same change.
 - No autonomous inference-logic or performance-critical kernel changes.
 - No silent change to backend selection, device placement, or fallback behavior.
 - No framework or language migration merely to simplify one feature.
+- No dependency from `engine/` on the abstraction layer, in either the build
+  graph or the include graph.
+- No per-operator device fallback inside NERT.
+- No optimization of NERT's CPU reference kernels without an
+  approved packet; they exist to be correct and readable.
+- No OpenCV in `engine/`, and no change to the pinned OpenCV version or to how
+  `OPENCV_DNN` is built as a side effect of NERT work. Reading another
+  engine's design is not adopting it.
 - No backend-specific setup, model-format, Docker, build, or troubleshooting
   expansion in `Readme.md`; keep those details in the appropriate `docs/` guide.
 - Non-trivial public-behavior or architecture work records scope and validation
@@ -100,7 +153,7 @@ Use the smallest relevant checks while implementing, then the declared feature
 validation before handoff:
 
 ```bash
-cmake -S . -B build -DDEFAULT_BACKEND=OPENCV_DNN -DBUILD_INFERENCE_ENGINE_TESTS=ON
+cmake -S . -B build -DBUILD_INFERENCE_ENGINE_TESTS=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ./scripts/quality/run.sh
@@ -121,6 +174,21 @@ full local job described in `docs/LOCAL_CI.md`.
 - Define representative performance baselines without pretending unlike
   backend, model, device, and architecture combinations are directly
   interchangeable.
+- Decide how NERT reads ONNX: protobuf plus a vendored
+  `onnx.proto`, or a minimal first-party wire-format reader with no new
+  dependency. Required before NERT parsing work begins.
+- Decide whether NERT's accelerated kernels may use vendor
+  libraries (cuBLAS, cuDNN) or are first-party throughout, with vendor
+  libraries available behind an opt-in flag as a performance baseline.
+  Required before any accelerated kernel is written.
+
+_Revision: 2026-10-22 - recorded NERT as the develop default backend (Phase N3), its CMake 3.16+/FetchContent build consequences, and resolved the open `DEFAULT_BACKEND` decision._
 
 _Revision: 2026-09-26 - added the consumer C ABI boundary beside the plugin
 ABI (Phase 7, `specs/2026-09-25-consumer-c-abi`)._
+
+_Revision: 2026-09-17 - recorded the first-party native engine's architectural
+boundaries, non-choices, and the decisions required before its parsing and
+kernel work begins; named OpenCV 5's rewritten `dnn` engine as a design
+reference only and required per-shape planning so static shapes stay a phase
+boundary._

@@ -375,6 +375,42 @@ class ModelDownloader:
             logger.error(f"Failed to generate TorchScript model: {e}")
             return None
     
+    def convert_to_aoti(self):
+        """Generate an AOTInductor package (.pt2) for the LibTorch backend.
+
+        The package embeds kernels compiled by this PyTorch, so it only loads
+        in a LibTorch of the same version -- install torch==PYTORCH_VERSION.
+        """
+        aoti_path = os.path.join(self.temp_dir, "resnet18.pt2")
+
+        if os.path.exists(aoti_path):
+            logger.info("AOTInductor package already exists")
+            return aoti_path
+
+        try:
+            import torch
+            import torchvision.models as models
+
+            logger.info("Generating AOTInductor package...")
+
+            model = models.resnet18(pretrained=True)
+            model.eval()
+
+            example_input = torch.rand(1, 3, 224, 224)
+            with torch.no_grad():
+                exported = torch.export.export(model, (example_input,))
+                torch._inductor.aoti_compile_and_package(exported, package_path=aoti_path)
+
+            logger.info(f"Generated AOTInductor package: {aoti_path}")
+            return aoti_path
+
+        except ImportError:
+            logger.error("PyTorch not available, cannot generate AOTInductor package")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to generate AOTInductor package: {e}")
+            return None
+
     def get_model_for_backend(self, backend):
         """Get appropriate model for specified backend."""
         logger.info(f"Preparing model for backend: {backend}")
@@ -397,6 +433,10 @@ class ModelDownloader:
             else:
                 return self.generate_onnx_resnet18()
         
+        elif backend == "LIBTORCH_AOTI":
+            # LibTorch AOTInductor package (.pt2)
+            return self.convert_to_aoti()
+
         elif backend == "LIBTENSORFLOW":
             # TensorFlow uses SavedModel
             return self.generate_tensorflow_savedmodel()
@@ -426,6 +466,8 @@ def main():
     parser.add_argument("backend", help="Backend to prepare model for")
     parser.add_argument("--output-dir", help="Output directory for model files")
     parser.add_argument("--keep-temp", action="store_true", help="Keep temporary files")
+    parser.add_argument("--path-file", default="model_path.txt",
+                        help="Name of the file in --output-dir that records the model path")
     
     args = parser.parse_args()
     
@@ -450,13 +492,13 @@ def main():
                     print(output_path)
                 
                 # Create model_path.txt file for tests
-                model_path_file = os.path.join(args.output_dir, "model_path.txt")
+                model_path_file = os.path.join(args.output_dir, args.path_file)
                 with open(model_path_file, "w") as f:
                     if os.path.isfile(model_path):
                         f.write(os.path.basename(model_path))
                     else:
                         f.write(os.path.basename(model_path))
-                logger.info(f"Created model_path.txt: {model_path_file}")
+                logger.info(f"Created {args.path_file}: {model_path_file}")
             else:
                 print(model_path)
             

@@ -89,7 +89,7 @@ handback, and the specifier records them.
 
 - **Working directory.** Every shell command starts with `cd <root> &&`, where
   `<root>` is the checkout the packet runs in (main checkout:
-  `/home/oli/repos/neuriplo`). Tool calls reset cwd.
+  `$NEURIPLO_REPO`). Tool calls reset cwd.
 - **Read-only.** You may not edit these: `include/neuriplo/neuriplo_c.h`,
   `include/neuriplo/plugin_abi.h`, `include/InferenceBackendSetup.hpp`,
   `include/common.hpp`, `backends/src/test/CApiContractTest.c`,

@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
+### Changed
+- **Default backend: NERT**, replacing OpenCV DNN for a bare configure.
+  NERT is an experimental, correctness-first ONNX runtime, pinned to released
+  `v0.2.0`. The default build requires CMake 3.16+, glog, and network access
+  for FetchContent or `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`; it needs neither
+  OpenCV nor a vendor SDK. Supported ONNX operator/schema forms cover opsets 11+.
+- **Migration:** use a fresh build directory or `cmake --fresh` (CMake 3.24+)
+  to clear cached backend selections. To retain OpenCV DNN, configure with
+  `-DDEFAULT_BACKEND=OPENCV_DNN` and install its dependencies. Rebuild NERT
+  consumers for the updated graph/node layouts. The consumer C ABI and
+  exported C symbol set remain unchanged.
+- `NEURIPLO_BACKENDS` includes the compiled default unless `DEFAULT_BACKEND`
+  is explicitly overridden. CPU remains the NERT default; CUDA is opt-in
+  with `NEURIPLO_NERT_CUDA=ON`, and GPU requests never silently fall back to CPU.
+- Runtime pins and tooling: TensorRT 11.2.1.2 (CUDA 13.3 distribution,
+  CUDA 13.4.1 toolkit), ONNX Runtime 1.28.0, OpenVINO 2026.3.0,
+  LibTorch 2.14.0 and DALI 2.2.0. Download/archive handling is updated;
+  OpenVINO conversion uses the `openvino` wheel and `ovc`.
+- LibTorch-enabled builds require C++20; other builds remain C++17.
+  AOTInductor packages must be exported by the matching PyTorch release.
+
+### Added
+- LibTorch AOTInductor `.pt2` loading/export alongside TorchScript, with explicit
+  input shapes and CPU/CUDA device matching.
+- NERT adapter and model-parity coverage for the supported YOLO, transformer,
+  depth and pose exports. Typed float32/int64/bool outputs are preserved.
+- Backend-scoped CI matrices and strict warning/sanitizer coverage for the
+  default NERT library and engine targets. The NERT fixture test registers
+  only when `NERT_FIXTURE` is supplied; registered tests fail on missing fixtures.
+
+### Fixed
+- NERT host warning flags are scoped to C++ so the CUDA build also works with
+  `WERROR=ON`.
+- Plugin dtype validation no longer evaluates malformed enum representations,
+  preserving rejection diagnostics without UBSan invalid-enum reports.
+- NERT loading and shape/movement fixes cover repeated value-info entries,
+  GatherElements strides, unconsumed outputs, Reshape targets and broadcasting.
+
+### Known limitations
+- NERT remains experimental and correctness-first. Frozen-model task deviations
+  are documented in NERT's release evidence; they are not raw-output equality
+  or production-performance guarantees.
+- Full-catalog native AMD/ROCm parity and persistent AMD GPU CI are accepted
+  known missing coverage in NERT 0.2.0. Earlier AMD checks predate its latest
+  Sign/Split fixes; HIP/NVIDIA evidence is not native AMD validation.
+
 ## [0.10.0] - 2026-10-03
 
 ### Fixed
@@ -28,6 +76,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vector that a concurrent load could reallocate.
 
 ### Added
+- First-party `NATIVE` backend: an ONNX loader with a typed graph IR, static
+  shape inference, a liveness-based arena memory planner, CPU reference
+  kernels (Conv/Gemm/MatMul/Add/Relu/MaxPool/ReduceMean/Reshape), a sequential
+  executor, and the `InferenceInterface` adapter. The adapter is validated
+  elementwise against `ONNX_RUNTIME` on the ResNet-18 fixture (max abs diff
+  3.15e-05, budget 1e-4); a GPU request is rejected in this phase.
 - Consumer C ABI, `include/neuriplo/neuriplo_c.h` (`NEURIPLO_C_API_VERSION`
   1): a stable, versioned entry point that any language or toolchain can use.
   It covers the engine lifecycle, backend listing, metadata views, inference
@@ -383,7 +437,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...v0.9.0

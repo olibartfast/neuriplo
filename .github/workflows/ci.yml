@@ -3,8 +3,21 @@ name: CI
 on:
   push:
     branches: [master, develop, 'release/**', 'feature/**', 'refactor/**']
+    # Documentation-only pushes do not need the backend matrix. Keep this
+    # list in sync with pull_request below: if any non-doc file changes, CI
+    # still runs. `**.md` covers every Markdown file at any depth.
+    paths-ignore:
+      - 'docs/**'
+      - 'specs/**'
+      - '**.md'
+      - LICENSE
   pull_request:
     branches: [master, develop, 'release/**', 'feature/**']
+    paths-ignore:
+      - 'docs/**'
+      - 'specs/**'
+      - '**.md'
+      - LICENSE
 
 # github.ref differs between the two events that can start this workflow for
 # one branch -- refs/heads/<branch> on push, refs/pull/<n>/merge on
@@ -23,6 +36,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+
+  # Select per-backend jobs from the actual change set. Backend-specific
+  # changes run that backend only; shared code/build/test changes run all
+  # registered backends; docs-only paths are already filtered by paths-ignore.
+  changes:
+    name: Changed backends
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.detect.outputs.backends }}
+      clang_tidy_matrix: ${{ steps.detect.outputs.clang_tidy_matrix }}
+      build_warnings_matrix: ${{ steps.detect.outputs.build_warnings_matrix }}
+      sanitizers_matrix: ${{ steps.detect.outputs.sanitizers_matrix }}
+      cpu_matrix: ${{ steps.detect.outputs.cpu_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed backends
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+          else
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
+          fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          for job in clang-tidy build-warnings sanitizers cpu; do
+            matrix="$(python3 scripts/ci/backend_matrices.py --job "$job" --backends "$BACKENDS")"
+            key="${job//-/_}"
+            echo "${key}_matrix=$matrix" >> "$GITHUB_OUTPUT"
+          done
+          echo "Changed backends: $BACKENDS"
 
   # =============================================================
   # Whole-tree checks (no backend SDK needed)
@@ -95,22 +143,14 @@ jobs:
   # =============================================================
 
   clang-tidy:
+    needs: changes
+    if: ${{ needs.changes.outputs.clang_tidy_matrix != '[]' }}
     name: "Clang-Tidy / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
-          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime }
-          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch }
-          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow }
-          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
-          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
-          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
-          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
-          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
-          - { backend: LITERT,        dockerfile: docker/Dockerfile.litert }
+        include: ${{ fromJSON(needs.changes.outputs.clang_tidy_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -154,22 +194,14 @@ jobs:
           '
 
   build-warnings:
+    needs: changes
+    if: ${{ needs.changes.outputs.build_warnings_matrix != '[]' }}
     name: "Werror / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn }
-          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime }
-          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch }
-          - { backend: LIBTENSORFLOW, dockerfile: docker/Dockerfile.libtensorflow }
-          - { backend: OPENVINO,      dockerfile: docker/Dockerfile.openvino }
-          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml }
-          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm }
-          - { backend: MIGRAPHX,      dockerfile: docker/Dockerfile.migraphx }
-          - { backend: TENSORRT,      dockerfile: docker/Dockerfile.tensorrt, cmake_args: -DTENSORRT_DIR=/opt/tensorrt }
-          - { backend: LITERT,        dockerfile: docker/Dockerfile.litert }
+        include: ${{ fromJSON(needs.changes.outputs.build_warnings_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -206,19 +238,14 @@ jobs:
           '
 
   sanitizers:
+    needs: changes
+    if: ${{ needs.changes.outputs.sanitizers_matrix != '[]' }}
     name: "Sanitizers / ${{ matrix.backend }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - { backend: OPENCV_DNN,    dockerfile: docker/Dockerfile.opencvdnn,      test_exe: OCVDNNInferTest }
-          - { backend: ONNX_RUNTIME,  dockerfile: docker/Dockerfile.onnx-runtime,   test_exe: ONNXRuntimeInferTest }
-          - { backend: LIBTORCH,      dockerfile: docker/Dockerfile.libtorch,        test_exe: LibtorchInferTest }
-          # LIBTENSORFLOW excluded: absl headers fail to compile in Debug+sanitizer mode
-          # OPENVINO excluded: TBB loads libtbbbind with RTLD_DEEPBIND, incompatible with ASan
-          - { backend: GGML,          dockerfile: docker/Dockerfile.ggml,            test_exe: GGMLInferTest }
-          - { backend: TVM,           dockerfile: docker/Dockerfile.tvm,             test_exe: TVMInferTest }
+        include: ${{ fromJSON(needs.changes.outputs.sanitizers_matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -267,6 +294,8 @@ jobs:
   # runs every CApi* case ([D-21]).
   # =============================================================
   capi-consumer:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     name: "C ABI / symbols + consumer proof"
     runs-on: ubuntu-latest
     steps:
@@ -319,6 +348,8 @@ jobs:
           '
 
   capi-tsan:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     name: "C ABI / TSan"
     runs-on: ubuntu-latest
     steps:
@@ -377,62 +408,14 @@ jobs:
   # Runs on GitHub-hosted runners using Docker.
   # =============================================================
   build-and-test-cpu:
+    needs: changes
+    if: ${{ needs.changes.outputs.cpu_matrix != '[]' }}
     name: "${{ matrix.backend }}"
     runs-on: ${{ matrix.runs_on || 'ubuntu-latest' }}
     strategy:
       fail-fast: true
       matrix:
-        include:
-          - backend: OPENCV_DNN
-            dockerfile: docker/Dockerfile.opencvdnn
-            image: neuriplo-opencvdnn
-            test_exe: OCVDNNInferTest
-
-          - backend: GGML
-            dockerfile: docker/Dockerfile.ggml
-            image: neuriplo-ggml
-            test_exe: GGMLInferTest
-
-          - backend: OPENVINO
-            dockerfile: docker/Dockerfile.openvino
-            image: neuriplo-openvino
-            test_exe: OpenVINOInferTest
-
-          - backend: ONNX_RUNTIME
-            dockerfile: docker/Dockerfile.onnx-runtime
-            image: neuriplo-onnxruntime
-            test_exe: ONNXRuntimeInferTest
-
-          - backend: LIBTENSORFLOW
-            dockerfile: docker/Dockerfile.libtensorflow
-            image: neuriplo-libtensorflow
-            test_exe: TensorFlowInferTest
-
-          - backend: TVM
-            dockerfile: docker/Dockerfile.tvm
-            image: neuriplo-tvm
-            test_exe: TVMInferTest
-
-          - backend: LIBTORCH
-            dockerfile: docker/Dockerfile.libtorch
-            image: neuriplo-libtorch-cpu
-            test_exe: LibtorchInferTest
-
-          - backend: CACTUS
-            dockerfile: docker/Dockerfile.cactus
-            image: neuriplo-cactus
-            test_exe: CactusInferTest
-            runs_on: ubuntu-24.04-arm
-          - backend: LLAMACPP
-            dockerfile: docker/Dockerfile.llamacpp
-            image: neuriplo-llamacpp
-            test_exe: LlamaCppInferTest
-
-          - backend: LITERT
-            dockerfile: docker/Dockerfile.litert
-            image: neuriplo-litert
-            test_exe: LiteRTInferTest
-
+        include: ${{ fromJSON(needs.changes.outputs.cpu_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -474,11 +457,132 @@ jobs:
             "
 
   # =============================================================
+  # Default backend (specs/2026-10-22-default-backend-nert)
+  # No -DDEFAULT_BACKEND and no fixture: a bare configure must select NERT,
+  # build with tests, and pass the full fixture-free ctest. Deliberately no
+  # OpenCV, CUDA, ONNX Runtime, or torch.
+  # =============================================================
+  default-nert:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'NERT') }}
+    name: "Default NERT (no SDK)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential pkg-config \
+            libgoogle-glog-dev libgtest-dev libgmock-dev
+
+      - name: Configure, build, and test the default backend
+        run: |
+          cmake -S . -B build-default-nert \
+            -DWERROR=ON \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON > configure.log 2>&1
+          cat configure.log
+          grep -q "Default backend: NERT" configure.log
+          cmake --build build-default-nert --parallel "$(nproc)"
+          ctest --test-dir build-default-nert --output-on-failure
+          # Fixture tests are conditional: without NERT_FIXTURE the adapter
+          # test must not be registered.
+          ctest --test-dir build-default-nert -N > tests.txt
+          ! grep -q NertInferTest tests.txt
+          # The compiled default is first in the runtime list ([R-1]); the
+          # C ABI suite asserts index 0 and ids.front().
+          ctest --test-dir build-default-nert -R "^CApi" --output-on-failure
+
+      - name: ASan + UBSan default backend
+        run: |
+          cmake -S . -B build-default-nert-asan \
+            -DSANITIZERS=ON \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON > configure-asan.log 2>&1
+          cat configure-asan.log
+          grep -q "Default backend: NERT" configure-asan.log
+          cmake --build build-default-nert-asan --parallel "$(nproc)"
+          export ASAN_OPTIONS="detect_leaks=1:abort_on_error=1"
+          export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
+          export LSAN_OPTIONS="suppressions=$PWD/scripts/quality/lsan-suppressions.txt:print_suppressions=0"
+          ctest --test-dir build-default-nert-asan --output-on-failure
+
+  # =============================================================
+  # NERT Backend (specs/2026-10-01-yolo26-native, Y12)
+  # Experimental first-party engine, fetched from olibartfast/nert at the
+  # NERT_VERSION pin (its own engine_* suites run in the NERT repository).
+  # No vendor SDK, so no Docker image. The parity harnesses need ONNX Runtime
+  # plus the pinned torch export stack, hence this runs inside the onnx-runtime builder image.
+  # =============================================================
+  nert:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'NERT') }}
+    name: "NERT"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Build Docker image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.onnx-runtime \
+              --target builder \
+              --tag neuriplo-lint:NERT \
+              --load \
+              --cache-from type=gha,scope=docker-ONNX_RUNTIME \
+              ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-NERT' || '' }} \
+              .
+
+      - name: Provision torch stack, build NERT, run adapter + parity tests
+        run: |
+          docker run --rm neuriplo-lint:NERT bash -c '
+            set -euo pipefail
+            apt-get update >/dev/null && apt-get install -y python3 python3-pip libgl1 libglib2.0-0 >/dev/null
+            python3 -m pip install --break-system-packages --quiet \
+              --index-url https://download.pytorch.org/whl/cpu \
+              "torch==2.12.0+cpu" "torchvision==0.27.0+cpu"
+            python3 -m pip install --break-system-packages --quiet \
+              "onnx==1.22.0" "onnxscript==0.7.0" "ultralytics==8.4.113" pillow
+            cd /app
+            rm -rf build-nert
+            # The adapter tests take the ResNet fixture via
+            # NERT_FIXTURE (fail, never skip); provision it once
+            # up front so configure sees it. The parity targets re-provision
+            # into the build tree themselves at build time.
+            python3 backends/nert/test/provision_parity_fixture.py /tmp/nert-fixture
+            cmake -S . -B build-nert \
+              -DNEURIPLO_BACKENDS=ONNX_RUNTIME \
+              -DBUILD_INFERENCE_ENGINE_TESTS=ON \
+              -DNERT_FIXTURE=/tmp/nert-fixture/resnet18.onnx \
+              -DONNX_RUNTIME_DIR=/opt/onnxruntime >/dev/null
+            cmake --build build-nert --target nert_parity_fixture nert_yolo_parity_fixture --parallel
+            cmake --build build-nert --parallel
+            ctest --test-dir build-nert \
+              -R "NertInferTest|nert_parity|nert_yolo_parity|CApi.Lifecycle.AvailableBackends|CApiWrapper.BackendsListsFixtures" \
+              --output-on-failure
+          '
+
+  # =============================================================
   # GPU Backend Builds (build-only, no GPU required)
   # Verifies that GPU backends compile successfully using Docker.
   # Tests are skipped — they require a real GPU (see build-and-test-gpu).
   # =============================================================
   build-tensorrt:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'TENSORRT') }}
     name: TENSORRT build-only
     runs-on: ubuntu-latest
     steps:
@@ -510,6 +614,8 @@ jobs:
   # model export requires Python torch install done separately)
   # =============================================================
   build-executorch:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'EXECUTORCH') }}
     name: EXECUTORCH build-only
     runs-on: ubuntu-latest
     steps:
@@ -554,13 +660,14 @@ jobs:
   prune-caches:
     name: Prune BuildKit caches
     needs:
+      - changes
       - clang-tidy
       - build-warnings
       - sanitizers
       - build-and-test-cpu
       - build-tensorrt
       - build-executorch
-    if: always() && github.event_name == 'push'
+    if: always() && github.event_name == 'push' && needs.changes.outputs.backends != '[]'
     permissions:
       actions: write
     uses: ./.github/workflows/cache-prune.yml
