@@ -151,7 +151,7 @@ and examples.
 
 | ID | Runtime | Model format | Best for |
 |----|---------|--------------|----------|
-| `NERT` (default) | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (opset 18) | Experimental: self-contained CPU inference with no vendor SDK |
+| `NERT` (default) | NERT (Neuriplo Engine Runtime, first-party) | `.onnx` (supported forms, opset 11+) | Experimental: self-contained CPU inference with no vendor SDK |
 | `OPENCV_DNN` | OpenCV DNN | `.onnx`, Darknet | Zero-setup CPU inference; explicit opt-in |
 | `ONNX_RUNTIME` | ONNX Runtime | `.onnx` | General CPU/GPU inference, many execution providers |
 | `TENSORRT` | TensorRT | `.engine` | Production on NVIDIA GPUs |
@@ -169,11 +169,13 @@ and examples.
 
 > **NERT (default, experimental):** NERT is correctness-first and experimental;
 > it is not a performance target. CPU by default, GPU opt-in. The default
-> configure fetches the engine at the commit pinned by `NERT_VERSION` in
+> configure fetches the released engine tag pinned by `NERT_VERSION` in
 > `versions.env` (CMake 3.16+, network access); build against a local checkout
-> with `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`. Loads opset-18 ONNX models
-> (convert others with
-> `onnx.version_converter`). Build with `-DNEURIPLO_NERT_CUDA=ON` (needs nvcc) to enable the CUDA
+> with `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`. The pin is
+> [NERT v0.2.0](https://github.com/olibartfast/nert/releases/tag/v0.2.0), which
+> loads supported ONNX forms declared at opset 11 and above, rejecting
+> unsupported operator/schema forms explicitly. Convert models below opset 11
+> with `onnx.version_converter` and validate their outputs. Build with `-DNEURIPLO_NERT_CUDA=ON` (needs nvcc) to enable the CUDA
 > device: `use_gpu=true` then runs the NERT CUDA kernels, falling back to a load error (never silent
 > CPU) for graphs with ops outside the device table. Outputs match `ONNX_RUNTIME` on YOLO (v5–v10, v12
 > detection; YOLO11 segmentation and pose; YOLO26 detection, segmentation and

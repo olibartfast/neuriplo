@@ -10,9 +10,9 @@ if(WERROR)
         # NERT is a separately versioned first-party dependency with its own
         # quality gate. Keep the strict warning set, but do not let two known
         # upstream unused-symbol warnings fail the Neuriplo default build.
-        target_compile_options(nert PRIVATE -Wall -Wextra -Wpedantic -Werror
-            -Wno-error=unused-parameter
-            -Wno-error=unused-function)
+        # These are host C++ compiler options, not nvcc driver options.
+        target_compile_options(nert PRIVATE
+            "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wpedantic;-Werror;-Wno-error=unused-parameter;-Wno-error=unused-function>")
     endif()
     if(TARGET neuriplo AND DEFAULT_BACKEND STREQUAL "NERT")
         # Apply the library-level gate to the NERT default path. The existing
