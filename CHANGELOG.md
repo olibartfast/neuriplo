@@ -6,106 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Added
-- `NERT` is an experimental backend, consumed from olibartfast/nert at
-  `NERT_VERSION` (versions.env) with CMake FetchContent; use
-  `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>` for a local checkout.
-- `NERT` backend (experimental, from olibartfast/nert at `NERT_VERSION`): YOLO26-nano detection coverage (23 ops: Mul/Div/Sub,
-  Sigmoid/Cast/Softmax/ReduceMax/Mod/Equal/Where, Concat/Split/Unsqueeze/
-  Expand/Transpose/Slice/Gather/GatherElements/Resize/Flatten/Shape/
-  ConstantOfShape/TopK), int64/bool intermediate tensors, `Constant` folding,
-  load-time shape-parameter evaluation, and per-shape planning seams.
-  Validated on a real photo against `ONNX_RUNTIME`: 6 confident rows, min
-  IoU 0.999999, max score diff 2.7e-06. Background-tail exact cell selection
-  is explicitly out of scope (backend-noise-dependent near-tie selection).
-- `NERT` backend (experimental): every YOLO family neuriplo-tasks uses (v5–v12, YOLO11 and
-  YOLO26 detection, segmentation and pose). New ops Floor, Identity, Pow, Tile,
-  AveragePool and ConvTranspose; load-time constant folding; Resize from a
-  `sizes` input; DOUBLE constants narrowed to float32. 13 exports, converted to
-  opset 18, match `ONNX_RUNTIME` within 1e-3 scaled. New
-  `nert_model_zoo_parity_test` runs a manifest of local exports.
-- `NERT` backend (experimental): ViT, ViTPose, Depth Anything V2, VideoMAE, ViViT and
-  TimeSformer. New ops Erf, LayerNormalization, Sqrt, Squeeze, Tanh and IsNaN;
-  1-D/3-D Conv; linear Resize with every ONNX coordinate transform (absent
-  attributes now take the ONNX defaults); Shape `start`/`end`; BOOL constants;
-  symbolic input dims fixed per load through `input_sizes`. All six match
-  `ONNX_RUNTIME` within 3e-5 scaled.
-- LibTorch backend: AOTInductor packages. `LibtorchRuntimeFactory` now picks
-  the runtime from the model extension: `.pt2` loads through
-  `torch::inductor::AOTIModelPackageLoader` (`LibtorchAOTIInfer`), anything
-  else keeps the TorchScript path unchanged. A `.pt2` needs `input_sizes`
-  (full shapes) and float32 inputs. Output shapes come from one zero-filled
-  probe run at load. A package compiled for CPU or CUDA fails to load on the
-  other device rather than silently running elsewhere.
-- `model_downloader.py LIBTORCH_AOTI` exports a ResNet-18 `.pt2`, and
-  `--path-file` names the pointer file it writes.
+## [0.11.0] - 2026-10-25
 
 ### Changed
-- Pin the default NERT backend to released `v0.2.0`
-  (`a5d426082a9f50b21e716ed09212a74a646d66a2`) instead of an unreleased
-  commit. Rebuild the adapter with NERT's updated graph/node layouts.
-  Supported ONNX forms now cover declared opsets 11+; backend/device selection
-  stays unchanged. Full-catalog AMD validation and persistent AMD CI remain
-  accepted known missing coverage in NERT's release.
-- `NERT` is the default backend on `develop`: a bare `cmake -S . -B build`
-  configures and builds NERT, fetched from olibartfast/nert at `NERT_VERSION`
-  (CMake 3.16+, network or `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`), with no
-  vendor SDK and no OpenCV. `OPENCV_DNN` remains a first-class explicit option
-  via `-DDEFAULT_BACKEND=OPENCV_DNN` plus `libopencv-dev`.
-- Migration: build trees configured before this change cache `DEFAULT_BACKEND`
-  and `NEURIPLO_BACKENDS`. Reconfigure with `cmake --fresh` (CMake 3.24+) or in
-  a new build directory. A bare `-DNEURIPLO_BACKENDS="A;B"` prepends NERT as
-  the compiled default unless `DEFAULT_BACKEND` is overridden.
-- The NERT adapter fixture test (`NertInferTest`) is registered with CTest only
-  when `-DNERT_FIXTURE=<path>` is set. The executable still builds without it;
-  when registered, the test fails (never skips) if the fixture is unusable.
-- CI backend matrices are selected from the change set: backend-specific
-  edits run that backend, shared runtime/build/test paths run every backend,
-  and documentation-only paths are ignored. Matrix metadata lives in
-  `scripts/ci/backend_matrices.json`.
-- On the NERT default path, `-DWERROR=ON` and `-DSANITIZERS=ON` now apply to
-  the `neuriplo` library and the fetched NERT engine target, not only to test
-  targets created later. NERT keeps the strict warning set with two upstream
-  unused-symbol exceptions; explicit other backends keep their pre-existing
-  Werror/sanitizer scope.
-- The NERT engine moved to its own repository (olibartfast/nert), pinned by
-  `NERT_VERSION`; the in-tree `engine/` directory is removed.
-- TensorRT pinned to 11.2.1.2 (four-part NVIDIA version) with a new
-  `TENSORRT_CUDA_VERSION=13.3`: TensorRT 11.2.1.2 is published for CUDA 13.3
-  and 12.9 only, and runs on the 13.4 toolkit through minor-version
-  compatibility. `Dockerfile.tensorrt` now builds on
-  `nvcr.io/nvidia/tensorrt:26.08-py3` and links its system TensorRT into
-  `/opt/tensorrt`. `setup_tensorrt.sh` downloads TensorRT 11's renamed
-  `TensorRT-Enterprise-*.tar.zst` archive.
-- OpenVINO tooling uses the `openvino` wheel pinned to `OPENVINO_VERSION` and
-  its `ovc` converter. `openvino-dev` and `mo` ended at 2024.6 and crash
-  against the 2026.3 runtime.
-- ONNX Runtime 1.28 GPU archives are fetched under their new
-  `-gpu_cuda<major>-` names. They install to the unchanged
-  `onnxruntime-*-gpu-<ver>` path.
-- LibTorch pinned to 2.14.0 (was 2.3.0). Builds that enable LibTorch now
-  compile as C++20, because LibTorch >= 2.10 headers require it. Builds
-  without LibTorch stay C++17.
-- LibTorch downloads use the `libtorch-shared-with-deps-*` archive name. The
-  old `cxx11-abi` name returns 404 for current releases. The Docker image
-  pins pip `torch` to `PYTORCH_VERSION`, since a `.pt2` only loads in the
-  LibTorch release that compiled it.
+- **Default backend: NERT**, replacing OpenCV DNN for a bare configure.
+  NERT is an experimental, correctness-first ONNX runtime, pinned to released
+  `v0.2.0`. The default build requires CMake 3.16+, glog, and network access
+  for FetchContent or `-DFETCHCONTENT_SOURCE_DIR_NERT=<path>`; it needs neither
+  OpenCV nor a vendor SDK. Supported ONNX operator/schema forms cover opsets 11+.
+- **Migration:** use a fresh build directory or `cmake --fresh` (CMake 3.24+)
+  to clear cached backend selections. To retain OpenCV DNN, configure with
+  `-DDEFAULT_BACKEND=OPENCV_DNN` and install its dependencies. Rebuild NERT
+  consumers for the updated graph/node layouts. The consumer C ABI and
+  exported C symbol set remain unchanged.
+- `NEURIPLO_BACKENDS` includes the compiled default unless `DEFAULT_BACKEND`
+  is explicitly overridden. CPU remains the NERT default; CUDA is opt-in
+  with `NEURIPLO_NERT_CUDA=ON`, and GPU requests never silently fall back to CPU.
+- Runtime pins and tooling: TensorRT 11.2.1.2 (CUDA 13.3 distribution,
+  CUDA 13.4.1 toolkit), ONNX Runtime 1.28.0, OpenVINO 2026.3.0,
+  LibTorch 2.14.0 and DALI 2.2.0. Download/archive handling is updated;
+  OpenVINO conversion uses the `openvino` wheel and `ovc`.
+- LibTorch-enabled builds require C++20; other builds remain C++17.
+  AOTInductor packages must be exported by the matching PyTorch release.
+
+### Added
+- LibTorch AOTInductor `.pt2` loading/export alongside TorchScript, with explicit
+  input shapes and CPU/CUDA device matching.
+- NERT adapter and model-parity coverage for the supported YOLO, transformer,
+  depth and pose exports. Typed float32/int64/bool outputs are preserved.
+- Backend-scoped CI matrices and strict warning/sanitizer coverage for the
+  default NERT library and engine targets. The NERT fixture test registers
+  only when `NERT_FIXTURE` is supplied; registered tests fail on missing fixtures.
 
 ### Fixed
-- Apply NERT's strict host warning flags only to C++ compilation, so
-  `NEURIPLO_NERT_CUDA=ON` also builds with `WERROR=ON`; nvcc no longer receives
-  incompatible GCC driver options.
-- Plugin loader: malformed plugin dtype values are inspected as raw underlying
-  bytes before enum validation. The expected rejection tests still pass, and
-  UBSan no longer reports an invalid enum load when the default NERT build is
-  sanitizer-instrumented.
-- `NERT` backend (experimental): the loader accepts identical repeated value-info
-  entries, which torch 2.12 writes for every tensor; the pinned YOLO26 fixture
-  failed to load without it.
-- `NERT` backend: `GatherElements` now strides the gather axis on the data
-  grid (was indices grid; dormant in equal-stride fixtures, proven by a
-  hermetic unequal-stride test); unconsumed node outputs get arena buffers;
-  `Reshape` kernel implements `-1`/`0` semantics; `Expand` is max-broadcast.
+- NERT host warning flags are scoped to C++ so the CUDA build also works with
+  `WERROR=ON`.
+- Plugin dtype validation no longer evaluates malformed enum representations,
+  preserving rejection diagnostics without UBSan invalid-enum reports.
+- NERT loading and shape/movement fixes cover repeated value-info entries,
+  GatherElements strides, unconsumed outputs, Reshape targets and broadcasting.
+
+### Known limitations
+- NERT remains experimental and correctness-first. Frozen-model task deviations
+  are documented in NERT's release evidence; they are not raw-output equality
+  or production-performance guarantees.
+- Full-catalog native AMD/ROCm parity and persistent AMD GPU CI are accepted
+  known missing coverage in NERT 0.2.0. Earlier AMD checks predate its latest
+  Sign/Split fixes; HIP/NVIDIA evidence is not native AMD validation.
 
 ## [0.10.0] - 2026-10-03
 
@@ -490,7 +437,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/olibartfast/neuriplo/compare/v0.8.0...v0.9.0
