@@ -319,7 +319,9 @@ extra steps or have no automated installer.
 **OpenCV DNN** — OpenCV 5.0.0 is the recommended release; OpenCV 4.6+
 remains supported. Select a source-built 5.x installation with
 `-DOpenCV_DIR=<prefix>/lib/cmake/opencv5`. The selected OpenCV installation
-provides the runtime; `OPENCV_VERSION` declares the recommended version and
+provides the runtime; on Linux, make a non-system install visible to the loader
+with `export LD_LIBRARY_PATH=<prefix>/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}`
+(or configure its directory through the system loader). `OPENCV_VERSION` declares the recommended version and
 `OPENCV_MIN_VERSION` declares the compatibility floor. OpenCV 5 uses the CPU
 DNN engine and does not load Darknet `.weights` models.
 
