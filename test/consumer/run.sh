@@ -50,7 +50,7 @@ PC_DIR="$(dirname "${PC_FILE}")"
 LIB_DIR="$(dirname "${PC_DIR}")"
 read -r -a PC_FLAGS <<< "$(PKG_CONFIG_PATH="${PC_DIR}" pkg-config --cflags --libs neuriplo)"
 cc -std=c99 "${SOURCE_DIR}/consumer.c" -o "${WORK}/consumer_c_pkgconfig" "${PC_FLAGS[@]}"
-expect_ok "pkg-config consumer_c" env LD_LIBRARY_PATH="${LIB_DIR}" "${WORK}/consumer_c_pkgconfig" "${PLUGIN_DIR}"
+expect_ok "pkg-config consumer_c" env LD_LIBRARY_PATH="${LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" "${WORK}/consumer_c_pkgconfig" "${PLUGIN_DIR}"
 
 # Python ctypes ([T-16], [V-13]), against the same installed prefix.
 if command -v python3 > /dev/null; then
