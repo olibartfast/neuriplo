@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.11.0] - 2026-10-25
 
 ### Changed
+- Declare OpenCV 5.0.0 as the recommended OpenCV DNN release, separately
+  from the supported minimum of 4.6.0. OpenCV 4.x remains compatible; 5.x
+  uses the CPU DNN engine and requires ONNX instead of Darknet weights.
 - **Default backend: NERT**, replacing OpenCV DNN for a bare configure.
   NERT is an experimental, correctness-first ONNX runtime, pinned to released
   `v0.2.0`. The default build requires CMake 3.16+, glog, and network access

@@ -9,7 +9,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 <!-- GEN:backend-overview -->
 | Backend ID | Name | Version | Arch | GPU |
 |---|---|---|---|---|
-| `OPENCV_DNN` | OpenCV DNN | `4.6.0` | x86_64, ARM64 | no |
+| `OPENCV_DNN` | OpenCV DNN | `5.0.0` | x86_64, ARM64 | no |
 | `ONNX_RUNTIME` | ONNX Runtime | `1.28.0` | x86_64, ARM64 | no |
 | `LIBTORCH` | LibTorch | `2.14.0` | x86_64, ARM64 | no |
 | `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
@@ -227,7 +227,7 @@ Per-backend version overrides (default from `versions.env`):
 <!-- GEN:cmake-version-variables -->
 | Variable | Current value in `versions.env` |
 |---|---|
-| `OPENCV_VERSION` | `4.6.0` |
+| `OPENCV_VERSION` | `5.0.0` |
 | `ONNX_RUNTIME_VERSION` | `1.28.0` |
 | `PYTORCH_VERSION` | `2.14.0` |
 | `TENSORFLOW_VERSION` | `2.19.0` |
@@ -316,7 +316,14 @@ export PYTHONPATH="$TVM_DIR/python:$PYTHONPATH"
 Use the setup scripts when possible. The entries below cover cases that require
 extra steps or have no automated installer.
 
-**OpenCV DNN** — system package, no setup script needed:
+**OpenCV DNN** — OpenCV 5.0.0 is the recommended release; OpenCV 4.6+
+remains supported. Select a source-built 5.x installation with
+`-DOpenCV_DIR=<prefix>/lib/cmake/opencv5`. The selected OpenCV installation
+provides the runtime; `OPENCV_VERSION` declares the recommended version and
+`OPENCV_MIN_VERSION` declares the compatibility floor. OpenCV 5 uses the CPU
+DNN engine and does not load Darknet `.weights` models.
+
+For the compatible distribution package:
 
 ```bash
 sudo apt-get install -y libopencv-dev libopencv-contrib-dev
