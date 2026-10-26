@@ -1,0 +1,64 @@
+name: OpenCV compatibility
+
+on:
+  push:
+    branches: [master, develop, 'release/**', 'feature/**']
+    paths-ignore: ['docs/**', 'specs/**', '**.md', LICENSE]
+  pull_request:
+    branches: [master, develop, 'release/**', 'feature/**']
+    paths-ignore: ['docs/**', 'specs/**', '**.md', LICENSE]
+
+concurrency:
+  group: opencv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  opencv-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['4.6.0', '5.0.0']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify matrix tracks declared versions
+        env:
+          OPENCV_TEST_VERSION: ${{ matrix.version }}
+        run: |
+          source versions.env
+          test "$OPENCV_TEST_VERSION" = "$OPENCV_MIN_VERSION" || test "$OPENCV_TEST_VERSION" = "$OPENCV_VERSION"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgoogle-glog-dev libgtest-dev
+      - name: Cache OpenCV installation
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: .opencv/install
+          key: opencv-${{ runner.os }}-${{ runner.arch }}-${{ matrix.version }}-core-dnn-v1
+      - name: Build pinned OpenCV
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          OPENCV_TEST_VERSION: ${{ matrix.version }}
+        run: |
+          git clone --depth 1 --branch "$OPENCV_TEST_VERSION" https://github.com/opencv/opencv.git .opencv/source
+          cmake -S .opencv/source -B .opencv/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PWD/.opencv/install" \
+            -DBUILD_LIST=core,dnn -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF -DBUILD_opencv_python3=OFF -DWITH_IPP=OFF \
+            -DWITH_OPENCL=OFF -DWITH_CUDA=OFF -DBUILD_SHARED_LIBS=ON
+          cmake --build .opencv/build --parallel 2
+          cmake --install .opencv/build
+      - name: Configure and build Neuriplo
+        env:
+          OPENCV_TEST_VERSION: ${{ matrix.version }}
+        run: |
+          cmake -S . -B build-opencv-compat -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DDEFAULT_BACKEND=OPENCV_DNN \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_PREFIX_PATH="$PWD/.opencv/install" \
+            -DOPENCV_TEST_VERSION="$OPENCV_TEST_VERSION"
+          cmake --build build-opencv-compat --parallel 2
+      - name: Run mandatory real-model compatibility tests and contracts
+        run: ctest --test-dir build-opencv-compat --output-on-failure

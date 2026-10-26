@@ -33,6 +33,10 @@ thin, independently reviewable phases over broad rewrites.
 
 ## Phase 0 — Multi-Backend Foundation
 
+OpenCV 5 stabilization (2026-10-26): explicit engine/device policy and dual-version
+real-model CI gate implemented; validation tracked in
+`2026-10-26-opencv5-validation/validation.md`.
+
 **Status: Complete**
 
 The current foundation includes a shared backend interface, runtime registry,

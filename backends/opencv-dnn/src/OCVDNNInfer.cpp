@@ -17,7 +17,11 @@ namespace {
 cv::dnn::Net load_net(const std::string& model_path) {
     const size_t weights_pos = model_path.find(".weights");
     if (weights_pos == std::string::npos) {
+#if CV_VERSION_MAJOR >= 5
+        return cv::dnn::readNet(model_path, "", "", cv::dnn::ENGINE_AUTO);
+#else
         return cv::dnn::readNet(model_path);
+#endif
     }
 
 #if CV_VERSION_MAJOR >= 5
@@ -41,11 +45,6 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
                          const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
     LOG(INFO) << "Running using OpenCV DNN runtime: " << model_path;
-    net_ = load_net(model_path);
-    if (net_.empty()) {
-        throw std::runtime_error("Can't load the model: " + model_path);
-    }
-
 #if CV_VERSION_MAJOR >= 5
     // readNet() defaults to ENGINE_AUTO, which resolves to the rewritten
     // ENGINE_OPENCV, and that engine does not support non-CPU backends yet.
@@ -54,12 +53,17 @@ OCVDNNInfer::OCVDNNInfer(const std::string& model_path, bool use_gpu, size_t bat
     // CPU inference and only notice as a latency regression. Refuse instead:
     // use_gpu=false asks for CPU explicitly, and OpenCV 4.x still honours CUDA.
     // Revisit once an OpenCV 5 engine supports non-CPU backends.
-    if (use_gpu && isCudaBuildEnabled()) {
+    if (use_gpu) {
         throw std::runtime_error("OpenCV " CV_VERSION " cannot run this backend on the GPU: its default DNN engine "
                                  "supports CPU only, so a CUDA request would silently run on the CPU. "
                                  "Pass use_gpu=false, or build this backend against OpenCV 4.x.");
     }
 #endif
+
+    net_ = load_net(model_path);
+    if (net_.empty()) {
+        throw std::runtime_error("Can't load the model: " + model_path);
+    }
 
     // Both enums survive into 5.x, so this compiles either way.
     if (use_gpu && isCudaBuildEnabled()) {
