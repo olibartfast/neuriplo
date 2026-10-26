@@ -325,6 +325,26 @@ with `export LD_LIBRARY_PATH=<prefix>/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}`
 `OPENCV_MIN_VERSION` declares the compatibility floor. OpenCV 5 uses the CPU
 DNN engine and does not load Darknet `.weights` models.
 
+The adapter explicitly selects `ENGINE_AUTO` on OpenCV 5: OpenCV tries its new
+engine and can fall back to its classic engine for model compatibility. Upstream
+`OPENCV_FORCE_DNN_ENGINE` overrides still apply. Neuriplo rejects `use_gpu=true`
+on OpenCV 5 before model loading, including CPU-only builds, so a requested GPU
+cannot silently become CPU inference. Use `use_gpu=false`; classic-engine GPU
+selection is not exposed by this adapter. OpenCV 4 CUDA behavior is unchanged.
+
+The `OpenCV compatibility` workflow builds both the declared minimum (4.6.0)
+and recommended release (5.0.0) from source. Each runs a checked-in ONNX ReLU
+fixture through real inference and checks values, dimensions, and raw FP32
+buffers; no model download or mock fallback is involved. The optional classifier
+suite may use mocks only when no `model_path.txt` was supplied. A missing,
+empty, or unloadable supplied classifier is a test failure.
+
+The tiny fixture can be regenerated with `onnx==1.22.0` using
+`python3 backends/opencv-dnn/test/fixtures/generate.py`. Building and running
+the tests uses the committed fixture and does not require Python ONNX.
+See the upstream [OpenCV 4 to 5 migration guide](https://github.com/opencv/opencv/wiki/OpenCV-4-to-5-migration)
+for changes outside this adapter, including image processing and video I/O.
+
 For the compatible distribution package:
 
 ```bash

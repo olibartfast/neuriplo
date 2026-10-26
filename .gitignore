@@ -69,6 +69,7 @@ ENV/
 # Model files (large binary files)
 *.engine
 *.onnx
+!backends/opencv-dnn/test/fixtures/relu.onnx
 *.pb
 *.pth
 *.pt
