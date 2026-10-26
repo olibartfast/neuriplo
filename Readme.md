@@ -3,7 +3,7 @@
 [![C++](https://img.shields.io/badge/language-C++17-blue.svg)](https://en.cppreference.com/w/cpp)
 [![CMake](https://img.shields.io/badge/build%20system-CMake-blue.svg)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)](https://github.com/olibartfast/neuriplo/releases/tag/v0.11.0)
+[![Version](https://img.shields.io/badge/version-0.11.1-blue.svg)](https://github.com/olibartfast/neuriplo/releases/latest)
 
 ![Neuriplo](data/neuriplo.png)
 

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-26
+
+### Fixed
+- Reject OpenCV 5 GPU requests even on CPU-only builds before loading a model;
+  explicitly select the AUTO engine for CPU inference.
+- Fail classifier tests when a supplied model cannot load instead of using mocks.
+
+### Added
+- OpenCV 4.6/5.0 source-build CI matrix with mandatory real ONNX value, shape,
+  raw-buffer, and OpenCV 5 rejection tests.
+
 ## [0.11.0] - 2026-10-25
 
 ### Changed

@@ -2,6 +2,7 @@
 
 #include "testing/TestBlob.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -45,20 +46,15 @@ class OCVDNNInferTest : public ::testing::Test {
         model_path = "";
 
         // Check if model_path.txt exists (set by test script)
-        std::ifstream modelPathFile("model_path.txt");
-        if (modelPathFile) {
+        if (fs::exists("model_path.txt")) {
+            std::ifstream modelPathFile("model_path.txt");
+            ASSERT_TRUE(modelPathFile.is_open()) << "Cannot open supplied model_path.txt";
             std::getline(modelPathFile, model_path);
-            if (!model_path.empty() && fs::exists(model_path)) {
-                has_real_model = true;
-                try {
-                    real_infer = std::make_unique<OCVDNNInfer>(model_path, false, 1,
-                                                               std::vector<std::vector<int64_t>>{{3, 224, 224}});
-                    std::cout << "Using real model: " << model_path << std::endl;
-                } catch (const std::exception& e) {
-                    std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
-                    has_real_model = false;
-                }
-            }
+            ASSERT_FALSE(model_path.empty()) << "Supplied model_path.txt is empty";
+            ASSERT_TRUE(fs::exists(model_path)) << "Missing supplied model: " << model_path;
+            ASSERT_NO_THROW(real_infer = std::make_unique<OCVDNNInfer>(
+                                model_path, false, 1, std::vector<std::vector<int64_t>>{{3, 224, 224}}));
+            has_real_model = true;
         }
 
         if (!has_real_model) {
@@ -88,7 +84,7 @@ TEST_F(OCVDNNInferTest, BasicInference) {
     ASSERT_FALSE(output_vectors.empty());
     ASSERT_FALSE(shape_vectors.empty());
 
-    ASSERT_EQ(shape_vectors[0].size(), 2);
+    ASSERT_EQ(shape_vectors[0].size(), 2u);
     ASSERT_EQ(shape_vectors[0][0], 1);
     ASSERT_EQ(shape_vectors[0][1], 1000);
 
@@ -99,7 +95,7 @@ TEST_F(OCVDNNInferTest, BasicInference) {
     ASSERT_NO_THROW({ static_cast<void>(std::get<float>(output_vectors[0][0])); });
 
     // Size checking
-    ASSERT_EQ(output_vectors[0].size(), shape_vectors[0][1]);
+    ASSERT_EQ(output_vectors[0].size(), static_cast<size_t>(shape_vectors[0][1]));
 
     // Check all elements are of the expected type
     ASSERT_TRUE(std::all_of(output_vectors[0].begin(), output_vectors[0].end(),
@@ -119,7 +115,7 @@ TEST_F(OCVDNNInferTest, IntegrationTest) {
 
     // Verify real model produces reasonable results
     ASSERT_FALSE(output_vectors.empty());
-    ASSERT_EQ(output_vectors[0].size(), 1000); // ImageNet classes
+    ASSERT_EQ(output_vectors[0].size(), 1000u); // ImageNet classes
 
     // Check that output values are in reasonable range for probabilities/logits
     for (const auto& element : output_vectors[0]) {
@@ -139,7 +135,7 @@ TEST_F(OCVDNNInferTest, MockUnitTest) {
     auto [output_vectors, shape_vectors] = mock_infer->get_infer_results(input_tensors);
 
     // Test mock-specific behavior
-    ASSERT_EQ(output_vectors[0].size(), 1000);
+    ASSERT_EQ(output_vectors[0].size(), 1000u);
 
     // Verify mock data pattern
     for (int i = 0; i < 10; ++i) {
