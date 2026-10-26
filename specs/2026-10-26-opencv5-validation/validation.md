@@ -31,6 +31,14 @@ Local toolchain: Ubuntu GCC 13.3.0, CMake 3.28.3, clang-format 18.
   by a concurrent dry run reusing its container names (exit 137); it is not
   validation evidence. The clean sequential run of the final source passed
   without manual container changes.
+- Hosted dual-version workflow passes. The existing Docker runtime job exposed
+  a packaging gap: it copies the test build directory but not source fixtures.
+  The fixture is now staged by CMake beside the test binary. Both local suites
+  and the cached `act` matrix pass again (80/80 each). The final Docker image
+  `neuriplo-opencv-packaging:check` passes its real ONNX test with no source
+  tree present (`/app/backends` does not exist); image SHA256
+  `62c20600a532c6dc3ffe75b699ebf52bc1768bed0c8d04ddba9029ae5cd7c444`.
+  Subsequent hosted checks for the packaging correction are pending.
 
 Reproduction:
 
@@ -59,5 +67,6 @@ act push -W .github/workflows/opencv-compatibility.yml \
 
 Session-local evidence: `/tmp/opencv{4,5}-{config,build,test,consumer}.log`,
 `/tmp/opencv-act-dryrun.log`, `/tmp/opencv-act-full-final.log`,
-`/tmp/opencv-cppcheck.log`.
+`/tmp/opencv-cppcheck.log`, `/tmp/opencv-act-packaging.log`,
+`/tmp/neuriplo-opencv-packaging-{build,test}.log`.
 Fixture SHA256: `481bc4ead99aa5c52588883193ffa83298b6c146fdda92e1be820f758560bea5`.

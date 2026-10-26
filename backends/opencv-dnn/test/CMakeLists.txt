@@ -11,8 +11,10 @@ endif()
 find_package(Glog REQUIRED)
 
 add_executable(OCVDNNInferTest ${TEST_SOURCES})
+configure_file(${CMAKE_CURRENT_LIST_DIR}/fixtures/relu.onnx
+    ${CMAKE_CURRENT_BINARY_DIR}/relu.onnx COPYONLY)
 target_compile_definitions(OCVDNNInferTest PRIVATE
-    OPENCV_COMPAT_FIXTURE="${CMAKE_CURRENT_LIST_DIR}/fixtures/relu.onnx")
+    OPENCV_COMPAT_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/relu.onnx")
 
 target_include_directories(OCVDNNInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/backends/opencv-dnn/src
