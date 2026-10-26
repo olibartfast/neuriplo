@@ -57,7 +57,7 @@ jobs:
         run: |
           cmake -S . -B build-opencv-compat -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DDEFAULT_BACKEND=OPENCV_DNN \
-            -DBUILD_INFERENCE_ENGINE_TESTS=ON -DCMAKE_PREFIX_PATH="$PWD/.opencv/install" \
+            -DBUILD_INFERENCE_ENGINE_TESTS=ON -DWERROR=ON -DCMAKE_PREFIX_PATH="$PWD/.opencv/install" \
             -DOPENCV_TEST_VERSION="$OPENCV_TEST_VERSION"
           cmake --build build-opencv-compat --parallel 2
       - name: Run mandatory real-model compatibility tests and contracts

@@ -23,7 +23,14 @@ Local toolchain: Ubuntu GCC 13.3.0, CMake 3.28.3, clang-format 18.
 - Format, generated docs, full-tree cppcheck, diff and documentation link
   checks pass. `act` dry run passes for both matrix cells using cached actions
   (`--action-offline-mode` avoids repeated action downloads).
-- Full source-build `act` matrix and default NERT regression run: in progress.
+- Default NERT regression: **PASS**, 76/76 fixture-free tests, fresh Release
+  build with `WERROR=ON`, fetching the declared `v0.2.0` tag. This is common
+  contract coverage, not a NERT model-parity or GPU claim.
+- Full source-build `act` matrix: **PASS**, both clean source builds and
+  80/80 tests per version with `WERROR=ON`. The first run was interrupted
+  by a concurrent dry run reusing its container names (exit 137); it is not
+  validation evidence. The clean sequential run of the final source passed
+  without manual container changes.
 
 Reproduction:
 
@@ -51,5 +58,6 @@ act push -W .github/workflows/opencv-compatibility.yml \
 ```
 
 Session-local evidence: `/tmp/opencv{4,5}-{config,build,test,consumer}.log`,
-`/tmp/opencv-act-{dryrun,full}.log`, `/tmp/opencv-cppcheck.log`.
+`/tmp/opencv-act-dryrun.log`, `/tmp/opencv-act-full-final.log`,
+`/tmp/opencv-cppcheck.log`.
 Fixture SHA256: `481bc4ead99aa5c52588883193ffa83298b6c146fdda92e1be820f758560bea5`.
