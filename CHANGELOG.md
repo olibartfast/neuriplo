@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-26
+
 ### Fixed
 - Reject OpenCV 5 GPU requests even on CPU-only builds before loading a model;
   explicitly select the AUTO engine for CPU inference.

@@ -38,7 +38,15 @@ Local toolchain: Ubuntu GCC 13.3.0, CMake 3.28.3, clang-format 18.
   `neuriplo-opencv-packaging:check` passes its real ONNX test with no source
   tree present (`/app/backends` does not exist); image SHA256
   `62c20600a532c6dc3ffe75b699ebf52bc1768bed0c8d04ddba9029ae5cd7c444`.
-  Subsequent hosted checks for the packaging correction are pending.
+  Hosted checks for the packaging correction at `dd6444e` pass:
+  [CI, 46/46 jobs](https://github.com/olibartfast/neuriplo/actions/runs/40310447667),
+  [Windows, 3/3 jobs](https://github.com/olibartfast/neuriplo/actions/runs/40310447507),
+  and [both OpenCV versions](https://github.com/olibartfast/neuriplo/actions/runs/40310447696).
+- Release candidate `0.11.1`: both OpenCV builds again pass 80/80 entries,
+  both installed consumer suites and C ABI symbol checks pass, and the default
+  NERT build passes 76/76 fixture-free entries, all with `WERROR=ON`.
+  Evidence: `/tmp/neuriplo-release{4,5}-{config,build,test,consumer}.log` and
+  `/tmp/neuriplo-release-default-{config,build,test}.log`.
 
 Reproduction:
 
