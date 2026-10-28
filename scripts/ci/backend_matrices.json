@@ -9,7 +9,7 @@
     { "backend": "TVM", "dockerfile": "docker/Dockerfile.tvm" },
     { "backend": "MIGRAPHX", "dockerfile": "docker/Dockerfile.migraphx" },
     { "backend": "TENSORRT", "dockerfile": "docker/Dockerfile.tensorrt", "cmake_args": "-DTENSORRT_DIR=/opt/tensorrt" },
-    { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert" }
+    { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert", "base_image": "ghcr.io/olibartfast/neuriplo/litert-deps" }
   ],
   "build-warnings": [
     { "backend": "OPENCV_DNN", "dockerfile": "docker/Dockerfile.opencvdnn" },
@@ -21,7 +21,7 @@
     { "backend": "TVM", "dockerfile": "docker/Dockerfile.tvm" },
     { "backend": "MIGRAPHX", "dockerfile": "docker/Dockerfile.migraphx" },
     { "backend": "TENSORRT", "dockerfile": "docker/Dockerfile.tensorrt", "cmake_args": "-DTENSORRT_DIR=/opt/tensorrt" },
-    { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert" }
+    { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert", "base_image": "ghcr.io/olibartfast/neuriplo/litert-deps" }
   ],
   "sanitizers": [
     { "backend": "OPENCV_DNN", "dockerfile": "docker/Dockerfile.opencvdnn", "test_exe": "OCVDNNInferTest" },
@@ -40,6 +40,6 @@
     { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "image": "neuriplo-libtorch-cpu", "test_exe": "LibtorchInferTest" },
     { "backend": "CACTUS", "dockerfile": "docker/Dockerfile.cactus", "image": "neuriplo-cactus", "test_exe": "CactusInferTest", "runs_on": "ubuntu-24.04-arm" },
     { "backend": "LLAMACPP", "dockerfile": "docker/Dockerfile.llamacpp", "image": "neuriplo-llamacpp", "test_exe": "LlamaCppInferTest" },
-    { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert", "image": "neuriplo-litert", "test_exe": "LiteRTInferTest" }
+    { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert", "base_image": "ghcr.io/olibartfast/neuriplo/litert-deps", "image": "neuriplo-litert", "test_exe": "LiteRTInferTest" }
   ]
 }
