@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fails. `docker/Dockerfile.litert` accepts the same image via `BASE_IMAGE`
   for local reuse.
 
+## [0.11.2] - 2026-10-28
+
 ### Fixed
 - Reject OpenCV DNN buffers with invalid dimensions or mismatched Float32 byte counts, including the batch dimension, before creating a blob.
 - Keep the TensorFlow Docker runtime at the declared version instead of upgrading it transitively through unused tensorflow-hub; fail tests when a supplied real model cannot load.
