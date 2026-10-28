@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Prebuilt TensorFlow SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/tensorflow-deps:<TENSORFLOW_VERSION>` and
+  compiles only neuriplo itself, falling back to the full pip-based install.
+  `docker/Dockerfile.libtensorflow` accepts the same image via `BASE_IMAGE`
+  and skips the pip install and library staging on version-stamp match.
 - Prebuilt LiteRT SDK base image on GHCR: CI resolves
   `ghcr.io/olibartfast/neuriplo/litert-deps:<LITERT_VERSION>` and compiles
   only neuriplo itself, falling back to the full source build when the pull
