@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fails. `docker/Dockerfile.litert` accepts the same image via `BASE_IMAGE`
   for local reuse.
 
+### Fixed
+- Report LiteRT image inputs in the NCHW layout consumed by the backend and translate requested image sizes to native NHWC, preventing metadata-driven preprocessing from transposing twice.
+
 ## [0.11.2] - 2026-10-28
 
 ### Fixed

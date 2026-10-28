@@ -2,6 +2,7 @@
 
 #include "LiteRTInputLayout.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <numeric>
@@ -393,6 +394,12 @@ std::vector<int> LiteRTInfer::makeInputDims(int tensor_index, const std::vector<
                                  ", requested rank " + std::to_string(requested_shape.size()));
     }
 
+    // Image buffers use the public NCHW contract; resize the native NHWC
+    // tensor accordingly. Preserve explicit native NHWC sizes for callers
+    // that already supplied them before metadata was normalized.
+    if (is_nhwc_model_input(tensor) && dims.size() == 4 && (dims[1] == 1 || dims[1] == 3)) {
+        std::rotate(dims.begin() + 1, dims.begin() + 2, dims.end());
+    }
     return dims;
 }
 
@@ -412,7 +419,14 @@ void LiteRTInfer::refreshMetadata() {
             tensor != nullptr && tensor->name != nullptr ? tensor->name : "input" + std::to_string(i);
         const TensorDataType datatype =
             tensor != nullptr ? neuriplo_dtype_from_tflite(tensor->type) : TensorDataType::Float32;
-        inference_metadata_.addInput(name, tensorShape(inputs[i]), batch_size_, datatype);
+        auto shape = tensorShape(inputs[i]);
+        // get_infer_results accepts NCHW bytes and performs the native NHWC
+        // conversion itself. Expose that caller layout so metadata-driven
+        // preprocessors do not supply NHWC and get transposed a second time.
+        if (is_nhwc_model_input(tensor)) {
+            shape = {shape[0], shape[3], shape[1], shape[2]};
+        }
+        inference_metadata_.addInput(name, shape, batch_size_, datatype);
     }
 
     const auto& outputs = interpreter_->outputs();
