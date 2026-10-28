@@ -29,6 +29,9 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path, bool use_gpu, size
     input_name_ = input_info_.name();
     LOG(INFO) << "Tensor Input name: " << input_name_;
 
+    if (input_info_.tensor_shape().dim_size() != 4) {
+        throw std::runtime_error("TensorFlow image backend requires a rank-four NHWC input");
+    }
     // Extract dimensions and convert from NHWC to NCHW layout (excluding batch)
     std::vector<int64_t> input_shape;
     const auto& dim = input_info_.tensor_shape().dim();
@@ -43,7 +46,21 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path, bool use_gpu, size
     LOG(INFO) << "Reshaped Tensor (NCHW order, excluding batch): " << "[" << input_shape[0] << ", " << input_shape[1]
               << ", " << input_shape[2] << "]";
 
-    inference_metadata_.addInput(input_name_, input_shape, batch_size);
+    TensorDataType input_type;
+    switch (input_info_.dtype()) {
+    case tensorflow::DT_FLOAT:
+        input_type = TensorDataType::Float32;
+        break;
+    case tensorflow::DT_UINT8:
+        input_type = TensorDataType::UInt8;
+        break;
+    case tensorflow::DT_INT32:
+        input_type = TensorDataType::Int32;
+        break;
+    default:
+        throw std::runtime_error("Unsupported TensorFlow input datatype");
+    }
+    inference_metadata_.addInput(input_name_, input_shape, batch_size, input_type);
 
     // Get output tensor names and shapes (excluding batch size)
     LOG(INFO) << "Tensor output names and shapes:";
@@ -81,34 +98,21 @@ TFDetectionAPI::get_infer_results(const std::vector<std::vector<uint8_t>>& input
 
     const std::vector<uint8_t>& input_data = input_tensors[0];
 
-    // The input_data is assumed to be in NCHW format (batch, channels, height, width)
-    // TensorFlow expects NHWC format (batch, height, width, channels)
-    // So we need to transpose from NCHW to NHWC
-
-    // We rely on metadata or input_blob.size from previous code.
-    // Previous code used input_blob.size[0]..size[3].
-    // We should use inference_metadata_.getInputs()[0].shape or similar.
-    // However, TFDetectionAPI constructor logic for `input_shape` [Channels, Height, Width] was derived from NHWC!
-    // Wait, lines 36-44 of TFDetectionAPI.cpp (viewed earlier) extracted C, H, W from NHWC model info!
-    // So the model IS NHWC.
-    // We need to know current batch size.
-    // NCHW layout implies: Batch * Channels * Height * Width.
-
-    int batch_size = batch_size_; // From base class
-    // We need dimensions.
-    // metadata stores [Channels, Height, Width] (mapped from constructor).
-    // Let's retrieve them.
-    auto shape = inference_metadata_.getInputs()[0].shape; // [C, H, W] (plus batch is separate in metadata usually?)
-    // InferenceMetadata::addInput takes shape excluding batch? No, it takes full shape usually or whatever we passed.
-    // Constructor passed `input_shape` which was [C, H, W].
-
-    int channels = shape[0];
-    int height = shape[1];
-    int width = shape[2];
+    const int batch_size = batch_size_;
+    const auto& shape = inference_metadata_.getInputs()[0].shape;
+    const int channels = shape[0];
+    const int height = shape[1];
+    const int width = shape[2];
 
     // Create tensor with proper shape for NHWC format
     tensorflow::Tensor input_tensor(input_info_.dtype(),
                                     tensorflow::TensorShape({batch_size, height, width, channels}));
+
+    if (input_data.size() != input_tensor.TotalBytes()) {
+        throw std::runtime_error("TensorFlow input tensor byte size mismatch: expected " +
+                                 std::to_string(input_tensor.TotalBytes()) + ", got " +
+                                 std::to_string(input_data.size()));
+    }
 
     // Transpose helper
     auto transpose_nchw_to_nhwc = [&](auto* dest_ptr, const auto* src_ptr) {
