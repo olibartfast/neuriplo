@@ -18,8 +18,10 @@ class ResolveSDKBaseTest(unittest.TestCase):
                 if "base_image" not in entry:
                     continue
                 backend = entry["backend"]
-                # The TVM fallback needs LLVM, GTest and its SDK environment.
-                expected_fallback = "base_dependencies" if backend == "TVM" else "ubuntu:24.04"
+                # A custom fallback carries the SDK's own build prerequisites
+                # (TVM needs LLVM/GTest; llama.cpp needs OpenBLAS/GTest); the
+                # default is a bare Ubuntu for fully self-contained Dockerfiles.
+                expected_fallback = entry.get("base_fallback", "ubuntu:24.04")
                 for mode in ("pull-success", "pull-failure", "act"):
                     with self.subTest(backend=backend, mode=mode), tempfile.TemporaryDirectory() as tmp:
                         path = Path(tmp)
