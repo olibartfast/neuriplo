@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   only neuriplo itself, falling back to the full source build when the pull
   fails. `docker/Dockerfile.litert` accepts the same image via `BASE_IMAGE`
   for local reuse.
+- Prebuilt TVM SDK base image on GHCR (`tvm-deps:<TVM_VERSION>`), same
+  pull-or-fallback scheme; `docker/Dockerfile.tvm` skips the source clone
+  when a matching version stamp is present.
+
+### Fixed
+- Preserve TVM source dependencies when a prebuilt SDK pull fails; skip compilation when its version stamp matches.
 
 ## [0.11.2] - 2026-10-28
 

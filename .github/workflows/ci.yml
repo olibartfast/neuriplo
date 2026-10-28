@@ -54,6 +54,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test SDK base resolution
+        run: python3 scripts/ci/test_resolve_sdk_base.py
+
       - name: Detect changed backends
         id: detect
         run: |
@@ -171,18 +174,9 @@ jobs:
         if: ${{ matrix.base_image }}
         id: sdk-base
         run: |
-          set -euo pipefail
-          if [ -n "${ACT:-}" ]; then
-            echo "ref=ubuntu:24.04" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          VER="$(grep -E "^${{ matrix.backend }}_VERSION=" versions.env | cut -d= -f2)"
-          REF="${{ matrix.base_image }}:${VER}"
-          if docker pull "$REF" >/dev/null 2>&1; then
-            echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=ubuntu:24.04" >> "$GITHUB_OUTPUT"
-          fi
+          bash scripts/ci/resolve_sdk_base.sh \
+            "${{ matrix.backend }}" "${{ matrix.base_image }}" \
+            "${{ matrix.base_fallback || 'ubuntu:24.04' }}"
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -246,18 +240,9 @@ jobs:
         if: ${{ matrix.base_image }}
         id: sdk-base
         run: |
-          set -euo pipefail
-          if [ -n "${ACT:-}" ]; then
-            echo "ref=ubuntu:24.04" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          VER="$(grep -E "^${{ matrix.backend }}_VERSION=" versions.env | cut -d= -f2)"
-          REF="${{ matrix.base_image }}:${VER}"
-          if docker pull "$REF" >/dev/null 2>&1; then
-            echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=ubuntu:24.04" >> "$GITHUB_OUTPUT"
-          fi
+          bash scripts/ci/resolve_sdk_base.sh \
+            "${{ matrix.backend }}" "${{ matrix.base_image }}" \
+            "${{ matrix.base_fallback || 'ubuntu:24.04' }}"
 
       - name: Build Docker image
         uses: nick-fields/retry@v3
@@ -304,6 +289,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
 
+      - name: Log in to GHCR for prebuilt SDK bases
+        if: ${{ matrix.base_image && !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve SDK base image
+        if: ${{ matrix.base_image }}
+        id: sdk-base
+        run: |
+          bash scripts/ci/resolve_sdk_base.sh \
+            "${{ matrix.backend }}" "${{ matrix.base_image }}" \
+            "${{ matrix.base_fallback || 'ubuntu:24.04' }}"
+
       - name: Build Docker image
         uses: nick-fields/retry@v3
         with:
@@ -314,6 +313,7 @@ jobs:
               --file ${{ matrix.dockerfile }} \
               --target builder \
               --tag neuriplo-lint:${{ matrix.backend }} \
+              ${{ matrix.base_image && format('--build-arg BASE_IMAGE={0}', steps.sdk-base.outputs.ref) || '' }} \
               --load \
               --cache-from type=gha,scope=docker-${{ matrix.backend }} \
               ${{ github.event_name == 'push' && format('--cache-to type=gha,mode=max,scope=docker-{0}', matrix.backend) || '' }} \
@@ -485,18 +485,9 @@ jobs:
         if: ${{ matrix.base_image }}
         id: sdk-base
         run: |
-          set -euo pipefail
-          if [ -n "${ACT:-}" ]; then
-            echo "ref=ubuntu:24.04" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          VER="$(grep -E "^${{ matrix.backend }}_VERSION=" versions.env | cut -d= -f2)"
-          REF="${{ matrix.base_image }}:${VER}"
-          if docker pull "$REF" >/dev/null 2>&1; then
-            echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=ubuntu:24.04" >> "$GITHUB_OUTPUT"
-          fi
+          bash scripts/ci/resolve_sdk_base.sh \
+            "${{ matrix.backend }}" "${{ matrix.base_image }}" \
+            "${{ matrix.base_fallback || 'ubuntu:24.04' }}"
 
       - name: Build Docker image
         uses: nick-fields/retry@v3

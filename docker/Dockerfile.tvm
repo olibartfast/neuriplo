@@ -3,6 +3,9 @@
 
 # Stage 1: Base dependencies
 ARG UBUNTU_VERSION=24.04
+# Prebuilt SDK base override: defaults to the stage below so local builds are
+# unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/tvm-deps:<ver>.
+ARG BASE_IMAGE=base_dependencies
 FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
 
 # Set environment variables
@@ -47,20 +50,33 @@ RUN git clone https://github.com/google/googletest.git -b v1.14.0 /usr/src/gtest
     cd / && rm -rf /usr/src/gtest-build
 
 # Stage 2: Install TVM
-FROM base_dependencies AS tvm_install
+FROM ${BASE_IMAGE} AS tvm_install
+
+# Use the requested repository pin even when inheriting a published SDK.
+COPY versions.env /tmp/versions.env
 
 # Clone and build TVM
 RUN . /tmp/versions.env && \
-    mkdir -p ${TVM_DIR} && \
-    cd ${DEPENDENCIES_DIR} && \
-    git clone --recursive https://github.com/apache/tvm tvm && \
-    cd tvm && \
-    git fetch --tags && \
-    git checkout v${TVM_VERSION} && \
-    git submodule update --init --recursive
+    if [ -f ${TVM_DIR}/build/libtvm.so ] && [ "$(cat ${TVM_DIR}/tvm-version.txt 2>/dev/null)" = "${TVM_VERSION}" ]; then \
+        echo "TVM ${TVM_VERSION} already built, skipping source build."; \
+    else \
+        rm -rf ${TVM_DIR} && \
+        mkdir -p ${TVM_DIR} && \
+        cd ${DEPENDENCIES_DIR} && \
+        git clone --recursive https://github.com/apache/tvm tvm && \
+        cd tvm && \
+        git fetch --tags && \
+        git checkout v${TVM_VERSION} && \
+        git submodule update --init --recursive; \
+    fi
 
 # Configure and build TVM
-RUN cd ${TVM_DIR} && \
+RUN . /tmp/versions.env && \
+    if [ -f ${TVM_DIR}/build/libtvm.so ] && [ "$(cat ${TVM_DIR}/tvm-version.txt 2>/dev/null)" = "${TVM_VERSION}" ]; then \
+        echo "TVM ${TVM_VERSION} already built, skipping compilation."; \
+        exit 0; \
+    fi && \
+    cd ${TVM_DIR} && \
     mkdir -p build && \
     cd build && \
     cmake .. \
@@ -101,12 +117,14 @@ RUN cd ${TVM_DIR}/python && \
     pip3 install --break-system-packages -e .
 
 # Verify TVM installation
-RUN export TVM_HOME=${TVM_DIR} && \
+RUN . /tmp/versions.env && \
+    export TVM_HOME=${TVM_DIR} && \
     export PYTHONPATH=${TVM_DIR}/python:${PYTHONPATH} && \
     export LD_LIBRARY_PATH=${TVM_DIR}/build:${LD_LIBRARY_PATH} && \
     test -f ${TVM_DIR}/build/libtvm_runtime.so && \
     test -f ${TVM_DIR}/build/libtvm.so && \
-    python3 -c "import tvm; print('TVM version:', tvm.__version__)"
+    python3 -c "import tvm; print('TVM version:', tvm.__version__)" && \
+    echo "${TVM_VERSION}" > ${TVM_DIR}/tvm-version.txt
 
 # Set TVM environment variables
 ENV TVM_HOME=${TVM_DIR}

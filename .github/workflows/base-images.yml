@@ -11,6 +11,7 @@ on:
     branches: [develop, master, 'release/**', 'feature/**']
     paths:
       - docker/Dockerfile.litert
+      - docker/Dockerfile.tvm
       - scripts/setup_litert.sh
       - scripts/lib/version_stamp.sh
       - versions.env
@@ -72,4 +73,51 @@ jobs:
               --push \
               --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/litert-deps:buildcache \
               --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/litert-deps:buildcache,mode=max \
+              .
+
+  tvm-deps:
+    name: tvm-deps base image
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Read TVM pin
+        id: pin
+        run: |
+          set -euo pipefail
+          VER="$(grep -E '^TVM_VERSION=' versions.env | cut -d= -f2)"
+          if [ -z "$VER" ]; then
+            echo "TVM_VERSION missing from versions.env" >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push tvm-deps
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 240
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.tvm \
+              --target tvm_install \
+              --tag ghcr.io/${{ github.repository }}/tvm-deps:${{ steps.pin.outputs.version }} \
+              --push \
+              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/tvm-deps:buildcache \
+              --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/tvm-deps:buildcache,mode=max \
               .
