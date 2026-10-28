@@ -133,5 +133,8 @@ ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:/opt/tensorflow_env/lib
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD test -f /app/build/lib/libneuriplo.so || exit 1
 
+# Invalid supplied fixtures must fail, never switch to mock outputs.
+RUN ctest --test-dir /app/build -R TensorFlowSuppliedFixture --output-on-failure
+
 # Default command to run TensorFlow tests
 CMD ["./TensorFlowInferTest"] 

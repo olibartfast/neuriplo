@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <opencv2/core/version.hpp> // CV_VERSION, CV_VERSION_MAJOR
 #include <stdexcept>
 #include <string>
@@ -105,28 +106,29 @@ std::vector<cv::Mat> OCVDNNInfer::run_forward(const std::vector<std::vector<uint
 
     const std::vector<uint8_t>& input_data = input_tensors[0];
 
-    // Reconstruct cv::Mat from raw bytes
-    // We assume the input is already a preprocessed blob (NCHW or similar) matching the model input
     const auto& shape_meta = inference_metadata_.getInputs()[0].shape;
-    std::vector<int> mat_size;
-    mat_size.push_back(static_cast<int>(get_batch_size())); // batch dimension (N in NCHW)
-    for (auto s : shape_meta)
-        mat_size.push_back(static_cast<int>(s));
-
-    // validate size
-    size_t expected_elements = 1;
-    for (auto s : shape_meta)
-        expected_elements *= s;
-    if (input_data.size() != expected_elements * sizeof(float)) {
-        // Fallback or warning?
-        // OpenCV DNN usually works with Float32
-        // If size mismatches, it might be uint8 image?
-        // If we strictly follow "get_infer_results takes processed tensors", it should be float.
-        // But if user passes an image, we can't easily handle blobFromImage without parameters (mean, scale).
-        // We assume it's the blob.
-        if (input_data.size() == expected_elements) {
-            // Maybe it's uint8?
+    const size_t batch = get_batch_size();
+    if (batch == 0 || batch > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw InferenceExecutionException("OpenCV DNN input batch is invalid");
+    }
+    std::vector<int> mat_size{static_cast<int>(batch)};
+    size_t expected_elements = batch;
+    for (const auto dimension : shape_meta) {
+        if (dimension <= 0 || dimension > std::numeric_limits<int>::max()) {
+            throw InferenceExecutionException("OpenCV DNN input dimensions must be positive and fit in int");
         }
+        const size_t size = static_cast<size_t>(dimension);
+        if (expected_elements > std::numeric_limits<size_t>::max() / sizeof(float) / size) {
+            throw InferenceExecutionException("OpenCV DNN input byte size overflows size_t");
+        }
+        expected_elements *= size;
+        mat_size.push_back(static_cast<int>(dimension));
+    }
+    const size_t expected_bytes = expected_elements * sizeof(float);
+    if (input_data.size() != expected_bytes) {
+        throw InferenceExecutionException("OpenCV DNN input byte size mismatch: expected " +
+                                          std::to_string(expected_bytes) + ", got " +
+                                          std::to_string(input_data.size()));
     }
 
     cv::Mat blob(mat_size.size(), mat_size.data(), CV_32F, const_cast<uint8_t*>(input_data.data()));
