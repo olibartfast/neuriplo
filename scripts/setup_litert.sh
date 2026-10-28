@@ -32,17 +32,43 @@ fi
 
 mkdir -p "$DEPENDENCY_ROOT"
 
+# Third-party fetches (TensorFlow's CMake pulls Eigen/ml_dtypes from
+# gitlab.com) flake under load. Retrying the cmake invocation resumes cheaply
+# in the same build directory instead of failing the whole image build, which
+# is what used to turn one refused clone into a 25-minute CI failure.
+retry_network() {
+    local attempts="${NEURIPLO_FETCH_RETRIES:-5}"
+    local delay="${NEURIPLO_FETCH_RETRY_DELAY:-30}"
+    local i
+    for ((i = 1; i <= attempts; i++)); do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$i" -lt "$attempts" ]; then
+            echo "Attempt $i/$attempts failed; retrying in ${delay}s: $*" >&2
+            sleep "$delay"
+            delay=$((delay * 2))
+        fi
+    done
+    echo "All $attempts attempts failed: $*" >&2
+    return 1
+}
+
 if [ ! -d "$SOURCE_DIR" ]; then
-    git clone --depth 1 --branch "v$LITERT_VERSION" https://github.com/tensorflow/tensorflow.git "$SOURCE_DIR"
+    clone_tensorflow() {
+        rm -rf "$SOURCE_DIR"
+        git clone --depth 1 --branch "v$LITERT_VERSION" https://github.com/tensorflow/tensorflow.git "$SOURCE_DIR"
+    }
+    retry_network clone_tensorflow
 fi
 
-cmake -S "$SOURCE_DIR/tensorflow/lite" -B "$BUILD_DIR" \
+retry_network cmake -S "$SOURCE_DIR/tensorflow/lite" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DTFLITE_ENABLE_INSTALL=OFF
 
-cmake --build "$BUILD_DIR" --target tensorflow-lite --parallel "$(nproc)"
-cmake --build "$BUILD_DIR" --target \
+retry_network cmake --build "$BUILD_DIR" --target tensorflow-lite --parallel "$(nproc)"
+retry_network cmake --build "$BUILD_DIR" --target \
     absl_log_internal_message \
     absl_log_internal_check_op \
     absl_log_internal_conditions \
