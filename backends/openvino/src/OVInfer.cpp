@@ -142,9 +142,9 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                 }
             }
 
-            if (partial_shape[0].is_dynamic()) {
-                partial_shape[0] = batch_size;
-            } else {
+            // Token inputs may start with the number of text queries rather than
+            // the image batch. Preserve their static leading dimension.
+            if (partial_shape[0].is_dynamic() || partial_shape.size() >= 4) {
                 partial_shape[0] = batch_size;
             }
 
@@ -180,12 +180,12 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
             std::string name = input.get_any_name();
             ov::Shape shape = input.get_shape();
 
-            // Convert ov::Shape to std::vector<int64_t>
-            std::vector<int64_t> shape_vec(shape.begin() + 1, shape.end());
+            // Preserve rank, including the batch axis, for image, video, and text inputs.
+            std::vector<int64_t> shape_vec(shape.begin(), shape.end());
 
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
             ov::element::Type input_type = input.get_element_type();
-            inference_metadata_.addInput(name, shape_vec, batch_size, inputTensorDataType(input_type));
+            inference_metadata_.addInput(name, shape_vec, shape.front(), inputTensorDataType(input_type));
 
             LOG(INFO) << "\tData Type: " << input_type.get_type_name();
         }
@@ -193,9 +193,10 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
         // Log network dimensions from first input when shape has spatial dims
         const auto& first_input_shape_vec = inference_metadata_.getInputs()[0].shape;
         if (first_input_shape_vec.size() >= 3) {
-            const auto channels = static_cast<int>(first_input_shape_vec[0]);
-            const auto network_height = static_cast<int>(first_input_shape_vec[1]);
-            const auto network_width = static_cast<int>(first_input_shape_vec[2]);
+            const size_t rank = first_input_shape_vec.size();
+            const auto channels = static_cast<int>(first_input_shape_vec[rank - 3]);
+            const auto network_height = static_cast<int>(first_input_shape_vec[rank - 2]);
+            const auto network_width = static_cast<int>(first_input_shape_vec[rank - 1]);
 
             LOG(INFO) << "channels " << channels;
             LOG(INFO) << "width " << network_width;
@@ -211,8 +212,8 @@ OVInfer::OVInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
             ov::Shape shape = output.get_shape();
             ov::element::Type output_type = output.get_element_type();
 
-            // Convert ov::Shape to std::vector<int64_t>
-            std::vector<int64_t> shape_vec(shape.begin() + 1, shape.end());
+            // Preserve rank, including the batch axis, for image, video, and text inputs.
+            std::vector<int64_t> shape_vec(shape.begin(), shape.end());
 
             LOG(INFO) << "\t" << name << " : " << print_shape(shape);
             inference_metadata_.addOutput(name, shape_vec, batch_size, outputTensorDataType(output_type));
@@ -235,6 +236,12 @@ void OVInfer::bind_inputs_and_infer(const std::vector<std::vector<uint8_t>>& inp
 
     for (size_t i = 0; i < num_inputs; ++i) {
         auto input_port = compiled_model_.input(i);
+        const size_t expected_bytes = ov::shape_size(input_port.get_shape()) * input_port.get_element_type().size();
+        if (input_tensors[i].size() != expected_bytes) {
+            throw InferenceExecutionException("OpenVINO input byte size mismatch at index " + std::to_string(i) +
+                                              ": expected " + std::to_string(expected_bytes) + ", got " +
+                                              std::to_string(input_tensors[i].size()));
+        }
         ov::Tensor input_tensor(input_port.get_element_type(), input_port.get_shape(),
                                 const_cast<uint8_t*>(input_tensors[i].data()));
         infer_request_.set_input_tensor(i, input_tensor);

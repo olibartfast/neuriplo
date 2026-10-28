@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Preserve full OpenVINO input rank and static text-query counts; reject undersized input buffers before binding host memory.
+- Transpose LiteRT image inputs using their actual element byte width, including UInt8.
+- Advertise TensorFlow input datatypes and reject unsupported ranks or mismatched input byte sizes.
+
 ## [0.11.1] - 2026-10-26
 
 ### Fixed
