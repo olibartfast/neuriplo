@@ -304,3 +304,17 @@ the top of the *constructor body* still crashes: the throw unwinds past the
 default-constructed `Ort::` members and faults in their destructors. The check has to
 finish before those members exist, which is why it is a base class rather than the first
 statement of the constructor.
+
+
+## TensorFlow Docker tests report no registered session factory
+
+If `LoadSavedModel` fails with `No session factory registered` while fixture tests
+appear to pass through mock fallback, inspect the **installed** Python TensorFlow
+version used to extract the C++ libraries. Installing `tensorflow-hub` after the
+pinned TensorFlow package can pull a newer `tf-keras`, which upgrades TensorFlow
+and changes the C++ runtime actually packaged in the image.
+
+The classifier fixture generator uses Keras Applications and does not need Hub.
+Keep that extra dependency out of the Docker image, assert the installed version
+against `versions.env` after installation, and fail when an explicitly supplied
+SavedModel cannot load. Mock-only tests must not hide a broken real fixture.

@@ -7,6 +7,8 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
+#include <openvino/core/graph_util.hpp>
+#include <openvino/opsets/opset13.hpp>
 
 namespace fs = std::filesystem;
 
@@ -173,4 +175,45 @@ TEST_F(OpenVINOInferTest, DynamicShapes) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST(OpenVINOInputShapeTest, PreservesStaticTextQueryCount) {
+    auto image = std::make_shared<ov::opset13::Parameter>(ov::element::f32, ov::Shape{1, 3, 8, 8});
+    auto tokens = std::make_shared<ov::opset13::Parameter>(ov::element::i64, ov::Shape{3, 16});
+    image->output(0).set_names({"pixel_values"});
+    tokens->output(0).set_names({"input_ids"});
+    auto model = std::make_shared<ov::Model>(ov::OutputVector{image, tokens}, ov::ParameterVector{image, tokens});
+    const auto path = fs::path(::testing::TempDir()) / "neuriplo-ov-text-query-regression.xml";
+    ov::serialize(model, path.string());
+    OVInfer infer(path.string(), false, 1);
+    const auto inputs = infer.get_inference_metadata().getInputs();
+    ASSERT_EQ(inputs.size(), 2u);
+    EXPECT_EQ(inputs[0].batch_size, 1u);
+    EXPECT_EQ(inputs[1].batch_size, 3u);
+    EXPECT_EQ(inputs[0].shape, (std::vector<int64_t>{1, 3, 8, 8}));
+    EXPECT_EQ(inputs[1].shape, (std::vector<int64_t>{3, 16}));
+    EXPECT_THROW(infer.get_infer_results({std::vector<uint8_t>(4), std::vector<uint8_t>(4)}),
+                 InferenceExecutionException);
+    fs::remove(path);
+    auto bin = path;
+    bin.replace_extension(".bin");
+    fs::remove(bin);
+}
+
+TEST(OpenVINOInputShapeTest, PreservesVideoBatchAxis) {
+    auto video = std::make_shared<ov::opset13::Parameter>(ov::element::f32, ov::Shape{1, 16, 3, 8, 8});
+    video->output(0).set_names({"pixel_values"});
+    auto model = std::make_shared<ov::Model>(ov::OutputVector{video}, ov::ParameterVector{video});
+    const auto path = fs::path(::testing::TempDir()) / "neuriplo-ov-video-rank-regression.xml";
+    ov::serialize(model, path.string());
+    OVInfer infer(path.string(), false, 1);
+    const auto inputs = infer.get_inference_metadata().getInputs();
+    ASSERT_EQ(inputs.size(), 1u);
+    EXPECT_EQ(inputs[0].shape, (std::vector<int64_t>{1, 16, 3, 8, 8}));
+    EXPECT_THROW(infer.get_infer_results({std::vector<uint8_t>(3 * 8 * 8 * sizeof(float))}),
+                 InferenceExecutionException);
+    fs::remove(path);
+    auto bin = path;
+    bin.replace_extension(".bin");
+    fs::remove(bin);
 }

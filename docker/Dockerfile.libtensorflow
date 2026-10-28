@@ -47,10 +47,11 @@ ENV PATH=/opt/tensorflow_env/bin:$PATH
 RUN . /tmp/versions.env && \
     pip install --upgrade pip && \
     pip install "tensorflow==${TENSORFLOW_VERSION}" && \
-    pip install tensorflow-hub
+    pip check
 
 # Verify installation
-RUN python -c "import tensorflow as tf; print(f'TensorFlow version: {tf.__version__}')"
+RUN . /tmp/versions.env && \
+    python -c 'import sys, tensorflow as tf; assert tf.__version__ == sys.argv[1], (tf.__version__, sys.argv[1]); print("TensorFlow version:", tf.__version__)' "${TENSORFLOW_VERSION}"
 
 # Setup TensorFlow C++ libraries (following setup_tensorflow_pip.sh pattern)
 RUN TF_SITE_PACKAGES=/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow && \
@@ -131,6 +132,9 @@ ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:/opt/tensorflow_env/lib
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD test -f /app/build/lib/libneuriplo.so || exit 1
+
+# Invalid supplied fixtures must fail, never switch to mock outputs.
+RUN ctest --test-dir /app/build -R TensorFlowSuppliedFixture --output-on-failure
 
 # Default command to run TensorFlow tests
 CMD ["./TensorFlowInferTest"] 

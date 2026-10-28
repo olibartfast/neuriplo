@@ -9,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <signal.h>
+#include <tensorflow/core/protobuf/saved_model.pb.h>
 
 namespace fs = std::filesystem;
 
@@ -55,19 +56,11 @@ class TensorFlowInferTest : public ::testing::Test {
         std::ifstream modelPathFile("model_path.txt");
         if (modelPathFile) {
             std::getline(modelPathFile, model_path);
-            if (!model_path.empty() && fs::exists(model_path)) {
-                has_real_model = true;
-                try {
-                    real_infer = std::make_unique<TFDetectionAPI>(model_path, false);
-                    std::cout << "Using real model: " << model_path << std::endl;
-                } catch (const std::exception& e) {
-                    std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
-                    has_real_model = false;
-                } catch (...) {
-                    std::cout << "Failed to load real model (unknown error), falling back to mock" << std::endl;
-                    has_real_model = false;
-                }
-            }
+            ASSERT_FALSE(model_path.empty()) << "Provided model_path.txt is empty";
+            ASSERT_TRUE(fs::exists(model_path)) << "Provided SavedModel does not exist: " << model_path;
+            real_infer = std::make_unique<TFDetectionAPI>(model_path, false);
+            has_real_model = true;
+            std::cout << "Using real model: " << model_path << std::endl;
         }
 
         if (!has_real_model) {
@@ -238,4 +231,44 @@ int main(int argc, char** argv) {
 
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
+}
+
+TEST(TensorFlowInputContract, AdvertisesUint8AndRejectsShortBuffer) {
+    tensorflow::SavedModel saved;
+    saved.set_saved_model_schema_version(1);
+    auto* meta = saved.add_meta_graphs();
+    meta->mutable_meta_info_def()->add_tags("serve");
+    auto* input = meta->mutable_graph_def()->add_node();
+    input->set_name("images");
+    input->set_op("Placeholder");
+    (*input->mutable_attr())["dtype"].set_type(tensorflow::DT_UINT8);
+    auto* shape = (*input->mutable_attr())["shape"].mutable_shape();
+    for (int dim : {1, 2, 4, 3})
+        shape->add_dim()->set_size(dim);
+    auto* output = meta->mutable_graph_def()->add_node();
+    output->set_name("result");
+    output->set_op("Identity");
+    output->add_input("images");
+    (*output->mutable_attr())["T"].set_type(tensorflow::DT_UINT8);
+    auto& signature = (*meta->mutable_signature_def())["serving_default"];
+    auto& input_info = (*signature.mutable_inputs())["images"];
+    input_info.set_name("images:0");
+    input_info.set_dtype(tensorflow::DT_UINT8);
+    *input_info.mutable_tensor_shape() = *shape;
+    auto& output_info = (*signature.mutable_outputs())["result"];
+    output_info = input_info;
+    output_info.set_name("result:0");
+    const auto path = fs::path(::testing::TempDir()) / "neuriplo-tf-uint8-regression";
+    fs::create_directories(path);
+    {
+        std::ofstream stream(path / "saved_model.pb", std::ios::binary);
+        ASSERT_TRUE(saved.SerializeToOstream(&stream));
+    }
+    TFDetectionAPI infer(path.string(), false);
+    const auto inputs = infer.get_inference_metadata().getInputs();
+    ASSERT_EQ(inputs.size(), 1u);
+    EXPECT_EQ(inputs[0].datatype, TensorDataType::UInt8);
+    EXPECT_EQ(inputs[0].shape, (std::vector<int64_t>{3, 2, 4}));
+    EXPECT_THROW(infer.get_infer_results({std::vector<uint8_t>(6)}), std::runtime_error);
+    fs::remove_all(path);
 }

@@ -51,3 +51,21 @@ TEST(OpenCVCompatibility, RejectsGpuBeforeModelLoadingEvenWithoutCuda) {
     }
 }
 #endif
+
+TEST(OpenCVCompatibility, RejectsMismatchedInputBuffersBeforeForward) {
+    OCVDNNInfer infer(OPENCV_COMPAT_FIXTURE, false, 1, {{1, 2, 3}});
+    for (const size_t bytes : {size_t{0}, size_t{6}, size_t{23}, size_t{25}}) {
+        EXPECT_THROW(infer.get_infer_results({std::vector<uint8_t>(bytes)}), InferenceExecutionException);
+        EXPECT_THROW(infer.get_infer_results_raw({std::vector<uint8_t>(bytes)}), InferenceExecutionException);
+    }
+}
+
+TEST(OpenCVCompatibility, CountsBatchInInputByteSize) {
+    OCVDNNInfer infer(OPENCV_COMPAT_FIXTURE, false, 2, {{1, 2, 3}});
+    EXPECT_THROW(infer.get_infer_results({std::vector<uint8_t>(6 * sizeof(float))}), InferenceExecutionException);
+}
+
+TEST(OpenCVCompatibility, RejectsInvalidInputDimensions) {
+    OCVDNNInfer infer(OPENCV_COMPAT_FIXTURE, false, 1, {{1, -2, 3}});
+    EXPECT_THROW(infer.get_infer_results({std::vector<uint8_t>(24)}), InferenceExecutionException);
+}
