@@ -52,6 +52,9 @@ RUN git clone https://github.com/google/googletest.git -b v1.14.0 /usr/src/gtest
 # Stage 2: Install TVM
 FROM ${BASE_IMAGE} AS tvm_install
 
+# Use the requested repository pin even when inheriting a published SDK.
+COPY versions.env /tmp/versions.env
+
 # Clone and build TVM
 RUN . /tmp/versions.env && \
     if [ -f ${TVM_DIR}/build/libtvm.so ] && [ "$(cat ${TVM_DIR}/tvm-version.txt 2>/dev/null)" = "${TVM_VERSION}" ]; then \
@@ -68,7 +71,12 @@ RUN . /tmp/versions.env && \
     fi
 
 # Configure and build TVM
-RUN cd ${TVM_DIR} && \
+RUN . /tmp/versions.env && \
+    if [ -f ${TVM_DIR}/build/libtvm.so ] && [ "$(cat ${TVM_DIR}/tvm-version.txt 2>/dev/null)" = "${TVM_VERSION}" ]; then \
+        echo "TVM ${TVM_VERSION} already built, skipping compilation."; \
+        exit 0; \
+    fi && \
+    cd ${TVM_DIR} && \
     mkdir -p build && \
     cd build && \
     cmake .. \
