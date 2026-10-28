@@ -2,6 +2,9 @@
 # docker run --rm neuriplo:openvino
 
 # Stage 1: Base image with OpenVINO dependencies
+# Prebuilt SDK base override: defaults to the stage below so local builds are
+# unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/openvino-deps:<ver>.
+ARG BASE_IMAGE=base
 FROM ubuntu:24.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -34,19 +37,27 @@ COPY versions.env /tmp/versions.env
 RUN cd /usr/src/gtest && cmake . && make && cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
 
 # Stage 2: Install OpenVINO
-FROM base AS openvino_install
+FROM ${BASE_IMAGE} AS openvino_install
 
 ENV OPENVINO_DIR=/opt/openvino
 
+# Use the requested repository pin even when inheriting a published SDK.
+COPY versions.env /tmp/versions.env
+
 # Download and install OpenVINO
 RUN . /tmp/versions.env && \
+    if [ -f ${OPENVINO_DIR}/lib/libopenvino.so ] && [ "$(cat ${OPENVINO_DIR}/openvino-version.txt 2>/dev/null)" = "${OPENVINO_FULL_ID}" ]; then \
+        echo "OpenVINO ${OPENVINO_FULL_ID} already installed, skipping download."; \
+    else \
     OPENVINO_FILENAME=openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64.tgz && \
     OPENVINO_SHORT=$(echo ${OPENVINO_VERSION} | cut -d. -f1-2) && \
     wget --tries=3 --retry-connrefused \
     "https://storage.openvinotoolkit.org/repositories/openvino/packages/${OPENVINO_SHORT}/linux/${OPENVINO_FILENAME}" \
     && tar -xzf "${OPENVINO_FILENAME}" -C /opt \
     && rm "${OPENVINO_FILENAME}" \
-    && ln -s /opt/openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64 /opt/openvino
+    && ln -sfn /opt/openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64 /opt/openvino \
+    && echo "${OPENVINO_FULL_ID}" > ${OPENVINO_DIR}/openvino-version.txt; \
+    fi
 
 # Set OpenVINO environment variables
 ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
@@ -54,11 +65,16 @@ ENV LD_LIBRARY_PATH=${OPENVINO_DIR}/lib
 ENV PYTHONPATH=${OPENVINO_DIR}/python
 
 # Create a local Python virtual environment for OpenVINO tools
-RUN echo "Setting up OpenVINO Python tools..." && \
+RUN . /tmp/versions.env && \
+    if [ "$(${OPENVINO_DIR}/python_env/bin/pip show openvino 2>/dev/null | awk '/^Version: /{print $2}')" = "${OPENVINO_VERSION}" ]; then \
+        echo "OpenVINO Python tools already set up, skipping."; \
+    else \
+    echo "Setting up OpenVINO Python tools..." && \
+    rm -rf "${OPENVINO_DIR}/python_env" && \
     python3 -m venv "${OPENVINO_DIR}/python_env" && \
     . "${OPENVINO_DIR}/python_env/bin/activate" && \
-    . /tmp/versions.env && \
-    pip install "openvino==${OPENVINO_VERSION}"
+    pip install "openvino==${OPENVINO_VERSION}"; \
+    fi
 
 # Stage 3: Build application
 FROM openvino_install AS builder
