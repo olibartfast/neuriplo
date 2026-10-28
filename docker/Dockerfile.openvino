@@ -46,7 +46,7 @@ COPY versions.env /tmp/versions.env
 
 # Download and install OpenVINO
 RUN . /tmp/versions.env && \
-    if [ -f ${OPENVINO_DIR}/lib/libopenvino.so ] && [ "$(cat ${OPENVINO_DIR}/openvino-version.txt 2>/dev/null)" = "${OPENVINO_FULL_ID}" ]; then \
+    if [ -f ${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so ] && [ "$(cat ${OPENVINO_DIR}/openvino-version.txt 2>/dev/null)" = "${OPENVINO_FULL_ID}" ]; then \
         echo "OpenVINO ${OPENVINO_FULL_ID} already installed, skipping download."; \
     else \
     OPENVINO_FILENAME=openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64.tgz && \
@@ -58,6 +58,12 @@ RUN . /tmp/versions.env && \
     && ln -sfn /opt/openvino_toolkit_ubuntu24_${OPENVINO_FULL_ID}_x86_64 /opt/openvino \
     && echo "${OPENVINO_FULL_ID}" > ${OPENVINO_DIR}/openvino-version.txt; \
     fi
+
+# Fail fast if the SDK sentinel or the pin stamp is missing: the skip above
+# must stay in sync with the real toolkit layout.
+RUN . /tmp/versions.env && \
+    test -f ${OPENVINO_DIR}/runtime/lib/intel64/libopenvino.so && \
+    test "$(cat ${OPENVINO_DIR}/openvino-version.txt)" = "${OPENVINO_FULL_ID}"
 
 # Set OpenVINO environment variables
 ENV PATH=${OPENVINO_DIR}/bin:${OPENVINO_DIR}/python_env/bin:$PATH
