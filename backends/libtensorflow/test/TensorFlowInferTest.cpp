@@ -56,19 +56,11 @@ class TensorFlowInferTest : public ::testing::Test {
         std::ifstream modelPathFile("model_path.txt");
         if (modelPathFile) {
             std::getline(modelPathFile, model_path);
-            if (!model_path.empty() && fs::exists(model_path)) {
-                has_real_model = true;
-                try {
-                    real_infer = std::make_unique<TFDetectionAPI>(model_path, false);
-                    std::cout << "Using real model: " << model_path << std::endl;
-                } catch (const std::exception& e) {
-                    std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
-                    has_real_model = false;
-                } catch (...) {
-                    std::cout << "Failed to load real model (unknown error), falling back to mock" << std::endl;
-                    has_real_model = false;
-                }
-            }
+            ASSERT_FALSE(model_path.empty()) << "Provided model_path.txt is empty";
+            ASSERT_TRUE(fs::exists(model_path)) << "Provided SavedModel does not exist: " << model_path;
+            real_infer = std::make_unique<TFDetectionAPI>(model_path, false);
+            has_real_model = true;
+            std::cout << "Using real model: " << model_path << std::endl;
         }
 
         if (!has_real_model) {
