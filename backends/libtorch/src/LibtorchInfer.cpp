@@ -86,16 +86,22 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         std::vector<int64_t> final_shape = *shapes;
 
         LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
-        inference_metadata_.addInput(name, final_shape, batch_size);
-
-        std::string input_type_str = "Unknown";
-        c10::ScalarType s_type = c10::ScalarType::Float; // default
+        // Publish the graph's real scalar type so runtime input packing uses
+        // the actual datatype (e.g. an INT64 size tensor next to an FP32
+        // image) instead of assuming FP32 for every input. Ultralytics-style
+        // exports leave graph inputs untyped; those keep the previous Float
+        // default explicitly, until exporter-provided dtypes are available.
+        c10::ScalarType s_type = c10::ScalarType::Float;
         if (type->scalarType().has_value()) {
             s_type = type->scalarType().value();
-            input_type_str = toString(s_type);
+        } else {
+            LOG(WARNING) << "Input " << name
+                         << " carries no TorchScript scalar type; assuming FP32. Untyped auxiliary "
+                            "inputs will be packed as float until the exporter records dtypes.";
         }
         input_types_.push_back(s_type);
-        LOG(INFO) << "\tData Type: " << input_type_str;
+        LOG(INFO) << "\tData Type: " << toString(s_type);
+        inference_metadata_.addInput(name, final_shape, batch_size, libtorch_scalar_to_datatype(s_type));
     }
 
     // Log network dimensions from first input
