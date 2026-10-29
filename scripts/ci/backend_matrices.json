@@ -2,7 +2,7 @@
   "clang-tidy": [
     { "backend": "OPENCV_DNN", "dockerfile": "docker/Dockerfile.opencvdnn" },
     { "backend": "ONNX_RUNTIME", "dockerfile": "docker/Dockerfile.onnx-runtime" },
-    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch" },
+    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "base_image": "ghcr.io/olibartfast/neuriplo/libtorch-deps", "base_fallback": "base" },
     { "backend": "LIBTENSORFLOW", "dockerfile": "docker/Dockerfile.libtensorflow", "base_image": "ghcr.io/olibartfast/neuriplo/tensorflow-deps", "base_fallback": "base" },
     { "backend": "OPENVINO", "dockerfile": "docker/Dockerfile.openvino", "base_image": "ghcr.io/olibartfast/neuriplo/openvino-deps", "base_fallback": "base" },
     { "backend": "GGML", "dockerfile": "docker/Dockerfile.ggml", "base_image": "ghcr.io/olibartfast/neuriplo/ggml-deps", "base_fallback": "base_dependencies" },
@@ -14,7 +14,7 @@
   "build-warnings": [
     { "backend": "OPENCV_DNN", "dockerfile": "docker/Dockerfile.opencvdnn" },
     { "backend": "ONNX_RUNTIME", "dockerfile": "docker/Dockerfile.onnx-runtime" },
-    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch" },
+    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "base_image": "ghcr.io/olibartfast/neuriplo/libtorch-deps", "base_fallback": "base" },
     { "backend": "LIBTENSORFLOW", "dockerfile": "docker/Dockerfile.libtensorflow", "base_image": "ghcr.io/olibartfast/neuriplo/tensorflow-deps", "base_fallback": "base" },
     { "backend": "OPENVINO", "dockerfile": "docker/Dockerfile.openvino", "base_image": "ghcr.io/olibartfast/neuriplo/openvino-deps", "base_fallback": "base" },
     { "backend": "GGML", "dockerfile": "docker/Dockerfile.ggml", "base_image": "ghcr.io/olibartfast/neuriplo/ggml-deps", "base_fallback": "base_dependencies" },
@@ -26,7 +26,7 @@
   "sanitizers": [
     { "backend": "OPENCV_DNN", "dockerfile": "docker/Dockerfile.opencvdnn", "test_exe": "OCVDNNInferTest" },
     { "backend": "ONNX_RUNTIME", "dockerfile": "docker/Dockerfile.onnx-runtime", "test_exe": "ONNXRuntimeInferTest" },
-    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "test_exe": "LibtorchInferTest" },
+    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "base_image": "ghcr.io/olibartfast/neuriplo/libtorch-deps", "base_fallback": "base", "test_exe": "LibtorchInferTest" },
     { "backend": "GGML", "dockerfile": "docker/Dockerfile.ggml", "test_exe": "GGMLInferTest", "base_image": "ghcr.io/olibartfast/neuriplo/ggml-deps", "base_fallback": "base_dependencies" },
     { "backend": "TVM", "dockerfile": "docker/Dockerfile.tvm", "base_image": "ghcr.io/olibartfast/neuriplo/tvm-deps", "base_fallback": "base_dependencies", "test_exe": "TVMInferTest" }
   ],
@@ -37,7 +37,7 @@
     { "backend": "ONNX_RUNTIME", "dockerfile": "docker/Dockerfile.onnx-runtime", "image": "neuriplo-onnxruntime", "test_exe": "ONNXRuntimeInferTest" },
     { "backend": "LIBTENSORFLOW", "dockerfile": "docker/Dockerfile.libtensorflow", "base_image": "ghcr.io/olibartfast/neuriplo/tensorflow-deps", "base_fallback": "base", "image": "neuriplo-libtensorflow", "test_exe": "TensorFlowInferTest" },
     { "backend": "TVM", "dockerfile": "docker/Dockerfile.tvm", "base_image": "ghcr.io/olibartfast/neuriplo/tvm-deps", "base_fallback": "base_dependencies", "image": "neuriplo-tvm", "test_exe": "TVMInferTest" },
-    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "image": "neuriplo-libtorch-cpu", "test_exe": "LibtorchInferTest" },
+    { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "base_image": "ghcr.io/olibartfast/neuriplo/libtorch-deps", "base_fallback": "base", "image": "neuriplo-libtorch-cpu", "test_exe": "LibtorchInferTest" },
     { "backend": "CACTUS", "dockerfile": "docker/Dockerfile.cactus", "image": "neuriplo-cactus", "test_exe": "CactusInferTest", "runs_on": "ubuntu-24.04-arm" },
     { "backend": "LLAMACPP", "dockerfile": "docker/Dockerfile.llamacpp", "base_image": "ghcr.io/olibartfast/neuriplo/llamacpp-deps", "base_fallback": "base_dependencies", "image": "neuriplo-llamacpp", "test_exe": "LlamaCppInferTest" },
     { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert", "base_image": "ghcr.io/olibartfast/neuriplo/litert-deps", "image": "neuriplo-litert", "test_exe": "LiteRTInferTest" }

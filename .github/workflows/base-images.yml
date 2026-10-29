@@ -10,6 +10,9 @@ on:
   push:
     branches: [develop, master, 'release/**', 'feature/**']
     paths:
+      - docker/Dockerfile.libtorch
+      - scripts/ci/check_libtorch_sdk.py
+      - scripts/ci/libtorch-sdk-smoke/**
       - docker/Dockerfile.litert
       - docker/Dockerfile.tvm
       - docker/Dockerfile.llamacpp
@@ -361,4 +364,49 @@ jobs:
               --push \
               --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/ggml-deps:buildcache \
               --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/ggml-deps:buildcache,mode=max \
+              .
+
+  libtorch-deps:
+    name: libtorch-deps CPU base image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Read PyTorch pin
+        id: pin
+        run: |
+          set -euo pipefail
+          VER="$(grep -E '^PYTORCH_VERSION=' versions.env | cut -d= -f2)"
+          test -n "$VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push libtorch-deps
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 60
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.libtorch \
+              --target libtorch_install \
+              --build-arg COMPUTE_PLATFORM=cpu \
+              --tag ghcr.io/${{ github.repository }}/libtorch-deps:${{ steps.pin.outputs.version }}-cpu \
+              --push \
+              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/libtorch-deps:buildcache-cpu \
+              --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/libtorch-deps:buildcache-cpu,mode=max \
               .
