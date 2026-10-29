@@ -2,6 +2,9 @@
 # docker run --rm neuriplo:libtensorflow
 
 # Stage 1: Base image with system dependencies
+# Prebuilt SDK base override: defaults to the stage below so local builds are
+# unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/tensorflow-deps:<ver>.
+ARG BASE_IMAGE=base
 FROM ubuntu:24.04 AS base
 
 # Set environment variables
@@ -37,7 +40,10 @@ RUN apt-get update && apt-get upgrade -y && \
     && rm -rf /var/lib/apt/lists/*
 
 # Stage 2: Install TensorFlow
-FROM base AS tensorflow_install
+FROM ${BASE_IMAGE} AS tensorflow_install
+
+# Use the requested repository pin even when inheriting a published SDK.
+COPY versions.env /tmp/versions.env
 
 # Create virtual environment for TensorFlow
 RUN python3 -m venv /opt/tensorflow_env
@@ -45,16 +51,24 @@ ENV PATH=/opt/tensorflow_env/bin:$PATH
 
 # Install TensorFlow and dependencies
 RUN . /tmp/versions.env && \
+    if [ -f /opt/tensorflow/lib/libtensorflow_cc.so ] && [ "$(cat /opt/tensorflow/tensorflow-version.txt 2>/dev/null)" = "${TENSORFLOW_VERSION}" ] && [ "$(pip show tensorflow 2>/dev/null | awk '/^Version: /{print $2}')" = "${TENSORFLOW_VERSION}" ]; then \
+        echo "TensorFlow ${TENSORFLOW_VERSION} already installed, skipping pip install."; \
+    else \
     pip install --upgrade pip && \
     pip install "tensorflow==${TENSORFLOW_VERSION}" && \
-    pip check
+    pip check; \
+    fi
 
 # Verify installation
 RUN . /tmp/versions.env && \
     python -c 'import sys, tensorflow as tf; assert tf.__version__ == sys.argv[1], (tf.__version__, sys.argv[1]); print("TensorFlow version:", tf.__version__)' "${TENSORFLOW_VERSION}"
 
 # Setup TensorFlow C++ libraries (following setup_tensorflow_pip.sh pattern)
-RUN TF_SITE_PACKAGES=/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow && \
+RUN . /tmp/versions.env && \
+    if [ -f ${TENSORFLOW_DIR}/lib/libtensorflow_cc.so ] && [ "$(cat ${TENSORFLOW_DIR}/tensorflow-version.txt 2>/dev/null)" = "${TENSORFLOW_VERSION}" ]; then \
+        echo "TensorFlow ${TENSORFLOW_VERSION} C++ libraries already staged, skipping."; \
+    else \
+    TF_SITE_PACKAGES=/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow && \
     mkdir -p ${TENSORFLOW_DIR}/lib ${TENSORFLOW_DIR}/include && \
     cp ${TF_SITE_PACKAGES}/libtensorflow_cc.so.2 ${TENSORFLOW_DIR}/lib/ && \
     cp ${TF_SITE_PACKAGES}/libtensorflow_framework.so.2 ${TENSORFLOW_DIR}/lib/ && \
@@ -62,7 +76,9 @@ RUN TF_SITE_PACKAGES=/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow
     ln -sf libtensorflow_framework.so.2 ${TENSORFLOW_DIR}/lib/libtensorflow_framework.so && \
     cp -r ${TF_SITE_PACKAGES}/include/* ${TENSORFLOW_DIR}/include/ && \
     [ -d "${TF_SITE_PACKAGES}/core" ] && cp -r ${TF_SITE_PACKAGES}/core ${TENSORFLOW_DIR}/include/tensorflow/ || true && \
-    [ -d "${TF_SITE_PACKAGES}/cc" ] && cp -r ${TF_SITE_PACKAGES}/cc ${TENSORFLOW_DIR}/include/tensorflow/ || true
+    [ -d "${TF_SITE_PACKAGES}/cc" ] && cp -r ${TF_SITE_PACKAGES}/cc ${TENSORFLOW_DIR}/include/tensorflow/ || true && \
+    echo "${TENSORFLOW_VERSION}" > ${TENSORFLOW_DIR}/tensorflow-version.txt; \
+    fi
 
 # Create pkg-config file
 RUN . /tmp/versions.env && \

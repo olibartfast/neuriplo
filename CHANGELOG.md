@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   standalone EXECUTORCH build job, falling back to the full source build.
   `docker/Dockerfile.executorch` accepts the same image via `BASE_IMAGE` and
   skips clone/requirements/compilation through the shared version stamp.
+- Prebuilt TensorFlow SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/tensorflow-deps:<TENSORFLOW_VERSION>` and
+  compiles only neuriplo itself, falling back to the full pip-based install.
+  `docker/Dockerfile.libtensorflow` accepts the same image via `BASE_IMAGE`
+  and skips the pip install and library staging on version-stamp match.
 - Prebuilt llama.cpp SDK base image on GHCR: CI resolves
   `ghcr.io/olibartfast/neuriplo/llamacpp-deps:<LLAMACPP_VERSION>` and compiles
   only neuriplo itself, falling back to the full source build when the pull
@@ -29,6 +34,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - Preserve TVM source dependencies when a prebuilt SDK pull fails; skip compilation when its version stamp matches.
 - Publish each TorchScript graph input's real scalar type in the LibTorch public metadata instead of advertising every input as FP32, so auxiliary INT32/INT64/BOOL tensors are packed with their actual datatype. Untyped graph inputs keep the previous FP32 default with an explicit warning until the exporter records dtypes.
+
+- Report LiteRT image inputs in the NCHW layout consumed by the backend and translate requested image sizes to native NHWC, preventing metadata-driven preprocessing from transposing twice.
 
 ## [0.11.2] - 2026-10-28
 

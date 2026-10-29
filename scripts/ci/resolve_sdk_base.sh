@@ -6,7 +6,13 @@ image="$2"
 fallback="$3"
 ref="$fallback"
 if [ -z "${ACT:-}" ]; then
-    version="$(grep -E "^${backend}_VERSION=" versions.env | cut -d= -f2)"
+    # Backend identifiers and dependency pins have independent names.
+    case "$backend" in
+        LIBTENSORFLOW) version_key=TENSORFLOW_VERSION ;;
+        LIBTORCH) version_key=PYTORCH_VERSION ;;
+        *) version_key="${backend}_VERSION" ;;
+    esac
+    version="$(grep -E "^${version_key}=" versions.env | cut -d= -f2)"
     test -n "$version"
     candidate="${image}:${version}"
     if docker pull "$candidate"; then
