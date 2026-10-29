@@ -11,6 +11,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ResolveSDKBaseTest(unittest.TestCase):
+    def test_sdk_changes_select_backend_builds(self):
+        detector = str(ROOT / "scripts/ci/changed_backends.py")
+        all_backends = json.loads(subprocess.check_output(
+            ["python3", detector, "--all"], text=True))
+        for changed in ("scripts/ci/resolve_sdk_base.sh",
+                        "scripts/ci/backend_matrices.json",
+                        "scripts/ci/backend_matrices.py"):
+            with self.subTest(changed=changed):
+                selected = json.loads(subprocess.check_output(
+                    ["python3", detector, "--paths", changed], text=True))
+                self.assertEqual(selected, all_backends)
+        selected = json.loads(subprocess.check_output(
+            ["python3", detector, "--paths", "scripts/ci/executorch-sdk-smoke/main.cpp"], text=True))
+        self.assertEqual(selected, ["EXECUTORCH"])
+
     def test_matrix_resolution(self):
         matrices = json.loads((ROOT / "scripts/ci/backend_matrices.json").read_text())
         for entries in matrices.values():
