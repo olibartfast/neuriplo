@@ -12,6 +12,7 @@ on:
     paths:
       - docker/Dockerfile.litert
       - docker/Dockerfile.tvm
+      - docker/Dockerfile.executorch
       - scripts/setup_litert.sh
       - scripts/lib/version_stamp.sh
       - versions.env
@@ -120,4 +121,51 @@ jobs:
               --push \
               --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/tvm-deps:buildcache \
               --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/tvm-deps:buildcache,mode=max \
+              .
+
+  executorch-deps:
+    name: executorch-deps base image
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Read ExecuTorch pin
+        id: pin
+        run: |
+          set -euo pipefail
+          VER="$(grep -E '^EXECUTORCH_VERSION=' versions.env | cut -d= -f2)"
+          if [ -z "$VER" ]; then
+            echo "EXECUTORCH_VERSION missing from versions.env" >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push executorch-deps
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 150
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.executorch \
+              --target executorch_install \
+              --tag ghcr.io/${{ github.repository }}/executorch-deps:${{ steps.pin.outputs.version }} \
+              --push \
+              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/executorch-deps:buildcache \
+              --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/executorch-deps:buildcache,mode=max \
               .

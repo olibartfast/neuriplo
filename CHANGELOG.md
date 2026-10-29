@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Prebuilt ExecuTorch SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/executorch-deps:<EXECUTORCH_VERSION>` in the
+  standalone EXECUTORCH build job, falling back to the full source build.
+  `docker/Dockerfile.executorch` accepts the same image via `BASE_IMAGE` and
+  skips clone/requirements/compilation through the shared version stamp.
 - Prebuilt LiteRT SDK base image on GHCR: CI resolves
   `ghcr.io/olibartfast/neuriplo/litert-deps:<LITERT_VERSION>` and compiles
   only neuriplo itself, falling back to the full source build when the pull

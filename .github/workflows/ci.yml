@@ -692,6 +692,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: ./.github/actions/setup-buildx-retry
 
+      - name: Log in to GHCR for prebuilt SDK bases
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve SDK base image
+        id: sdk-base
+        run: |
+          bash scripts/ci/resolve_sdk_base.sh \
+            "EXECUTORCH" "ghcr.io/${{ github.repository }}/executorch-deps" \
+            "base_dependencies"
+
       - name: Build Docker image
         uses: nick-fields/retry@v3
         with:
@@ -701,6 +714,7 @@ jobs:
             docker buildx build \
               --file docker/Dockerfile.executorch \
               --tag neuriplo-executorch:ci \
+              --build-arg BASE_IMAGE=${{ steps.sdk-base.outputs.ref }} \
               --cache-from type=gha,scope=docker-EXECUTORCH \
               ${{ github.event_name == 'push' && '--cache-to type=gha,mode=max,scope=docker-EXECUTORCH' || '' }} \
               .
