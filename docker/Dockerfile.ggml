@@ -3,6 +3,9 @@
 
 # Stage 1: Base dependencies
 ARG UBUNTU_VERSION=24.04
+# Prebuilt SDK base override: defaults to the stage below so local builds are
+# unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/ggml-deps:<ver>.
+ARG BASE_IMAGE=base_dependencies
 FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
 
 # Set environment variables
@@ -40,10 +43,20 @@ RUN cd /usr/src/gtest && \
     cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
 
 # Stage 2: Install GGML
-FROM base_dependencies AS ggml_install
+FROM ${BASE_IMAGE} AS ggml_install
+
+# Use the requested repository pin even when inheriting a published SDK, and
+# the shared stamp helpers so a matching install is skipped and the tree
+# stays drift-detectable by cmake/DependencyValidation.cmake.
+COPY versions.env /tmp/versions.env
+COPY scripts/lib/version_stamp.sh /app/scripts/lib/version_stamp.sh
 
 # Clone and build GGML
-RUN . /tmp/versions.env && \
+RUN . /tmp/versions.env && . /app/scripts/lib/version_stamp.sh && \
+    if [ -f ${GGML_DIR}/lib/libggml-base.so ] && neuriplo_stamp_matches "${GGML_DIR}" "${GGML_VERSION}" "GGML"; then \
+        echo "GGML ${GGML_VERSION} already installed, skipping source build."; \
+    else \
+    rm -rf ${GGML_DIR:?} && \
     mkdir -p ${GGML_DIR} && \
     cd ${GGML_DIR} && \
     git clone https://github.com/ggerganov/ggml.git . && \
@@ -63,13 +76,17 @@ RUN . /tmp/versions.env && \
         -DGGML_FMA=ON \
         -DGGML_NATIVE=OFF && \
     make -j$(nproc) && \
-    make install
+    make install && \
+    neuriplo_write_stamp "${GGML_DIR}" "${GGML_VERSION}"; \
+    fi
 
 # Verify GGML installation
-RUN test -f ${GGML_DIR}/lib/libggml-base.so && \
+RUN . /tmp/versions.env && . /app/scripts/lib/version_stamp.sh && \
+    test -f ${GGML_DIR}/lib/libggml-base.so && \
     test -f ${GGML_DIR}/lib/libggml-cpu.so && \
     test -f ${GGML_DIR}/lib/libggml-blas.so && \
-    test -f ${GGML_DIR}/include/ggml.h
+    test -f ${GGML_DIR}/include/ggml.h && \
+    neuriplo_stamp_matches "${GGML_DIR}" "${GGML_VERSION}" "GGML"
 
 # Set GGML environment variables
 ENV GGML_DIR=${GGML_DIR}
