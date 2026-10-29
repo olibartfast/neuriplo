@@ -651,3 +651,40 @@ time.
 | `convert_to_ggml.sh` | Convert a model to GGML format |
 | `convert_onnx_to_ggml.py` | Convert an ONNX model to GGML |
 | `convert_resnet18_to_ggml.py` | Convert ResNet-18 to GGML (test helper) |
+
+## Typed LibTorch input artifacts
+
+TorchScript archives can lose input scalar types during serialization. Neuriplo
+reads a preserved graph dtype or the `neuriplo_input_dtypes.txt` extra file and
+rejects inputs whose dtype is unknown. It does not infer a type from the model
+name or assume FP32 for missing metadata.
+
+Export with the actual example tensors using
+[`scripts/lib/torchscript_metadata.py`](../scripts/lib/torchscript_metadata.py):
+
+```python
+from lib.torchscript_metadata import save_torchscript, aoti_metadata
+
+# Run from the repository's scripts directory or add it to PYTHONPATH.
+save_torchscript(traced_module, "model.pt", example_inputs)
+
+# exported_program comes from torch.export.export with the real input signature.
+torch._inductor.aoti_compile_and_package(
+    exported_program,
+    package_path="model.pt2",
+    inductor_configs={"aot_inductor.metadata": aoti_metadata(exported_program)},
+)
+```
+
+The AOTInductor helper captures dtypes and static contiguous input shapes from
+the compiler graph. The loader checks `input_sizes` against the compiled shapes
+before running a probe. Dynamic or non-contiguous AOTI input contracts are
+explicitly rejected by this helper. Existing artifacts without this metadata
+need re-export; changing a filename or passing a dtype override does not repair
+an unknown contract.
+
+Use the PyTorch release pinned in `versions.env`, matching the C++ SDK. The
+legacy fixture launcher accepts `PYTHON_BIN` for that Python environment and
+`--output-dir` for its generated files; it no longer uses an unpinned Docker
+image. These exporter and synthetic component checks do not establish real-model
+or full task/backend matrix correctness.

@@ -31,3 +31,14 @@ configure_file(${CMAKE_CURRENT_LIST_DIR}/generate_model.sh
     ${CMAKE_CURRENT_BINARY_DIR}/generate_model.sh FILE_PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/export_onnx_classifier.py
     ${CMAKE_CURRENT_BINARY_DIR}/export_onnx_classifier.py COPYONLY)
+
+# Explicit component target: fixtures are generated separately, never mocked.
+add_executable(MIGraphXInputContractTest MIGraphXInputContractTest.cpp)
+target_include_directories(MIGraphXInputContractTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/backends/migraphx/src
+    ${CMAKE_SOURCE_DIR}/backends/src
+    ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(MIGraphXInputContractTest PRIVATE
+    neuriplo migraphx::c GTest::gtest GTest::gtest_main glog::glog
+)

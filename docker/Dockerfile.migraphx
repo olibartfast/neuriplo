@@ -63,7 +63,9 @@ RUN python3 -m venv /opt/venv && \
 RUN mkdir -p /opt/models
 WORKDIR /opt/models
 COPY backends/migraphx/test/export_onnx_classifier.py .
-RUN /opt/venv/bin/python export_onnx_classifier.py
+COPY backends/migraphx/test/generate_contract_fixtures.py .
+RUN /opt/venv/bin/python generate_contract_fixtures.py /opt/models/contracts && \
+    /opt/venv/bin/python export_onnx_classifier.py
 
 # Stage 4: Build neuriplo with MIGraphX backend
 FROM migraphx_install AS builder
@@ -89,6 +91,10 @@ COPY --from=model_provider --chown=testuser:testuser /opt/models/resnet18.onnx \
 COPY --from=model_provider --chown=testuser:testuser /opt/models/model_path.txt \
     /app/build/backends/migraphx/test/model_path.txt
 
+COPY --from=model_provider --chown=testuser:testuser /opt/models/contracts /app/contracts
+
+ENV NEURIPLO_MIGRAPHX_CONTRACT_FIXTURES=/app/contracts
+
 WORKDIR /app/build/backends/migraphx/test
 
 USER testuser
@@ -98,4 +104,4 @@ ENV LD_LIBRARY_PATH=/app/build/lib:/opt/rocm/lib
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD test -f /app/build/lib/libneuriplo.so || exit 1
 
-CMD ["./MIGraphXInferTest"]
+CMD ["sh", "-c", "./MIGraphXInputContractTest --gtest_filter=Targets/*/0 && ./MIGraphXInferTest"]

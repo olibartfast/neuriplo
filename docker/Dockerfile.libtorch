@@ -93,6 +93,12 @@ RUN . /tmp/versions.env && \
 # Verify installation
 RUN python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
 
+# Exercise typed synthetic artifacts against the C++ runtime before using any
+# downloaded classifier fixture. Both sides use the same pinned Torch release.
+RUN TORCHINDUCTOR_COMPILE_THREADS=1 \
+    /opt/pytorch_env/bin/python /app/scripts/test_torchscript_metadata.py \
+        --probe /app/build/backends/libtorch/test/LibtorchInputContractProbe
+
 # Generate LibTorch model using model_downloader.py
 WORKDIR /app/build/backends/libtorch/test
 RUN /opt/pytorch_env/bin/python /app/scripts/model_downloader.py LIBTORCH --output-dir . --keep-temp
