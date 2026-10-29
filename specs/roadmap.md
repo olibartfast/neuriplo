@@ -350,3 +350,11 @@ with its feature packet; Phase 1 remains `Next`._
 _Revision: 2026-09-17 - added the Native Engine Track (N0-N3) as a parallel
 track without renumbering Phases 1-6; named the track's design reference and
 moved dynamic shapes into Phase N2 explicitly._
+
+## SDK base consolidation — in validation
+
+The seven-package extension of the LiteRT pilot is consolidated through the
+existing ExecuTorch SDK PR, including OpenVINO and GGML. See
+[plan](2026-10-28-prebuilt-sdk-images/plan.md) and
+[validation](2026-10-28-prebuilt-sdk-images/validation.md). This phase changes
+packaging and CI only; it does not close real-model release validation.

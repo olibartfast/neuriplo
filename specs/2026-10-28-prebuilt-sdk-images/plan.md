@@ -35,3 +35,16 @@ publishes the image, and later runs go fast. No flag day.
 A new backend adopts the scheme with: a `*-deps` stage honoring the same
 `BASE_IMAGE` arg plus stamp skip (or equivalent no-op), one matrix field,
 and one job in `base-images.yml`.
+
+## Consolidation order
+
+1. Merge current develop into the existing ExecuTorch SDK branch.
+2. Merge OpenVINO and GGML feature heads, preserving every publishing job,
+   matrix field, fallback and resolver regression.
+3. Run resolver/routing tests, format/docs gates, workflow validation and act.
+4. Build the three combined consumers against matching SDK images; the
+   ExecuTorch SDK must configure, link and run an installed consumer after its
+   source tree has been removed.
+5. Update PR 66 to describe the complete remaining SDK scope, monitor its exact
+   head CI, merge into develop, verify all three source heads are ancestors,
+   and then remove the integrated feature branches.
