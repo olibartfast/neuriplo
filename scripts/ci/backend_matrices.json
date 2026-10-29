@@ -39,7 +39,7 @@
     { "backend": "TVM", "dockerfile": "docker/Dockerfile.tvm", "base_image": "ghcr.io/olibartfast/neuriplo/tvm-deps", "base_fallback": "base_dependencies", "image": "neuriplo-tvm", "test_exe": "TVMInferTest" },
     { "backend": "LIBTORCH", "dockerfile": "docker/Dockerfile.libtorch", "image": "neuriplo-libtorch-cpu", "test_exe": "LibtorchInferTest" },
     { "backend": "CACTUS", "dockerfile": "docker/Dockerfile.cactus", "image": "neuriplo-cactus", "test_exe": "CactusInferTest", "runs_on": "ubuntu-24.04-arm" },
-    { "backend": "LLAMACPP", "dockerfile": "docker/Dockerfile.llamacpp", "image": "neuriplo-llamacpp", "test_exe": "LlamaCppInferTest" },
+    { "backend": "LLAMACPP", "dockerfile": "docker/Dockerfile.llamacpp", "base_image": "ghcr.io/olibartfast/neuriplo/llamacpp-deps", "base_fallback": "base_dependencies", "image": "neuriplo-llamacpp", "test_exe": "LlamaCppInferTest" },
     { "backend": "LITERT", "dockerfile": "docker/Dockerfile.litert", "base_image": "ghcr.io/olibartfast/neuriplo/litert-deps", "image": "neuriplo-litert", "test_exe": "LiteRTInferTest" }
   ]
 }

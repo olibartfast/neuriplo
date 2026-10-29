@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Prebuilt llama.cpp SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/llamacpp-deps:<LLAMACPP_VERSION>` and compiles
+  only neuriplo itself, falling back to the full source build when the pull
+  fails. `docker/Dockerfile.llamacpp` accepts the same image via `BASE_IMAGE`
+  for local reuse.
 - Prebuilt LiteRT SDK base image on GHCR: CI resolves
   `ghcr.io/olibartfast/neuriplo/litert-deps:<LITERT_VERSION>` and compiles
   only neuriplo itself, falling back to the full source build when the pull
