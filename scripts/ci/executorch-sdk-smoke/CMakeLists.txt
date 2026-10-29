@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.24)
+project(ExecuTorchInstalledSDKCheck LANGUAGES CXX)
+find_package(executorch REQUIRED CONFIG)
+add_executable(sdk-consumer main.cpp)
+target_compile_features(sdk-consumer PRIVATE cxx_std_17)
+target_link_libraries(sdk-consumer PRIVATE executorch_core extension_evalue_util)
