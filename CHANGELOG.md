@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   compiles only neuriplo itself, falling back to the full pip-based install.
   `docker/Dockerfile.libtensorflow` accepts the same image via `BASE_IMAGE`
   and skips the pip install and library staging on version-stamp match.
+- Prebuilt OpenVINO SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/openvino-deps:<OPENVINO_VERSION>` and compiles
+  only neuriplo itself, falling back to the full source build when the pull
+  fails. `docker/Dockerfile.openvino` accepts the same image via `BASE_IMAGE`
+  for local reuse.
 - Prebuilt llama.cpp SDK base image on GHCR: CI resolves
   `ghcr.io/olibartfast/neuriplo/llamacpp-deps:<LLAMACPP_VERSION>` and compiles
   only neuriplo itself, falling back to the full source build when the pull
