@@ -19,8 +19,8 @@ class ResolveSDKBaseTest(unittest.TestCase):
                     continue
                 backend = entry["backend"]
                 # A custom fallback carries the SDK's own build prerequisites
-                # (TVM needs LLVM/GTest; OpenVINO needs TBB/GTest); the default
-                # is a bare Ubuntu for fully self-contained Dockerfiles.
+                # (for example LLVM, TBB or OpenBLAS); the default is a bare
+                # Ubuntu for fully self-contained Dockerfiles.
                 expected_fallback = entry.get("base_fallback", "ubuntu:24.04")
                 for mode in ("pull-success", "pull-failure", "act"):
                     with self.subTest(backend=backend, mode=mode), tempfile.TemporaryDirectory() as tmp:

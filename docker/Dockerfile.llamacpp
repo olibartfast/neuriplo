@@ -3,6 +3,9 @@
 
 # Stage 1: Base dependencies
 ARG UBUNTU_VERSION=24.04
+# Prebuilt SDK base override: defaults to the stage below so local builds are
+# unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/llamacpp-deps:<ver>.
+ARG BASE_IMAGE=base_dependencies
 FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -37,9 +40,15 @@ RUN cd /usr/src/gtest && \
     cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
 
 # Stage 2: Build and install llama.cpp
-FROM base_dependencies AS llamacpp_install
+FROM ${BASE_IMAGE} AS llamacpp_install
+
+# Use the requested repository pin even when inheriting a published SDK.
+COPY versions.env /tmp/versions.env
 
 RUN . /tmp/versions.env && \
+    if [ -f ${LLAMACPP_DIR}/lib/libllama.so ] && [ "$(cat ${LLAMACPP_DIR}/llamacpp-version.txt 2>/dev/null)" = "${LLAMACPP_VERSION}" ]; then \
+        echo "llama.cpp ${LLAMACPP_VERSION} already installed, skipping source build."; \
+    else \
     mkdir -p ${LLAMACPP_DIR} && \
     git clone https://github.com/ggerganov/llama.cpp.git /tmp/llamacpp-src && \
     cd /tmp/llamacpp-src && \
@@ -60,7 +69,9 @@ RUN . /tmp/versions.env && \
         -DLLAMA_BUILD_SERVER=OFF && \
     make -j$(nproc) && \
     make install && \
-    rm -rf /tmp/llamacpp-src
+    rm -rf /tmp/llamacpp-src && \
+    echo "${LLAMACPP_VERSION}" > ${LLAMACPP_DIR}/llamacpp-version.txt; \
+    fi
 
 RUN test -f ${LLAMACPP_DIR}/include/llama.h && \
     test -f ${LLAMACPP_DIR}/include/mtmd.h && \
