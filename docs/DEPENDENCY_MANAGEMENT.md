@@ -651,3 +651,30 @@ time.
 | `convert_to_ggml.sh` | Convert a model to GGML format |
 | `convert_onnx_to_ggml.py` | Convert an ONNX model to GGML |
 | `convert_resnet18_to_ggml.py` | Convert ResNet-18 to GGML (test helper) |
+
+## Reusable LibTorch CI dependencies
+
+The SDK publisher builds `ghcr.io/olibartfast/neuriplo/libtorch-deps:<PYTORCH_VERSION>-cpu`
+from the `libtorch_install` target. This Linux x86-64 CPU image contains the
+LibTorch C++ archive, matching Python CPU Torch exporter environment, compiler
+prerequisites and clang-tidy. It contains no model weights or project build.
+
+All LibTorch CI matrix jobs resolve this image using the PyTorch pin from
+`versions.env`. If the registry is unavailable, the complete `base` source stage
+remains available. Local Docker builds use that source stage by default. To reuse
+a previously built dependency image locally:
+
+```bash
+docker build --file docker/Dockerfile.libtorch --target libtorch_install \
+  --tag neuriplo-libtorch-deps:local .
+docker build --file docker/Dockerfile.libtorch --target builder \
+  --build-arg BASE_IMAGE=neuriplo-libtorch-deps:local \
+  --tag neuriplo-libtorch-builder:local .
+```
+
+Reuse checks the SDK's native `build-version`, required libraries/configuration,
+and Python Torch's actual version. A native C++20 tensor smoke test also checks
+the linked runtime's compiled configuration. A mismatched version or compute platform
+fails explicitly. The CPU image must not be supplied for a CUDA SDK request.
+Dependency reuse avoids repeated installation; clang-tidy still analyzes the
+current sources and is not skipped.
