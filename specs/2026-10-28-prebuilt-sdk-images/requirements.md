@@ -22,3 +22,16 @@ must extend to other source-built SDKs without redesign.
 - No new third-party GitHub Actions (registry login via `docker login`).
 - No mutable tags: the base image is addressed by the exact `LITERT_VERSION`
   pin, never `latest`.
+
+## Consolidation scope (2026-10-29)
+
+Extend the delivered LiteRT pilot to seven SDK bases: LiteRT, TVM, llama.cpp,
+OpenVINO, GGML, LibTensorFlow and ExecuTorch. All retain the versions declared
+in `versions.env`. SDK acquisition falls back to each Dockerfile's complete
+source stage when a registry pull fails. Validate resolution against real pin
+names, including `LIBTENSORFLOW` -> `TENSORFLOW_VERSION`.
+
+Use the existing ExecuTorch feature branch/PR to integrate the remaining
+OpenVINO and GGML changes. Preserve their commit ancestry; delete their branches
+only after the combined head is integrated into develop with green CI. Keep
+actual model inference claims separate from SDK build/install/reuse evidence.

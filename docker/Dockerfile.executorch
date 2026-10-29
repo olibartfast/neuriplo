@@ -3,6 +3,9 @@
 
 # Stage 1: Base system dependencies
 ARG UBUNTU_VERSION=24.04
+# Prebuilt SDK base override: defaults to the stage below so local builds are
+# unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/executorch-deps:<ver>.
+ARG BASE_IMAGE=base_dependencies
 FROM ubuntu:${UBUNTU_VERSION} AS base_dependencies
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -35,9 +38,15 @@ RUN cd /usr/src/gtest && \
     cp lib/*.a /usr/lib/ || cp *.a /usr/lib/
 
 # Stage 2: Build and install the ExecuTorch C++ runtime
-FROM base_dependencies AS executorch_install
+FROM ${BASE_IMAGE} AS executorch_install
 
 ENV EXECUTORCH_DIR=/opt/executorch
+
+# Use the requested repository pin even when inheriting a published SDK, and
+# the shared stamp helpers so a matching install is skipped and the tree
+# stays drift-detectable by cmake/DependencyValidation.cmake.
+COPY versions.env /tmp/versions.env
+COPY scripts/lib/version_stamp.sh /app/scripts/lib/version_stamp.sh
 
 # Isolated Python environment avoids PEP 668 conflicts on Ubuntu 24.04.
 # Use an explicit PATH rather than $PATH expansion: Ubuntu base images don't
@@ -49,7 +58,10 @@ ENV PATH=/opt/et-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbi
 RUN pip install --no-cache-dir tomli zstd setuptools wheel flatbuffers pyyaml
 
 # Shallow clone + shallow submodules keeps disk/time usage manageable
-RUN . /tmp/versions.env && \
+RUN . /tmp/versions.env && . /app/scripts/lib/version_stamp.sh && \
+    if [ -f ${EXECUTORCH_DIR}/lib/libexecutorch.a ] && [ -f ${EXECUTORCH_DIR}/lib/libxnnpack_backend.a ] && neuriplo_stamp_matches "${EXECUTORCH_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch"; then \
+        echo "ExecuTorch ${EXECUTORCH_VERSION} already installed, skipping source build."; \
+    else \
     git clone \
         --branch ${EXECUTORCH_VERSION} \
         --depth 1 \
@@ -57,15 +69,29 @@ RUN . /tmp/versions.env && \
         /tmp/executorch && \
     cd /tmp/executorch && \
     git submodule sync --recursive && \
-    git submodule update --init --recursive --depth 1
+    git submodule update --init --recursive --depth 1; \
+    fi
 
 # Install ExecuTorch Python build-time dependencies (provides torchgen via torch).
 # --use-pt-pinned-commit pins torch to the exact version ExecuTorch 1.2.0 was tested with.
-RUN cd /tmp/executorch && \
-    bash install_requirements.sh --use-pt-pinned-commit
+RUN . /tmp/versions.env && . /app/scripts/lib/version_stamp.sh && \
+    if [ -f ${EXECUTORCH_DIR}/lib/libexecutorch.a ] && [ -f ${EXECUTORCH_DIR}/lib/libxnnpack_backend.a ] && neuriplo_stamp_matches "${EXECUTORCH_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch"; then \
+        echo "ExecuTorch ${EXECUTORCH_VERSION} already installed, skipping requirements."; \
+    else \
+    cd /tmp/executorch && \
+    bash install_requirements.sh --use-pt-pinned-commit; \
+    fi
 
 # Configure, build, and install ExecuTorch (core + required extensions only)
-RUN cd /tmp/executorch && \
+RUN . /tmp/versions.env && . /app/scripts/lib/version_stamp.sh && \
+    if [ -f ${EXECUTORCH_DIR}/lib/libexecutorch.a ] && [ -f ${EXECUTORCH_DIR}/lib/libxnnpack_backend.a ] && neuriplo_stamp_matches "${EXECUTORCH_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch"; then \
+        echo "ExecuTorch ${EXECUTORCH_VERSION} already installed, skipping compilation."; \
+    else \
+    cd /tmp/executorch && \
+    # ExecuTorch 1.2 installs this exported archive into its disposable build
+    # tree. Correct the install destination before generating package targets.
+    grep -Fq 'DESTINATION ${CMAKE_BINARY_DIR}/lib' extension/evalue_util/CMakeLists.txt && \
+    sed -i 's@DESTINATION ${CMAKE_BINARY_DIR}/lib@DESTINATION lib@' extension/evalue_util/CMakeLists.txt && \
     cmake -S . -B cmake-out \
         -GNinja \
         -DCMAKE_BUILD_TYPE=Release \
@@ -82,7 +108,26 @@ RUN cd /tmp/executorch && \
         -DEXECUTORCH_BUILD_EXAMPLES=OFF \
         "-DPYTHON_EXECUTABLE=$(which python3)" && \
     cmake --build cmake-out -j$(nproc) && \
-    cmake --install cmake-out
+    cmake --install cmake-out && \
+    rm -rf /tmp/executorch && \
+    neuriplo_write_stamp "${EXECUTORCH_DIR}" "${EXECUTORCH_VERSION}"; \
+    fi
+
+# Exercise the installed package after the disposable source tree is gone.
+# Sentinel files alone cannot detect dangling exported CMake target paths.
+COPY scripts/ci/executorch-sdk-smoke /app/scripts/ci/executorch-sdk-smoke
+
+# Fail fast if the SDK sentinel or the pin stamp is missing: the skips above
+# must stay in sync with the real install layout.
+RUN . /tmp/versions.env && . /app/scripts/lib/version_stamp.sh && \
+    test -f ${EXECUTORCH_DIR}/lib/libexecutorch.a && \
+    test -f ${EXECUTORCH_DIR}/lib/libxnnpack_backend.a && \
+    neuriplo_stamp_matches "${EXECUTORCH_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch" && \
+    cmake -S /app/scripts/ci/executorch-sdk-smoke -B /tmp/executorch-sdk-check \
+        -DCMAKE_PREFIX_PATH=${EXECUTORCH_DIR} && \
+    cmake --build /tmp/executorch-sdk-check -j2 && \
+    /tmp/executorch-sdk-check/sdk-consumer && \
+    rm -rf /tmp/executorch-sdk-check
 
 # Stage 3: Build the neuriplo library and test executable
 FROM executorch_install AS builder

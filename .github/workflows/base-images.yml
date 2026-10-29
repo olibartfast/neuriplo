@@ -13,10 +13,14 @@ on:
       - docker/Dockerfile.litert
       - docker/Dockerfile.tvm
       - docker/Dockerfile.llamacpp
-      - docker/Dockerfile.libtensorflow
+      - docker/Dockerfile.executorch
+      - scripts/ci/executorch-sdk-smoke/**
       - scripts/setup_litert.sh
       - scripts/lib/version_stamp.sh
       - versions.env
+      - docker/Dockerfile.libtensorflow
+      - docker/Dockerfile.openvino
+      - docker/Dockerfile.ggml
       - .github/workflows/base-images.yml
   # schedule: only fires once this file reaches the default branch (master,
   # release-only). The push trigger above is what refreshes bases on develop
@@ -171,6 +175,53 @@ jobs:
               --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/llamacpp-deps:buildcache,mode=max \
               .
 
+  executorch-deps:
+    name: executorch-deps base image
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Read ExecuTorch pin
+        id: pin
+        run: |
+          set -euo pipefail
+          VER="$(grep -E '^EXECUTORCH_VERSION=' versions.env | cut -d= -f2)"
+          if [ -z "$VER" ]; then
+            echo "EXECUTORCH_VERSION missing from versions.env" >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push executorch-deps
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 150
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.executorch \
+              --target executorch_install \
+              --tag ghcr.io/${{ github.repository }}/executorch-deps:${{ steps.pin.outputs.version }} \
+              --push \
+              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/executorch-deps:buildcache \
+              --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/executorch-deps:buildcache,mode=max \
+              .
+
   tensorflow-deps:
     name: tensorflow-deps base image
     runs-on: ubuntu-latest
@@ -216,4 +267,98 @@ jobs:
               --push \
               --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/tensorflow-deps:buildcache \
               --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/tensorflow-deps:buildcache,mode=max \
+              .
+
+  openvino-deps:
+    name: openvino-deps base image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Read OpenVINO pin
+        id: pin
+        run: |
+          set -euo pipefail
+          VER="$(grep -E '^OPENVINO_VERSION=' versions.env | cut -d= -f2)"
+          if [ -z "$VER" ]; then
+            echo "OPENVINO_VERSION missing from versions.env" >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push openvino-deps
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 90
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.openvino \
+              --target openvino_install \
+              --tag ghcr.io/${{ github.repository }}/openvino-deps:${{ steps.pin.outputs.version }} \
+              --push \
+              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/openvino-deps:buildcache \
+              --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/openvino-deps:buildcache,mode=max \
+              .
+
+  ggml-deps:
+    name: ggml-deps base image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Read GGML pin
+        id: pin
+        run: |
+          set -euo pipefail
+          VER="$(grep -E '^GGML_VERSION=' versions.env | cut -d= -f2)"
+          if [ -z "$VER" ]; then
+            echo "GGML_VERSION missing from versions.env" >&2
+            exit 1
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: ${{ !env.ACT }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push ggml-deps
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 60
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.ggml \
+              --target ggml_install \
+              --tag ghcr.io/${{ github.repository }}/ggml-deps:${{ steps.pin.outputs.version }} \
+              --push \
+              --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/ggml-deps:buildcache \
+              --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/ggml-deps:buildcache,mode=max \
               .
