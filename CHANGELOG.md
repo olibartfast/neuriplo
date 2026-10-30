@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-10-30
+
 ### Added
 - Prebuilt ExecuTorch SDK base image on GHCR: CI resolves
   `ghcr.io/olibartfast/neuriplo/executorch-deps:<EXECUTORCH_VERSION>` in the
@@ -501,7 +503,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.11.3...HEAD
+[0.11.3]: https://github.com/olibartfast/neuriplo/compare/v0.11.2...v0.11.3
+[0.11.2]: https://github.com/olibartfast/neuriplo/compare/v0.11.1...v0.11.2
+[0.11.1]: https://github.com/olibartfast/neuriplo/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...v0.9.1
