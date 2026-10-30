@@ -17,7 +17,5 @@ class MIGraphXInfer : public InferenceInterface {
     migraphx::program program_;
     bool use_gpu_;
     std::vector<std::string> input_names_;
-    std::vector<std::string> output_names_;
-    // Temporary storage used only during constructor to discover output shapes
-    std::vector<std::vector<uint8_t>> dummy_buf_;
+    std::vector<migraphx::shape> input_shapes_;
 };

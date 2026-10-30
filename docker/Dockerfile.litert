@@ -1,7 +1,11 @@
 # docker build --rm -t neuriplo:litert -f docker/Dockerfile.litert .
 # docker run --rm neuriplo:litert
 
-FROM ubuntu:24.04 AS litert-deps
+# Prebuilt SDK base: CI passes BASE_IMAGE=ghcr.io/<repo>/litert-deps:<ver> so
+# the source build below is skipped via the version stamp in setup_litert.sh.
+# Local builds keep the default and compile LiteRT from source.
+ARG BASE_IMAGE=ubuntu:24.04
+FROM ${BASE_IMAGE} AS litert-deps
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DEPENDENCY_ROOT=/opt/dependencies

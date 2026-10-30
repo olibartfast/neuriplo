@@ -105,6 +105,18 @@ def changed_paths(base: str, head: str) -> list[str] | None:
 
 
 def classify(path: str, all_ids: list[str], backend_dirs: dict[str, str]) -> set[str]:
+    # These files change SDK acquisition/build inputs, even though other CI
+    # utilities only affect whole-tree checks.
+    if path in {
+        "scripts/ci/backend_matrices.json",
+        "scripts/ci/backend_matrices.py",
+        "scripts/ci/resolve_sdk_base.sh",
+    }:
+        return set(all_ids)
+    if path.startswith("scripts/ci/libtorch-sdk-smoke/") or path in {"scripts/ci/check_libtorch_sdk.py", "scripts/ci/test_check_libtorch_sdk.py"}:
+        return {"LIBTORCH"}
+    if path.startswith("scripts/ci/executorch-sdk-smoke/"):
+        return {"EXECUTORCH"}
     if path in IGNORED_FILES:
         return set()
     if path.startswith(IGNORED_PREFIXES):
@@ -131,11 +143,6 @@ def classify(path: str, all_ids: list[str], backend_dirs: dict[str, str]) -> set
         return set(all_ids)
     if path.startswith("scripts/abi/"):
         return {"OPENCV_DNN"}
-    if path in {
-        "scripts/ci/backend_matrices.json",
-        "scripts/ci/backend_matrices.py",
-    }:
-        return set(all_ids)
     if path.startswith("scripts/"):
         return set()
     if path.endswith(".md"):

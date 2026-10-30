@@ -1,5 +1,6 @@
 #include "LibtorchInfer.hpp"
 
+#include "LibtorchInputContract.hpp"
 #include "LibtorchTensorUtils.hpp"
 
 #include <sstream>
@@ -28,8 +29,9 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         LOG(INFO) << "Using CPU";
     }
 
+    torch::jit::ExtraFilesMap extra_files{{kTorchScriptInputDtypesFile, ""}};
     try {
-        module_ = torch::jit::load(model_path, device_);
+        module_ = torch::jit::load(model_path, device_, extra_files);
     } catch (const c10::Error& e) {
         LOG(ERROR) << "Failed to load the LibTorch model: " << e.what();
         state_ = BackendState::Failed;
@@ -41,6 +43,11 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
     auto method = module_.get_method("forward");
     auto graph = method.graph();
     auto inputs = graph->inputs();
+    if (inputs.size() <= 1) {
+        throw ModelLoadException("TorchScript forward must expose tensor inputs");
+    }
+    const auto artifact_types =
+        parse_libtorch_input_dtypes(extra_files.at(kTorchScriptInputDtypesFile), inputs.size() - 1);
 
     // Skip the first input as it's usually the self/module input
     for (size_t i = 1; i < inputs.size(); ++i) {
@@ -48,8 +55,7 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         std::string name = input->debugName();
         auto type = input->type()->cast<c10::TensorType>();
         if (!type) {
-            LOG(WARNING) << "Input " << name << " is not a tensor. Skipping.";
-            continue;
+            throw ModelLoadException("TorchScript input '" + name + "' is not a supported tensor input");
         }
 
         auto shapes = type->sizes().concrete_sizes();
@@ -86,16 +92,24 @@ LibtorchInfer::LibtorchInfer(const std::string& model_path, bool use_gpu, size_t
         std::vector<int64_t> final_shape = *shapes;
 
         LOG(INFO) << "\t" << name << " : " << print_shape(final_shape);
-        inference_metadata_.addInput(name, final_shape, batch_size);
-
-        std::string input_type_str = "Unknown";
-        c10::ScalarType s_type = c10::ScalarType::Float; // default
-        if (type->scalarType().has_value()) {
-            s_type = type->scalarType().value();
-            input_type_str = toString(s_type);
+        const auto graph_type = type->scalarType();
+        c10::ScalarType s_type;
+        if (graph_type.has_value()) {
+            s_type = graph_type.value();
+            if (!artifact_types.empty() && artifact_types.at(i - 1) != s_type) {
+                throw ModelLoadException("TorchScript graph/archive datatype mismatch for input '" + name + "'");
+            }
+        } else {
+            if (artifact_types.empty()) {
+                throw ModelLoadException("TorchScript input '" + name +
+                                         "' has no datatype metadata; re-export with the typed input metadata helper");
+            }
+            s_type = artifact_types.at(i - 1);
         }
+        (void)libtorch_input_bytes(final_shape, s_type);
         input_types_.push_back(s_type);
-        LOG(INFO) << "\tData Type: " << input_type_str;
+        LOG(INFO) << "\tData Type: " << toString(s_type);
+        inference_metadata_.addInput(name, final_shape, batch_size, libtorch_scalar_to_datatype(s_type));
     }
 
     // Log network dimensions from first input
@@ -235,16 +249,11 @@ LibtorchInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_
         const auto& input_data = input_tensors[i];
         const auto& shape = inputs_meta[i].shape;
 
-        // Determine type from stored metadata
-        c10::ScalarType dtype = c10::ScalarType::Float;
-        if (i < input_types_.size()) {
-            dtype = input_types_[i];
-        }
-
-        // Validate size
-        size_t element_size = c10::elementSize(dtype);
-        if (input_data.size() % element_size != 0) {
-            throw std::runtime_error("Input buffer size not multiple of element size for input " + std::to_string(i));
+        const auto dtype = input_types_.at(i);
+        const auto expected_bytes = libtorch_input_bytes(shape, dtype);
+        if (input_data.size() != expected_bytes) {
+            throw std::runtime_error("Input buffer size mismatch for input " + std::to_string(i) + ": expected " +
+                                     std::to_string(expected_bytes) + ", got " + std::to_string(input_data.size()));
         }
 
         std::vector<int64_t> tensor_dims = shape;

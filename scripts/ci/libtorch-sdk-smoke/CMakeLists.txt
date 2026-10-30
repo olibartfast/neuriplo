@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.20)
+project(libtorch_sdk_smoke LANGUAGES CXX)
+find_package(Torch REQUIRED)
+add_executable(libtorch_sdk_smoke main.cpp)
+target_compile_features(libtorch_sdk_smoke PRIVATE cxx_std_20)
+target_link_libraries(libtorch_sdk_smoke PRIVATE ${TORCH_LIBRARIES})
+separate_arguments(torch_compile_options NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
+target_compile_options(libtorch_sdk_smoke PRIVATE ${torch_compile_options})

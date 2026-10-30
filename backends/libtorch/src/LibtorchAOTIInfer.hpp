@@ -12,11 +12,10 @@ class AOTIModelPackageLoader;
 // torch._inductor.aoti_compile_and_package) through the common
 // InferenceInterface contract.
 //
-// Unlike TorchScript, a .pt2 package carries no input shape or dtype
-// introspection, so input_sizes are required (full shapes, batch included) and
-// inputs are float32. Output shapes are discovered with one zero-filled probe
-// run at load time. The package is compiled for one device; asking for another
-// device fails instead of silently running elsewhere.
+// The exporter records input dtypes and static shapes inside package metadata.
+// input_sizes remain required (full shapes, batch included) and are checked
+// against that contract before a typed probe discovers output shapes. Device
+// mismatches fail instead of silently running on another device.
 class LibtorchAOTIInfer : public InferenceInterface {
   public:
     LibtorchAOTIInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
@@ -28,5 +27,6 @@ class LibtorchAOTIInfer : public InferenceInterface {
 
   private:
     torch::Device device_{torch::kCPU};
+    std::vector<c10::ScalarType> input_types_;
     std::unique_ptr<torch::inductor::AOTIModelPackageLoader> loader_;
 };

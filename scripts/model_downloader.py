@@ -14,6 +14,8 @@ import logging
 from pathlib import Path
 import argparse
 
+from lib.torchscript_metadata import aoti_metadata, has_aoti_metadata, has_torchscript_metadata, save_torchscript
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -347,8 +349,8 @@ class ModelDownloader:
         """Generate or convert to TorchScript model."""
         torchscript_path = os.path.join(self.temp_dir, "resnet18.pt")
         
-        if os.path.exists(torchscript_path):
-            logger.info("TorchScript model already exists")
+        if os.path.exists(torchscript_path) and has_torchscript_metadata(torchscript_path):
+            logger.info("Typed TorchScript model already exists")
             return torchscript_path
         
         try:
@@ -363,7 +365,7 @@ class ModelDownloader:
             # Convert to TorchScript
             example_input = torch.rand(1, 3, 224, 224)
             traced_model = torch.jit.trace(model, example_input)
-            traced_model.save(torchscript_path)
+            save_torchscript(traced_model, torchscript_path, (example_input,))
             
             logger.info(f"Generated TorchScript model: {torchscript_path}")
             return torchscript_path
@@ -383,8 +385,8 @@ class ModelDownloader:
         """
         aoti_path = os.path.join(self.temp_dir, "resnet18.pt2")
 
-        if os.path.exists(aoti_path):
-            logger.info("AOTInductor package already exists")
+        if os.path.exists(aoti_path) and has_aoti_metadata(aoti_path):
+            logger.info("Typed AOTInductor package already exists")
             return aoti_path
 
         try:
@@ -399,7 +401,9 @@ class ModelDownloader:
             example_input = torch.rand(1, 3, 224, 224)
             with torch.no_grad():
                 exported = torch.export.export(model, (example_input,))
-                torch._inductor.aoti_compile_and_package(exported, package_path=aoti_path)
+                torch._inductor.aoti_compile_and_package(
+                    exported, package_path=aoti_path,
+                    inductor_configs={"aot_inductor.metadata": aoti_metadata(exported)})
 
             logger.info(f"Generated AOTInductor package: {aoti_path}")
             return aoti_path

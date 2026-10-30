@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-10-30
+
+### Added
+- Prebuilt ExecuTorch SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/executorch-deps:<EXECUTORCH_VERSION>` in the
+  standalone EXECUTORCH build job, falling back to the full source build.
+  `docker/Dockerfile.executorch` accepts the same image via `BASE_IMAGE` and
+  skips clone/requirements/compilation through the shared version stamp.
+- Prebuilt TensorFlow SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/tensorflow-deps:<TENSORFLOW_VERSION>` and
+  compiles only neuriplo itself, falling back to the full pip-based install.
+  `docker/Dockerfile.libtensorflow` accepts the same image via `BASE_IMAGE`
+  and skips the pip install and library staging on version-stamp match.
+- Prebuilt OpenVINO SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/openvino-deps:<OPENVINO_VERSION>` and compiles
+  only neuriplo itself, falling back to the full source build when the pull
+  fails. `docker/Dockerfile.openvino` accepts the same image via `BASE_IMAGE`
+  for local reuse.
+- Prebuilt llama.cpp SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/llamacpp-deps:<LLAMACPP_VERSION>` and compiles
+  only neuriplo itself, falling back to the full source build when the pull
+  fails. `docker/Dockerfile.llamacpp` accepts the same image via `BASE_IMAGE`
+  for local reuse.
+- Prebuilt GGML SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/ggml-deps:<GGML_VERSION>` and compiles only
+  neuriplo itself, falling back to the full source build. `docker/Dockerfile.ggml`
+  accepts the same image via `BASE_IMAGE` and skips the source build through
+  the shared version stamp.
+- Prebuilt LiteRT SDK base image on GHCR: CI resolves
+  `ghcr.io/olibartfast/neuriplo/litert-deps:<LITERT_VERSION>` and compiles
+  only neuriplo itself, falling back to the full source build when the pull
+  fails. `docker/Dockerfile.litert` accepts the same image via `BASE_IMAGE`
+  for local reuse.
+- Prebuilt TVM SDK base image on GHCR (`tvm-deps:<TVM_VERSION>`), same
+  pull-or-fallback scheme; `docker/Dockerfile.tvm` skips the source clone
+  when a matching version stamp is present.
+
+### Fixed
+- Preserve TVM source dependencies when a prebuilt SDK pull fails; skip compilation when its version stamp matches.
+- Publish each TorchScript graph input's real scalar type in the LibTorch public metadata instead of advertising every input as FP32, so auxiliary INT32/INT64/BOOL tensors are packed with their actual datatype. Untyped graph inputs keep the previous FP32 default with an explicit warning until the exporter records dtypes.
+
+- Report LiteRT image inputs in the NCHW layout consumed by the backend and translate requested image sizes to native NHWC, preventing metadata-driven preprocessing from transposing twice.
+
 ## [0.11.2] - 2026-10-28
 
 ### Fixed
@@ -460,7 +503,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GTest-based test suite
 - Git-flow branch policy enforcement via GitHub Actions
 
-[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/olibartfast/neuriplo/compare/v0.11.3...HEAD
+[0.11.3]: https://github.com/olibartfast/neuriplo/compare/v0.11.2...v0.11.3
+[0.11.2]: https://github.com/olibartfast/neuriplo/compare/v0.11.1...v0.11.2
+[0.11.1]: https://github.com/olibartfast/neuriplo/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/olibartfast/neuriplo/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/olibartfast/neuriplo/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/olibartfast/neuriplo/compare/v0.9.0...v0.9.1

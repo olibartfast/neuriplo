@@ -651,3 +651,67 @@ time.
 | `convert_to_ggml.sh` | Convert a model to GGML format |
 | `convert_onnx_to_ggml.py` | Convert an ONNX model to GGML |
 | `convert_resnet18_to_ggml.py` | Convert ResNet-18 to GGML (test helper) |
+
+## Typed LibTorch input artifacts
+
+TorchScript archives can lose input scalar types during serialization. Neuriplo
+reads a preserved graph dtype or the `neuriplo_input_dtypes.txt` extra file and
+rejects inputs whose dtype is unknown. It does not infer a type from the model
+name or assume FP32 for missing metadata.
+
+Export with the actual example tensors using
+[`scripts/lib/torchscript_metadata.py`](../scripts/lib/torchscript_metadata.py):
+
+```python
+from lib.torchscript_metadata import save_torchscript, aoti_metadata
+
+# Run from the repository's scripts directory or add it to PYTHONPATH.
+save_torchscript(traced_module, "model.pt", example_inputs)
+
+# exported_program comes from torch.export.export with the real input signature.
+torch._inductor.aoti_compile_and_package(
+    exported_program,
+    package_path="model.pt2",
+    inductor_configs={"aot_inductor.metadata": aoti_metadata(exported_program)},
+)
+```
+
+The AOTInductor helper captures dtypes and static contiguous input shapes from
+the compiler graph. The loader checks `input_sizes` against the compiled shapes
+before running a probe. Dynamic or non-contiguous AOTI input contracts are
+explicitly rejected by this helper. Existing artifacts without this metadata
+need re-export; changing a filename or passing a dtype override does not repair
+an unknown contract.
+
+Use the PyTorch release pinned in `versions.env`, matching the C++ SDK. The
+legacy fixture launcher accepts `PYTHON_BIN` for that Python environment and
+`--output-dir` for its generated files; it no longer uses an unpinned Docker
+image. These exporter and synthetic component checks do not establish real-model
+or full task/backend matrix correctness.
+
+## Reusable LibTorch CI dependencies
+
+The SDK publisher builds `ghcr.io/olibartfast/neuriplo/libtorch-deps:<PYTORCH_VERSION>-cpu`
+from the `libtorch_install` target. This Linux x86-64 CPU image contains the
+LibTorch C++ archive, matching Python CPU Torch exporter environment, compiler
+prerequisites and clang-tidy. It contains no model weights or project build.
+
+All LibTorch CI matrix jobs resolve this image using the PyTorch pin from
+`versions.env`. If the registry is unavailable, the complete `base` source stage
+remains available. Local Docker builds use that source stage by default. To reuse
+a previously built dependency image locally:
+
+```bash
+docker build --file docker/Dockerfile.libtorch --target libtorch_install \
+  --tag neuriplo-libtorch-deps:local .
+docker build --file docker/Dockerfile.libtorch --target builder \
+  --build-arg BASE_IMAGE=neuriplo-libtorch-deps:local \
+  --tag neuriplo-libtorch-builder:local .
+```
+
+Reuse checks the SDK's native `build-version`, required libraries/configuration,
+and Python Torch's actual version. A native C++20 tensor smoke test also checks
+the linked runtime's compiled configuration. A mismatched version or compute platform
+fails explicitly. The CPU image must not be supplied for a CUDA SDK request.
+Dependency reuse avoids repeated installation; clang-tidy still analyzes the
+current sources and is not skipped.

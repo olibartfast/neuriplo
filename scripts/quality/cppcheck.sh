@@ -19,7 +19,7 @@ cd "$ROOT"
 # MOCK_METHOD. Without the gmock headers it reports a syntax error in that
 # file; with them, one inside gmock's own preprocessor machinery. It is
 # compiled and run by ctest instead.
-cppcheck --enable=warning --std=c++17 --error-exitcode=1 \
+cppcheck --enable=warning --std=c++17 --error-exitcode=1 --library=googletest \
     --suppress=missingIncludeSystem \
     --suppress=unmatchedSuppression \
     -i backends/src/test/TestTemplateCompileTest.cpp \
