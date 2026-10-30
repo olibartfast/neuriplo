@@ -51,8 +51,7 @@ class MIGraphXInferTest : public ::testing::Test {
                 try {
                     real_infer = std::make_unique<MIGraphXInfer>(model_path, false);
                 } catch (const std::exception& e) {
-                    std::cerr << "Real model load failed, using mock: " << e.what() << "\n";
-                    has_real_model = false;
+                    FAIL() << "Explicit model fixture failed to load: " << e.what();
                 }
             }
         }

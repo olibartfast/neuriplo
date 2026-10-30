@@ -56,8 +56,7 @@ class LibtorchInferTest : public ::testing::Test {
                     real_infer = std::make_unique<LibtorchInfer>(model_path, false, 1, input_sizes);
                     std::cout << "Using real model: " << model_path << std::endl;
                 } catch (const std::exception& e) {
-                    std::cout << "Failed to load real model, falling back to mock: " << e.what() << std::endl;
-                    has_real_model = false;
+                    FAIL() << "Explicitly supplied LibTorch fixture failed to load: " << e.what();
                 }
             }
         }

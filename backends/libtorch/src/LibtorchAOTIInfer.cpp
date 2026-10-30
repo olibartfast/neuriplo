@@ -1,5 +1,6 @@
 #include "LibtorchAOTIInfer.hpp"
 
+#include "LibtorchInputContract.hpp"
 #include "LibtorchTensorUtils.hpp"
 
 #include <string>
@@ -61,6 +62,13 @@ LibtorchAOTIInfer::LibtorchAOTIInfer(const std::string& model_path, bool use_gpu
     // The package was compiled for one device type. Running it elsewhere is
     // impossible, and quietly ignoring use_gpu would hide the mismatch.
     const auto metadata = loader_->get_metadata();
+    const auto type_it = metadata.find(kAotiInputDtypesKey);
+    if (type_it == metadata.end() || type_it->second.empty()) {
+        throw ModelLoadException("AOTInductor input datatypes are missing; re-export with typed input metadata");
+    }
+    input_types_ = parse_libtorch_input_dtypes(type_it->second, input_sizes.size());
+    const auto shape_it = metadata.find(kAotiInputShapesKey);
+    validate_aoti_input_shapes(shape_it == metadata.end() ? "" : shape_it->second, input_sizes);
     const auto device_it = metadata.find("AOTI_DEVICE_KEY");
     const std::string package_device = device_it != metadata.end() ? device_it->second : "cpu";
     if (package_device == "cuda") {
@@ -94,9 +102,10 @@ LibtorchAOTIInfer::LibtorchAOTIInfer(const std::string& model_path, bool use_gpu
     for (size_t i = 0; i < input_sizes.size(); ++i) {
         const std::string name = "input" + std::to_string(i);
         LOG(INFO) << "\t" << name << " : " << shape_to_string(input_sizes[i]);
-        inference_metadata_.addInput(name, input_sizes[i], batch_size);
+        (void)libtorch_input_bytes(input_sizes[i], input_types_.at(i));
+        inference_metadata_.addInput(name, input_sizes[i], batch_size, libtorch_scalar_to_datatype(input_types_.at(i)));
         probe_inputs.push_back(
-            torch::zeros(input_sizes[i], torch::TensorOptions().dtype(torch::kFloat32).device(device_)));
+            torch::zeros(input_sizes[i], torch::TensorOptions().dtype(input_types_.at(i)).device(device_)));
     }
 
     // Output shapes are only known by running the compiled graph once. This
@@ -114,7 +123,8 @@ LibtorchAOTIInfer::LibtorchAOTIInfer(const std::string& model_path, bool use_gpu
         const std::string name = "output" + std::to_string(i);
         const auto shape = probe_outputs[i].sizes().vec();
         LOG(INFO) << "\t" << name << " : " << shape_to_string(shape);
-        inference_metadata_.addOutput(name, shape, batch_size);
+        inference_metadata_.addOutput(name, shape, batch_size,
+                                      libtorch_scalar_to_datatype(probe_outputs[i].scalar_type()));
     }
 
     state_ = BackendState::Ready;
@@ -136,18 +146,14 @@ LibtorchAOTIInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& in
     std::vector<at::Tensor> torch_inputs;
     for (size_t i = 0; i < inputs_meta.size(); ++i) {
         const auto& shape = inputs_meta[i].shape;
-        int64_t numel = 1;
-        for (auto dim : shape) {
-            numel *= dim;
-        }
-        const size_t expected_bytes = static_cast<size_t>(numel) * sizeof(float);
+        const auto dtype = input_types_.at(i);
+        const auto expected_bytes = libtorch_input_bytes(shape, dtype);
         if (input_tensors[i].size() != expected_bytes) {
             throw std::runtime_error("Input " + std::to_string(i) + " has " + std::to_string(input_tensors[i].size()) +
-                                     " bytes, expected " + std::to_string(expected_bytes) + " for float32 shape " +
+                                     " bytes, expected " + std::to_string(expected_bytes) + " for shape " +
                                      shape_to_string(shape));
         }
-
-        auto options = torch::TensorOptions().dtype(torch::kFloat32);
+        auto options = torch::TensorOptions().dtype(dtype);
         torch::Tensor input = torch::from_blob(const_cast<uint8_t*>(input_tensors[i].data()), shape, options);
         torch_inputs.push_back(input.to(device_));
     }
