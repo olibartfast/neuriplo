@@ -55,7 +55,9 @@ jobs:
           fetch-depth: 0
 
       - name: Test SDK base resolution
-        run: python3 scripts/ci/test_resolve_sdk_base.py
+        run: |
+          python3 scripts/ci/test_resolve_sdk_base.py
+          python3 scripts/ci/test_check_libtorch_sdk.py
 
       - name: Detect changed backends
         id: detect

@@ -2,6 +2,7 @@
 # docker run --rm neuriplo:libtorch
 
 # Stage 1: Base image with system dependencies
+ARG BASE_IMAGE=base
 FROM ubuntu:24.04 AS base
 
 # Set environment variables
@@ -20,6 +21,7 @@ RUN set -a && . /tmp/versions.env && set +a && \
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y \
     cmake=3.* \
+    clang-tidy-18 \
     build-essential=12.* \
     libgoogle-glog-dev \
     libgtest-dev \
@@ -37,21 +39,61 @@ RUN apt-get update && apt-get upgrade -y && \
     && rm -rf /var/lib/apt/lists/*
 
 # Stage 2: Install LibTorch C++ SDK
-FROM base AS libtorch_install
+FROM ${BASE_IMAGE} AS libtorch_install
 
-# Download and install LibTorch
+# Refresh the pin even when inheriting a published dependency image.
+COPY versions.env /tmp/versions.env
+COPY scripts/ci/check_libtorch_sdk.py /opt/neuriplo-ci/check_libtorch_sdk.py
 ARG COMPUTE_PLATFORM=cpu
 RUN . /tmp/versions.env && \
-    LIBTORCH_VERSION=${PYTORCH_VERSION} && \
-    wget https://download.pytorch.org/libtorch/$COMPUTE_PLATFORM/libtorch-shared-with-deps-${LIBTORCH_VERSION}%2B${COMPUTE_PLATFORM}.zip && \
-    unzip libtorch-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip -d /tmp && \
-    mv /tmp/libtorch ${LIBTORCH_DIR} && \
-    rm libtorch-shared-with-deps-${LIBTORCH_VERSION}+${COMPUTE_PLATFORM}.zip    
+    if [ -d "${LIBTORCH_DIR}" ]; then \
+        python3 /opt/neuriplo-ci/check_libtorch_sdk.py --root "${LIBTORCH_DIR}" \
+            --version "${PYTORCH_VERSION}" --platform "${COMPUTE_PLATFORM}" && \
+        echo "LibTorch SDK already installed, skipping download."; \
+    else \
+        wget -O /tmp/libtorch.zip "https://download.pytorch.org/libtorch/${COMPUTE_PLATFORM}/libtorch-shared-with-deps-${PYTORCH_VERSION}%2B${COMPUTE_PLATFORM}.zip" && \
+        unzip -q /tmp/libtorch.zip -d /tmp && mv /tmp/libtorch "${LIBTORCH_DIR}" && \
+        rm /tmp/libtorch.zip; \
+    fi && \
+    python3 /opt/neuriplo-ci/check_libtorch_sdk.py --root "${LIBTORCH_DIR}" \
+        --version "${PYTORCH_VERSION}" --platform "${COMPUTE_PLATFORM}"
 
 # Set LibTorch environment variables
 ENV LIBTORCH_DIR=/opt/libtorch
 ENV LD_LIBRARY_PATH=${LIBTORCH_DIR}/lib
 ENV CMAKE_PREFIX_PATH=${LIBTORCH_DIR}
+
+# The reusable image includes the matching CPU exporter environment. Keep model
+# weights and project sources out of this dependency layer.
+RUN if [ ! -x /opt/pytorch_env/bin/python ]; then python3 -m venv /opt/pytorch_env; fi
+ENV PATH=/opt/pytorch_env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN . /tmp/versions.env && \
+    if /opt/pytorch_env/bin/python -c 'import torch, torchvision, onnx, numpy, pytest; import sys; assert torch.__version__ == sys.argv[1] + "+cpu"' "${PYTORCH_VERSION}"; then \
+        echo "Python Torch dependencies already installed, skipping pip install."; \
+    else \
+        pip install --no-cache-dir "torch==${PYTORCH_VERSION}" torchvision --index-url https://download.pytorch.org/whl/cpu && \
+        pip install --no-cache-dir onnx numpy pytest pytest-cov pytest-mock pytest-benchmark pytest-xdist \
+            coverage pytest-html pytest-json-report; \
+    fi && \
+    python3 /opt/neuriplo-ci/check_libtorch_sdk.py --root "${LIBTORCH_DIR}" \
+        --version "${PYTORCH_VERSION}" --platform "${COMPUTE_PLATFORM}" --python /opt/pytorch_env/bin/python && \
+    pip check
+
+COPY scripts/ci/libtorch-sdk-smoke /opt/neuriplo-ci/libtorch-sdk-smoke
+RUN . /tmp/versions.env && \
+    if [ -x /opt/neuriplo-ci/libtorch_sdk_smoke ] && \
+       (cd /opt/neuriplo-ci/libtorch-sdk-smoke && sha256sum --check /opt/neuriplo-ci/libtorch-sdk-smoke.sources); then \
+        echo "Reusing compiled SDK smoke test."; \
+    else \
+        cmake -S /opt/neuriplo-ci/libtorch-sdk-smoke -B /tmp/libtorch-sdk-smoke \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${LIBTORCH_DIR}" && \
+        cmake --build /tmp/libtorch-sdk-smoke --parallel 2 && \
+        /tmp/libtorch-sdk-smoke/libtorch_sdk_smoke "${PYTORCH_VERSION}" "${COMPUTE_PLATFORM}" && \
+        cp /tmp/libtorch-sdk-smoke/libtorch_sdk_smoke /opt/neuriplo-ci/libtorch_sdk_smoke && \
+        (cd /opt/neuriplo-ci/libtorch-sdk-smoke && sha256sum CMakeLists.txt main.cpp > /opt/neuriplo-ci/libtorch-sdk-smoke.sources) && \
+        rm -rf /tmp/libtorch-sdk-smoke; \
+    fi && \
+    /opt/neuriplo-ci/libtorch_sdk_smoke "${PYTORCH_VERSION}" "${COMPUTE_PLATFORM}"
 
 # Stage 3: Build application
 FROM libtorch_install AS builder
@@ -77,21 +119,7 @@ RUN rm -rf build && \
 # Stage 4: Generate test models
 FROM builder AS model_generator
 
-# Create virtual environment and install PyTorch for model generation
-RUN python3 -m venv /opt/pytorch_env
-ENV PATH=/opt/pytorch_env/bin:$PATH
-
-# torch is pinned to the LibTorch version: an AOTInductor package (.pt2) only
-# loads in the LibTorch release whose compiler produced it.
-RUN . /tmp/versions.env && \
-    pip install --upgrade pip && \
-    pip install torch==${PYTORCH_VERSION} torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    pip install onnx numpy \
-    pytest pytest-cov pytest-mock pytest-benchmark pytest-xdist \
-    coverage pytest-html pytest-json-report
-
-# Verify installation
-RUN python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
+# SDK and Python exporter dependencies were verified in libtorch_install.
 
 # Exercise typed synthetic artifacts against the C++ runtime before using any
 # downloaded classifier fixture. Both sides use the same pinned Torch release.

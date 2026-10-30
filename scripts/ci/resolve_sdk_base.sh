@@ -14,7 +14,9 @@ if [ -z "${ACT:-}" ]; then
     esac
     version="$(grep -E "^${version_key}=" versions.env | cut -d= -f2)"
     test -n "$version"
-    candidate="${image}:${version}"
+    suffix=""
+    if [ "$backend" = LIBTORCH ]; then suffix="-${4:-cpu}"; fi
+    candidate="${image}:${version}${suffix}"
     if docker pull "$candidate"; then
         ref="$candidate"
     else

@@ -113,6 +113,8 @@ def classify(path: str, all_ids: list[str], backend_dirs: dict[str, str]) -> set
         "scripts/ci/resolve_sdk_base.sh",
     }:
         return set(all_ids)
+    if path.startswith("scripts/ci/libtorch-sdk-smoke/") or path in {"scripts/ci/check_libtorch_sdk.py", "scripts/ci/test_check_libtorch_sdk.py"}:
+        return {"LIBTORCH"}
     if path.startswith("scripts/ci/executorch-sdk-smoke/"):
         return {"EXECUTORCH"}
     if path in IGNORED_FILES:
