@@ -659,6 +659,10 @@ reads a preserved graph dtype or the `neuriplo_input_dtypes.txt` extra file and
 rejects inputs whose dtype is unknown. It does not infer a type from the model
 name or assume FP32 for missing metadata.
 
+The libtorch backend selects its runtime from the model path: a `.pt2` file
+(case-insensitive) is an AOTInductor package; every other path is TorchScript.
+The formats are not interchangeable and the loader does not fall back.
+
 Export with the actual example tensors using
 [`scripts/lib/torchscript_metadata.py`](../scripts/lib/torchscript_metadata.py):
 
