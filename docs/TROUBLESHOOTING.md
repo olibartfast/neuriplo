@@ -318,3 +318,19 @@ The classifier fixture generator uses Keras Applications and does not need Hub.
 Keep that extra dependency out of the Docker image, assert the installed version
 against `versions.env` after installation, and fail when an explicitly supplied
 SavedModel cannot load. Mock-only tests must not hide a broken real fixture.
+
+## LiteRT EdgeCrafter scores differ from ONNX
+
+A reconverted EdgeCrafter graph can return plausible boxes but deflated scores
+when dynamic intermediate tensors prevent default XNNPACK delegation. Checking
+only that XNNPACK was created is insufficient. Compare identical image and size
+input bytes: the builtin interpreter reproduces the drift, while XNNPACK with
+subgraph reshaping matches ONNX. The LiteRT adapter now explicitly owns that CPU
+delegate and enables `TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_SUBGRAPH_RESHAPING`.
+The SDK must include XNNPACK. Older converter artifacts can still be wrong and
+need replacement; this setting does not repair every conversion.
+
+The optional real-model test uses `NEURIPLO_LITERT_PARITY_FIXTURE`, containing
+`model.tflite`, `input0.bin`, `input1.bin`, and float32 ORT `output0.bin` through
+`output2.bin`. See the validation packet under
+`specs/2026-11-04-litert-dynamic-xnnpack/` for tolerances and results.

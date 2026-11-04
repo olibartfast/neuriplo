@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Enable XNNPACK subgraph reshaping in LiteRT CPU inference so reconverted
+  EdgeCrafter outputs match ONNX; own the delegate until interpreter destruction
+  and keep runtime/delegate archives in one link rescan group.
+
 ## [0.11.3] - 2026-10-30
 
 ### Added

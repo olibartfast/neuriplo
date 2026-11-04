@@ -358,3 +358,10 @@ existing ExecuTorch SDK PR, including OpenVINO and GGML. See
 [plan](2026-10-28-prebuilt-sdk-images/plan.md) and
 [validation](2026-10-28-prebuilt-sdk-images/validation.md). This phase changes
 packaging and CI only; it does not close real-model release validation.
+
+## LiteRT dynamic XNNPACK — local validation
+
+The maintainer-selected KNOWN-BAD follow-up enables CPU subgraph reshaping
+for dynamic EdgeCrafter conversion graphs. See
+[validation](2026-11-04-litert-dynamic-xnnpack/validation.md).
+No release or pin update is part of this work.
