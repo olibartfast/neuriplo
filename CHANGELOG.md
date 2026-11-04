@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Bind OpenCV 5 graph inputs by their real names, shapes and dtypes; preserve
+  INT64 inputs and integer output tensors for RT-DETR and open-vocabulary models.
+- Build ExecuTorch optimized CPU kernels and link their combined registration
+  target for XNNPACK SDKs; avoid duplicate runtime registration in backend tests.
 - Enable XNNPACK subgraph reshaping in LiteRT CPU inference so reconverted
   EdgeCrafter outputs match ONNX; own the delegate until interpreter destruction
   and keep runtime/delegate archives in one link rescan group.

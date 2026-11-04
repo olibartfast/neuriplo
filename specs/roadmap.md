@@ -365,3 +365,14 @@ The maintainer-selected KNOWN-BAD follow-up enables CPU subgraph reshaping
 for dynamic EdgeCrafter conversion graphs. See
 [validation](2026-11-04-litert-dynamic-xnnpack/validation.md).
 No release or pin update is part of this work.
+
+## Blocked OpenCV / ExecuTorch coverage — local validation
+
+OpenCV 5 now binds typed named graph inputs and preserves integer outputs;
+RT-DETR and OWLv2 agree with ORT. The tasks-owned RT-DETRv4 export adapter
+removes its vector MatMul restriction without changing model I/O.
+Pinned ExecuTorch v1.2.0 builds optimized kernels and selects combined
+registration for XNNPACK. Real RF-DETR parity passes. See
+[OpenCV validation](2026-11-04-opencv-typed-inputs/validation.md) and
+[ExecuTorch validation](2026-11-04-executorch-optimized-kernels/validation.md).
+Parallel downstream Slurm reruns await restoration of the existing controller.
