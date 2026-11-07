@@ -2,9 +2,11 @@
 
 #include "LiteRTInputLayout.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <iterator>
 #include <tensorflow/lite/schema/schema_generated.h>
 #include <tensorflow/lite/version.h>
 
@@ -117,4 +119,39 @@ TEST_F(LiteRTMetadataTest, PreservesExplicitNativeInputSize) {
     LiteRTInfer infer(model_path.string(), false, 1, {{1, 4, 2, 3}});
     EXPECT_EQ(infer.get_inference_metadata().getInputs()[0].shape, (std::vector<int64_t>{1, 3, 4, 2}));
     EXPECT_EQ(infer.get_inference_metadata().getOutputs()[0].shape, (std::vector<int64_t>{1, 4, 2, 3}));
+}
+
+// Optional real-model regression: generate the fixture from identical ORT
+// inputs/outputs using the downstream backend coverage validation packet.
+TEST(LiteRTInferTest, DynamicEdgeCrafterMatchesOnnxReference) {
+    const char* fixture_env = std::getenv("NEURIPLO_LITERT_PARITY_FIXTURE");
+    if (fixture_env == nullptr) {
+        GTEST_SKIP() << "NEURIPLO_LITERT_PARITY_FIXTURE is not set";
+    }
+    const fs::path fixture(fixture_env);
+    LiteRTInfer infer((fixture / "model.tflite").string(), false);
+    std::vector<std::vector<uint8_t>> inputs;
+    for (size_t i = 0; i < infer.get_inference_metadata().getInputs().size(); ++i) {
+        std::ifstream input(fixture / ("input" + std::to_string(i) + ".bin"), std::ios::binary);
+        ASSERT_TRUE(input.is_open());
+        inputs.emplace_back(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    }
+    const auto [outputs, shapes] = infer.get_infer_results(inputs);
+    ASSERT_EQ(outputs.size(), 3U);
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        std::ifstream reference(fixture / ("output" + std::to_string(i) + ".bin"), std::ios::binary);
+        ASSERT_TRUE(reference.is_open());
+        for (size_t j = 0; j < outputs[i].size(); ++j) {
+            float expected = 0;
+            ASSERT_TRUE(reference.read(reinterpret_cast<char*>(&expected), sizeof(expected)));
+            const float actual = std::visit([](auto value) { return static_cast<float>(value); }, outputs[i][j]);
+            // Query ordering is score-sorted; compare the high-confidence set
+            // separately from low-score numerical ties between queries.
+            if (i == 2 || j < (i == 1 ? 24U : 6U)) {
+                EXPECT_NEAR(actual, expected, i == 0 ? 0.0f : (i == 1 ? 0.01f : 0.0001f))
+                    << "output " << i << ", element " << j;
+            }
+        }
+        EXPECT_EQ(reference.peek(), std::ifstream::traits_type::eof());
+    }
 }

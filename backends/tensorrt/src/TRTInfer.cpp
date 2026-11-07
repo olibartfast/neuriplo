@@ -1,7 +1,10 @@
 #include "TRTInfer.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <cuda_fp16.h> // For __half if using half-precision
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <utility>
 
@@ -64,6 +67,23 @@ void releaseResources(std::vector<void*>& buffers, nvinfer1::IExecutionContext*&
         }                                                                                                              \
     } while (0)
 
+struct TRTInfer::DynamicOutput final : nvinfer1::IOutputAllocator {
+    void* buffer;
+    uint64_t capacity;
+    nvinfer1::Dims shape{};
+
+    DynamicOutput(void* address, uint64_t bytes) : buffer(address), capacity(bytes) { shape.nbDims = -1; }
+
+    void* reallocateOutputAsync(const char*, void*, uint64_t size, uint64_t alignment, cudaStream_t) noexcept override {
+        if (size > capacity || (alignment != 0 && reinterpret_cast<uintptr_t>(buffer) % alignment != 0)) {
+            return nullptr;
+        }
+        return buffer;
+    }
+
+    void notifyShape(const char*, const nvinfer1::Dims& dims) noexcept override { shape = dims; }
+};
+
 TRTInfer::TRTInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
                    const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, true, batch_size, input_sizes} {
@@ -81,6 +101,7 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
     auto* previous_context = std::exchange(context_, nullptr);
     auto previous_buffers = std::move(buffers_);
     auto previous_buffer_by_name = std::move(buffer_by_name_);
+    auto previous_dynamic_outputs = std::move(dynamic_outputs_);
     auto* previous_runtime = std::exchange(runtime_, nullptr);
     const size_t previous_num_inputs = num_inputs_;
     const size_t previous_num_outputs = num_outputs_;
@@ -117,10 +138,12 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
         populateInferenceMetadata(input_sizes);
     } catch (...) {
         releaseResources(buffers_, context_, engine_, runtime_);
+        dynamic_outputs_.clear();
         engine_ = std::move(previous_engine);
         context_ = previous_context;
         buffers_ = std::move(previous_buffers);
         buffer_by_name_ = std::move(previous_buffer_by_name);
+        dynamic_outputs_ = std::move(previous_dynamic_outputs);
         runtime_ = previous_runtime;
         num_inputs_ = previous_num_inputs;
         num_outputs_ = previous_num_outputs;
@@ -138,7 +161,10 @@ void TRTInfer::initializeBuffers(const std::string& engine_path, const std::vect
 size_t TRTInfer::getSizeByDim(const nvinfer1::Dims& dims) {
     size_t size = 1;
     for (size_t i = 0; i < dims.nbDims; ++i) {
-        if (dims.d[i] == -1 || dims.d[i] == 0) {
+        if (dims.d[i] == 0) {
+            return 0;
+        }
+        if (dims.d[i] == -1) {
             continue;
         }
         size *= dims.d[i];
@@ -178,7 +204,10 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
         delete context_;
         context_ = nullptr;
     }
+    dynamic_outputs_.clear();
     context_ = engine_->createExecutionContext();
+    if (context_ == nullptr)
+        throw ModelLoadException("Failed to create TensorRT execution context");
     int num_tensors = engine_->getNbIOTensors();
     buffers_.resize(num_tensors);
     input_tensor_names_.clear();
@@ -286,7 +315,27 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
             state_ = BackendState::Failed;
             throw ModelLoadException("Unsupported data type for tensor " + tensor_name);
         }
-        CHECK_CUDA(cudaMalloc(&buffers_[i], binding_size));
+        bool data_dependent = false;
+        for (int d = 0; d < dims.nbDims; ++d)
+            data_dependent = data_dependent || dims.d[d] < 0;
+        if (data_dependent) {
+            if (engine_->getTensorIOMode(tensor_name.c_str()) != nvinfer1::TensorIOMode::kOUTPUT) {
+                throw ModelLoadException("Unresolved TensorRT input dimensions: " + tensor_name);
+            }
+            const auto bound = context_->getMaxOutputSize(tensor_name.c_str());
+            if (bound <= 0 || static_cast<uint64_t>(bound) > std::numeric_limits<size_t>::max()) {
+                throw ModelLoadException("No valid TensorRT output allocation bound: " + tensor_name);
+            }
+            binding_size = static_cast<size_t>(bound);
+        }
+        CHECK_CUDA(cudaMalloc(&buffers_[i], std::max(binding_size, size_t{1})));
+        if (data_dependent) {
+            auto allocator = std::make_unique<DynamicOutput>(buffers_[i], binding_size);
+            if (!context_->setOutputAllocator(tensor_name.c_str(), allocator.get())) {
+                throw ModelLoadException("Failed to register TensorRT output allocator: " + tensor_name);
+            }
+            dynamic_outputs_.emplace(tensor_name, std::move(allocator));
+        }
         // Buffers land in engine enumeration order; record the address under
         // the tensor name so consumers never assume all inputs precede
         // outputs.
@@ -296,6 +345,17 @@ void TRTInfer::createContextAndAllocateBuffers(const std::vector<std::vector<int
 
 nvinfer1::Dims TRTInfer::outputDims(size_t index) const {
     const std::string& tensor_name = output_tensor_names_[index];
+    const auto allocator = dynamic_outputs_.find(tensor_name);
+    if (allocator != dynamic_outputs_.end()) {
+        const auto& shape = allocator->second->shape;
+        if (shape.nbDims < 0)
+            throw InferenceExecutionException("TensorRT output shape was not notified: " + tensor_name);
+        for (int d = 0; d < shape.nbDims; ++d) {
+            if (shape.d[d] < 0)
+                throw InferenceExecutionException("Unresolved TensorRT output shape: " + tensor_name);
+        }
+        return shape;
+    }
     if (context_) {
         return context_->getTensorShape(tensor_name.c_str());
     }
@@ -386,7 +446,8 @@ void TRTInfer::uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_t
     CHECK_CUDA(cudaStreamCreate(&guard.stream));
     cudaStream_t stream = guard.stream;
 
-    // Note: Dynamic shape checking loop removed as per optimization
+    for (auto& entry : dynamic_outputs_)
+        entry.second->shape.nbDims = -1;
 
     for (size_t i = 0; i < num_inputs_; ++i) {
         if (!context_->setInputTensorAddress(input_tensor_names_[i].c_str(),
@@ -651,7 +712,13 @@ void TRTInfer::populateInferenceMetadata(const std::vector<std::vector<int64_t>>
                 shape.push_back(dims.d[j]);
             }
         }
-        inference_metadata_.addOutput(tensor_name, withBatchDimension(shape, dims, batch_size_), batch_size_,
+        auto output_shape = withBatchDimension(shape, dims, batch_size_);
+        if (dynamic_outputs_.find(tensor_name) != dynamic_outputs_.end()) {
+            output_shape.clear();
+            for (int j = 0; j < dims.nbDims; ++j)
+                output_shape.push_back(dims.d[j]);
+        }
+        inference_metadata_.addOutput(tensor_name, output_shape, batch_size_,
                                       toTensorDataType(engine_->getTensorDataType(tensor_name.c_str())));
     }
 }

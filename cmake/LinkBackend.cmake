@@ -176,9 +176,15 @@ elseif(backend STREQUAL "EXECUTORCH")
         executorch
         extension_module_static
         extension_tensor
-        portable_ops_lib
-        portable_kernels
     )
+    # The combined SDK target registers optimized operators (including
+    # aten::linear.out) with portable fallbacks. Linking portable_ops_lib too
+    # would register overlapping operators twice.
+    if(EXECUTORCH_DELEGATE STREQUAL "xnnpack" AND TARGET optimized_native_cpu_ops_lib)
+        list(APPEND _ET_LIBS optimized_native_cpu_ops_lib)
+    else()
+        list(APPEND _ET_LIBS portable_ops_lib portable_kernels)
+    endif()
     if(EXECUTORCH_DELEGATE STREQUAL "xnnpack")
         list(APPEND _ET_LIBS xnnpack_backend)
     endif()

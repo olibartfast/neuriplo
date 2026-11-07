@@ -358,3 +358,25 @@ existing ExecuTorch SDK PR, including OpenVINO and GGML. See
 [plan](2026-10-28-prebuilt-sdk-images/plan.md) and
 [validation](2026-10-28-prebuilt-sdk-images/validation.md). This phase changes
 packaging and CI only; it does not close real-model release validation.
+
+## TensorRT data-dependent outputs — validated on Jetson Orin
+
+LightGlue requires bounded allocation and runtime output shapes. See [validation](2026-11-07-trt-data-dependent-outputs/validation.md).
+
+## LiteRT dynamic XNNPACK — local validation
+
+The maintainer-selected KNOWN-BAD follow-up enables CPU subgraph reshaping
+for dynamic EdgeCrafter conversion graphs. See
+[validation](2026-11-04-litert-dynamic-xnnpack/validation.md).
+No release or pin update is part of this work.
+
+## Blocked OpenCV / ExecuTorch coverage — local validation
+
+OpenCV 5 now binds typed named graph inputs and preserves integer outputs;
+RT-DETR and OWLv2 agree with ORT. The tasks-owned RT-DETRv4 export adapter
+removes its vector MatMul restriction without changing model I/O.
+Pinned ExecuTorch v1.2.0 builds optimized kernels and selects combined
+registration for XNNPACK. Real RF-DETR parity passes. See
+[OpenCV validation](2026-11-04-opencv-typed-inputs/validation.md) and
+[ExecuTorch validation](2026-11-04-executorch-optimized-kernels/validation.md).
+Parallel downstream Slurm reruns await restoration of the existing controller.

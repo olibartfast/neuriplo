@@ -318,3 +318,50 @@ The classifier fixture generator uses Keras Applications and does not need Hub.
 Keep that extra dependency out of the Docker image, assert the installed version
 against `versions.env` after installation, and fail when an explicitly supplied
 SavedModel cannot load. Mock-only tests must not hide a broken real fixture.
+
+## LiteRT EdgeCrafter scores differ from ONNX
+
+A reconverted EdgeCrafter graph can return plausible boxes but deflated scores
+when dynamic intermediate tensors prevent default XNNPACK delegation. Checking
+only that XNNPACK was created is insufficient. Compare identical image and size
+input bytes: the builtin interpreter reproduces the drift, while XNNPACK with
+subgraph reshaping matches ONNX. The LiteRT adapter now explicitly owns that CPU
+delegate and enables `TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_SUBGRAPH_RESHAPING`.
+The SDK must include XNNPACK. Older converter artifacts can still be wrong and
+need replacement; this setting does not repair every conversion.
+
+The optional real-model test uses `NEURIPLO_LITERT_PARITY_FIXTURE`, containing
+`model.tflite`, `input0.bin`, `input1.bin`, and float32 ORT `output0.bin` through
+`output2.bin`. See the validation packet under
+`specs/2026-11-04-litert-dynamic-xnnpack/` for tolerances and results.
+
+## OpenCV 5 multi-input models
+
+The graph-engine adapter binds inputs using getMainGraph()/argData() metadata
+and named setInput(). INT64 size/token tensors remain INT64; integer outputs
+retain their types on both variant and raw-buffer paths. Unknown dynamic
+dimensions need explicit input sizes. OpenCV 4 and the classic engine retain
+the legacy single-input path.
+
+RT-DETRv4 additionally needs its constant-vector MatMul exports prepared as
+Unsqueeze/MatMul/Squeeze for OpenCV's matrix-only operator. The opt-in helper is
+export/detection/rtdetr/prepare_opencv_onnx.py in neuriplo-tasks. It preserves
+external model I/O and writes a separate artifact. This does not repair older
+importers or change graph kernels.
+
+## ExecuTorch RF-DETR missing aten::linear.out
+
+Rebuild the pinned SDK with scripts/setup_executorch.sh. It now enables
+EXECUTORCH_BUILD_KERNELS_OPTIMIZED and requires the combined registration
+archive in its installation-readiness check. XNNPACK builds link
+optimized_native_cpu_ops_lib when the SDK exports it; portable-only SDKs and
+the explicit portable delegate retain portable registration. Do not link the
+portable and combined registration archives together, or whole-archive a second
+runtime into the test executable: primitive/operator registration can abort
+before main. Tests use the SDK's compile definitions without its registration
+archives.
+
+The real RF-DETR regression uses NEURIPLO_EXECUTORCH_PARITY_FIXTURE containing
+model.pte (nano), input0.bin and float32 ORT output0.bin/output1.bin. Every
+output value must agree within 0.001. Absence of the optional fixture is a skip;
+a supplied fixture must execute successfully.
