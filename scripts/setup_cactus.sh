@@ -59,8 +59,10 @@ for cmd in cmake git python3; do
 done
 
 # ── Clone ─────────────────────────────────────────────────────────────────────
+# The C++ engine lives in cactus-compute/engine; cactus-compute/cactus now
+# hosts the Python agent. The engine repository keeps the v1.14 tag.
 rm -rf "${SRC_DIR}"
-git clone https://github.com/cactus-compute/cactus.git "${SRC_DIR}"
+git clone https://github.com/cactus-compute/engine.git "${SRC_DIR}"
 cd "${SRC_DIR}"
 git checkout "${CACTUS_VERSION}"
 git submodule update --init --recursive
