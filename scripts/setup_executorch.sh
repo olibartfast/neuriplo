@@ -28,15 +28,15 @@ FORCE="${FORCE:-false}"
 SRC_DIR="/tmp/executorch"
 
 # ── Already installed? ────────────────────────────────────────────────────────
-# Require the XNNPACK backend lib too: a core-only install from an older run
-# would fail to link the EXECUTORCH backend, so treat it as not installed.
+# Require XNNPACK and combined optimized/portable registrations: older
+# portable-only SDKs lack operators such as aten::linear.out used by RF-DETR.
 # INSTALL_DIR carries no version either, so the archives existing does not mean
 # they came from the pinned tag.
-if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ] && [ "${FORCE}" != "true" ]; then
+if [ -f "${INSTALL_DIR}/lib/libexecutorch.a" ] && [ -f "${INSTALL_DIR}/lib/libxnnpack_backend.a" ] && [ -f "${INSTALL_DIR}/lib/liboptimized_native_cpu_ops_lib.a" ] && [ "${FORCE}" != "true" ]; then
     if neuriplo_stamp_matches "${INSTALL_DIR}" "${EXECUTORCH_VERSION}" "ExecuTorch"; then
         echo "✓ ExecuTorch ${EXECUTORCH_VERSION} already installed at ${INSTALL_DIR}"
+        exit 0
     fi
-    exit 0
 fi
 
 echo "Building ExecuTorch ${EXECUTORCH_VERSION} → ${INSTALL_DIR}"
@@ -103,12 +103,14 @@ cmake -S . -B cmake-out \
     -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_STANDARD=17 \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
     -DEXECUTORCH_BUILD_EXTENSION_MODULE=ON \
     -DEXECUTORCH_BUILD_EXTENSION_NAMED_DATA_MAP=ON \
     -DEXECUTORCH_BUILD_EXTENSION_TENSOR=ON \
     -DEXECUTORCH_BUILD_EXTENSION_DATA_LOADER=ON \
     -DEXECUTORCH_BUILD_XNNPACK=ON \
+    -DEXECUTORCH_BUILD_KERNELS_OPTIMIZED=ON \
     -DEXECUTORCH_ENABLE_LOGGING=ON \
     -DEXECUTORCH_BUILD_TESTS=OFF \
     -DEXECUTORCH_BUILD_EXAMPLES=OFF \
