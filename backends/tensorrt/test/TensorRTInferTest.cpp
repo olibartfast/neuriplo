@@ -1,7 +1,9 @@
 #include "TRTInfer.hpp"
 #include "testing/TestBlob.hpp"
 
+#include <array>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>
@@ -248,6 +250,70 @@ TEST_F(TensorRTInferTest, FailedReinitializationPreservesLiveEngine) {
     const auto [outputs, shapes] = infer.get_infer_results(neuriplo::testing::zero_blob_tensors());
     ASSERT_FALSE(outputs.empty());
     ASSERT_FALSE(shapes.empty());
+}
+
+TEST(TensorRTDynamicOutputs, EmptyAndChangingCountsThroughTypedAndRawApis) {
+    Logger logger;
+    std::unique_ptr<nvinfer1::IBuilder> builder(nvinfer1::createInferBuilder(logger));
+    ASSERT_NE(builder, nullptr);
+    std::unique_ptr<nvinfer1::INetworkDefinition> network(builder->createNetworkV2(0));
+    std::unique_ptr<nvinfer1::IBuilderConfig> config(builder->createBuilderConfig());
+    ASSERT_NE(network, nullptr);
+    ASSERT_NE(config, nullptr);
+    auto* input = network->addInput("input", nvinfer1::DataType::kFLOAT, nvinfer1::Dims{1, {4}});
+    ASSERT_NE(input, nullptr);
+#if NV_TENSORRT_MAJOR > 10 || (NV_TENSORRT_MAJOR == 10 && NV_TENSORRT_MINOR >= 14)
+    auto* nonzero = network->addNonZero(*input, nvinfer1::DataType::kINT32);
+#else
+    auto* nonzero = network->addNonZero(*input);
+#endif
+    ASSERT_NE(nonzero, nullptr);
+    auto* transpose = network->addShuffle(*nonzero->getOutput(0));
+    ASSERT_NE(transpose, nullptr);
+    nvinfer1::Permutation order{};
+    order.order[0] = 1;
+    order.order[1] = 0;
+    transpose->setFirstTranspose(order);
+    transpose->getOutput(0)->setName("indices");
+    network->markOutput(*transpose->getOutput(0));
+    std::unique_ptr<nvinfer1::IHostMemory> plan(builder->buildSerializedNetwork(*network, *config));
+    ASSERT_NE(plan, nullptr);
+    const auto path = fs::path(kTestBinaryDir) / "nonzero-test.engine";
+    {
+        std::ofstream file(path, std::ios::binary);
+        file.write(static_cast<const char*>(plan->data()), static_cast<std::streamsize>(plan->size()));
+        ASSERT_TRUE(file.good());
+    }
+    TRTInfer infer(path.string(), true);
+    EXPECT_EQ(infer.get_inference_metadata().getOutputs().at(0).shape, (std::vector<int64_t>{-1, 1}));
+    for (const int count : {0, 2, 4, 1, 0}) {
+        std::array<float, 4> values{};
+        for (int i = 0; i < count; ++i)
+            values[static_cast<size_t>(i)] = 1.0f;
+        std::vector<uint8_t> bytes(sizeof(values));
+        std::memcpy(bytes.data(), values.data(), bytes.size());
+        const auto [outputs, shapes] = infer.get_infer_results({bytes});
+        ASSERT_EQ(outputs.size(), 1U);
+        ASSERT_EQ(shapes[0], (std::vector<int64_t>{count, 1}));
+        ASSERT_EQ(outputs[0].size(), static_cast<size_t>(count));
+        for (int i = 0; i < count; ++i)
+            EXPECT_EQ(std::get<int32_t>(outputs[0][static_cast<size_t>(i)]), i);
+        const auto raw = infer.get_infer_results_raw({bytes});
+        ASSERT_EQ(raw.size(), 1U);
+        EXPECT_EQ(raw[0].shape, shapes[0]);
+        ASSERT_EQ(raw[0].bytes.size(), static_cast<size_t>(count) * sizeof(int32_t));
+        for (int i = 0; i < count; ++i) {
+            int32_t value;
+            std::memcpy(&value, raw[0].bytes.data() + static_cast<size_t>(i) * sizeof(value), sizeof(value));
+            EXPECT_EQ(value, i);
+        }
+    }
+    EXPECT_NO_THROW(infer.createContextAndAllocateBuffers({}));
+    EXPECT_NO_THROW(infer.get_infer_results_raw({std::vector<uint8_t>(4 * sizeof(float))}));
+    EXPECT_THROW(infer.initializeBuffers("missing-dynamic-test.engine", {}), std::runtime_error);
+    EXPECT_NO_THROW(infer.get_infer_results({std::vector<uint8_t>(4 * sizeof(float))}));
+    EXPECT_NO_THROW(infer.initializeBuffers(path.string(), {}));
+    EXPECT_NO_THROW(infer.get_infer_results_raw({std::vector<uint8_t>(4 * sizeof(float))}));
 }
 
 int main(int argc, char** argv) {

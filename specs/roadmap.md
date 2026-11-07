@@ -358,3 +358,7 @@ existing ExecuTorch SDK PR, including OpenVINO and GGML. See
 [plan](2026-10-28-prebuilt-sdk-images/plan.md) and
 [validation](2026-10-28-prebuilt-sdk-images/validation.md). This phase changes
 packaging and CI only; it does not close real-model release validation.
+
+## TensorRT data-dependent outputs — validated on Jetson Orin
+
+LightGlue requires bounded allocation and runtime output shapes. See [validation](2026-11-07-trt-data-dependent-outputs/validation.md).

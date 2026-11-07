@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Support data-dependent TensorRT outputs with bounded buffers, concrete runtime shapes, truthful dynamic metadata, empty tensors and safe context reloads.
+
 ## [0.11.3] - 2026-10-30
 
 ### Added
