@@ -35,3 +35,14 @@
 - Before pushing any code changes, run `./scripts/quality/format.sh --check` (or `pre-commit run --all-files` after hook setup). Pre-push hooks also run full-tree cppcheck and backend-docs sync.
 - When changing `versions.env` or `docs/backends.yaml`, always run `python3 scripts/gen_backend_docs.py` before committing to keep auto-generated `GEN:` sections in `docs/DEPENDENCY_MANAGEMENT.md` in sync. The pre-push hook also enforces this.
 - Before pushing Dockerfile or workflow changes, validate locally with `act`: `act push --job <job-id> --dryrun` to inspect resolved steps, then `act push --job <job-id> --verbose` for a full run. See `docs/LOCAL_CI.md` for setup and per-job examples.
+
+## Agent Commit Signing
+
+Every commit produced by an AI agent MUST include a `Co-authored-by` trailer
+that identifies the agent, the LLM model used, and the agent vendor. The
+canonical agent table, vendor emails, and the rule that vendor emails must not
+map to real GitHub profiles live in
+[`neuriplo-platform/AGENTS.md`](https://github.com/olibartfast/neuriplo-platform/blob/main/AGENTS.md#agent-commit-signing).
+
+Place the trailer in the commit body (after the subject line and blank line),
+not the subject.
