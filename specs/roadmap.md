@@ -144,6 +144,12 @@ Exit criteria:
 - Requested placement and actual selection are observable.
 - No backend silently moves work to CPU.
 
+Specified slice (2026-11-09): TensorFlow GPU execution in
+`specs/2026-11-09-tensorflow-gpu-remote-tpu/`. This honors the existing
+`use_gpu` boolean for `LIBTENSORFLOW`; it does not add the Phase 3 device or
+provider fields. Remote TPU execution is outside this repository and is
+specified in `neuriplo-infer`, `neuriplo-tasks`, and `neuriplo-platform`.
+
 ## Phase 5 — Contract Tests and Model Fixtures
 
 **Status: Planned**

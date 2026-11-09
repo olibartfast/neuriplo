@@ -422,6 +422,27 @@ To use an installation that is already on disk, point the build at it with
 1. Run: `./scripts/setup_libtensorflow.sh`
 2. Alternative pip path: `./scripts/setup_tensorflow_pip.sh`
 
+TensorFlow is CPU by default. GPU execution is opt-in and requires both a
+GPU-enabled build/runtime and `use_gpu=true` at engine construction; a GPU
+request that cannot see a device fails the load instead of falling back to CPU.
+The CPU Docker image is the default. Build the GPU image from the pinned
+CUDA/cuDNN runtime (TensorFlow 2.19 is tested against CUDA 12.5 / cuDNN 9.3;
+the pinned image provides CUDA 12.6.1 / cuDNN 9.3.0 and stays within CUDA 12.x
+minor-version compatibility):
+
+```bash
+docker build -t neuriplo:libtensorflow-gpu \
+  --build-arg TF_BASE_IMAGE=nvidia/cuda:12.6.1-cudnn-runtime-ubuntu24.04 \
+  --build-arg TF_GPU=1 \
+  -f docker/Dockerfile.libtensorflow .
+```
+
+At run time the host must provide the NVIDIA driver through the NVIDIA Container
+Toolkit (`--gpus all`); the image supplies CUDA and cuDNN. For a bare-metal pip
+install, `./scripts/setup_tensorflow_pip.sh --gpu` validates the driver and the
+CUDA 12.x / cuDNN 9.x libraries before installing. The CI job only builds the
+GPU image on a GPU-free runner, so no live GPU result is asserted here.
+
 **ExecuTorch** — no pre-built binaries; built from source:
 
 ```bash

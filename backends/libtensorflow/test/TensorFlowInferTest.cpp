@@ -1,5 +1,7 @@
+#include "InferenceBackendSetup.hpp"
 #include "TFDetectionAPI.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -40,6 +42,113 @@ class MockTFDetectionAPI {
         return info;
     }
 };
+
+namespace {
+
+// Write the same minimal SavedModel protobuf used by the input-contract test so
+// device-selection tests can load a real bundle without external weights.
+fs::path WriteMinimalSavedModel(const std::string& name) {
+    tensorflow::SavedModel saved;
+    saved.set_saved_model_schema_version(1);
+    auto* meta = saved.add_meta_graphs();
+    meta->mutable_meta_info_def()->add_tags("serve");
+    auto* input = meta->mutable_graph_def()->add_node();
+    input->set_name("images");
+    input->set_op("Placeholder");
+    (*input->mutable_attr())["dtype"].set_type(tensorflow::DT_UINT8);
+    auto* shape = (*input->mutable_attr())["shape"].mutable_shape();
+    for (int dim : {1, 2, 4, 3}) {
+        shape->add_dim()->set_size(dim);
+    }
+    auto* output = meta->mutable_graph_def()->add_node();
+    output->set_name("result");
+    output->set_op("Identity");
+    output->add_input("images");
+    (*output->mutable_attr())["T"].set_type(tensorflow::DT_UINT8);
+    auto& signature = (*meta->mutable_signature_def())["serving_default"];
+    auto& input_info = (*signature.mutable_inputs())["images"];
+    input_info.set_name("images:0");
+    input_info.set_dtype(tensorflow::DT_UINT8);
+    *input_info.mutable_tensor_shape() = *shape;
+    auto& output_info = (*signature.mutable_outputs())["result"];
+    output_info = input_info;
+    output_info.set_name("result:0");
+
+    const auto path = fs::path(::testing::TempDir()) / name;
+    fs::remove_all(path);
+    fs::create_directories(path);
+    std::ofstream stream(path / "saved_model.pb", std::ios::binary);
+    EXPECT_TRUE(saved.SerializeToOstream(&stream));
+    return path;
+}
+
+// Probe the devices TensorFlow registers with a default session. Mirrors the
+// backend's ListDevices() check without constructing or loading a model.
+bool TensorFlowSessionHasGpu() {
+    tensorflow::SessionOptions options;
+    tensorflow::Session* session = nullptr;
+    auto status = tensorflow::NewSession(options, &session);
+    if (!status.ok()) {
+        return false;
+    }
+    std::vector<tensorflow::DeviceAttributes> devices;
+    status = session->ListDevices(&devices);
+    const auto close_status = session->Close();
+    (void)close_status;
+    delete session;
+    if (!status.ok()) {
+        return false;
+    }
+    return std::any_of(devices.begin(), devices.end(),
+                       [](const tensorflow::DeviceAttributes& device) { return device.device_type() == "GPU"; });
+}
+
+// Comma-joined device names a default session can see. Used to make the CPU/GPU
+// parity result diagnosable without changing the backend API.
+std::string TensorFlowDeviceSummary() {
+    tensorflow::SessionOptions options;
+    tensorflow::Session* session = nullptr;
+    auto status = tensorflow::NewSession(options, &session);
+    if (!status.ok()) {
+        return "<session creation failed: " + status.ToString() + ">";
+    }
+    std::vector<tensorflow::DeviceAttributes> devices;
+    status = session->ListDevices(&devices);
+    const auto close_status = session->Close();
+    (void)close_status;
+    delete session;
+    if (!status.ok()) {
+        return "<ListDevices failed: " + status.ToString() + ">";
+    }
+    std::string summary;
+    for (const auto& device : devices) {
+        if (!summary.empty()) {
+            summary += ", ";
+        }
+        summary += device.name();
+    }
+    return summary;
+}
+
+struct TopClass {
+    int index;
+    float score;
+};
+
+std::vector<TopClass> TopKClasses(const std::vector<TensorElement>& output, size_t k) {
+    std::vector<TopClass> scored;
+    scored.reserve(output.size());
+    for (size_t i = 0; i < output.size(); ++i) {
+        scored.push_back({static_cast<int>(i), std::get<float>(output[i])});
+    }
+    const size_t keep = std::min(k, scored.size());
+    std::partial_sort(scored.begin(), scored.begin() + keep, scored.end(),
+                      [](const TopClass& lhs, const TopClass& rhs) { return lhs.score > rhs.score; });
+    scored.resize(keep);
+    return scored;
+}
+
+} // namespace
 
 class TensorFlowInferTest : public ::testing::Test {
   protected:
@@ -190,6 +299,40 @@ TEST_F(TensorFlowInferTest, GPUTest) {
         // GPU not available or error occurred
         GTEST_SKIP() << "Skipping GPU test - GPU not available or error: " << e.what();
     }
+}
+
+// CPU request must expose no GPU devices and still load a valid SavedModel.
+TEST(TensorFlowDeviceSelection, CpuRequestHidesGpuDevices) {
+    const auto path = WriteMinimalSavedModel("neuriplo-tf-cpu-device");
+
+    std::unique_ptr<TFDetectionAPI> infer;
+    ASSERT_NO_THROW(infer = std::make_unique<TFDetectionAPI>(path.string(), false));
+    ASSERT_NE(infer, nullptr);
+    EXPECT_FALSE(infer->is_gpu_available());
+    ASSERT_EQ(infer->get_inference_metadata().getInputs().size(), 1u);
+    EXPECT_EQ(infer->get_inference_metadata().getInputs()[0].datatype, TensorDataType::UInt8);
+
+    fs::remove_all(path);
+}
+
+// A GPU request without a usable GPU must fail the load, never fall back to CPU.
+TEST(TensorFlowDeviceSelection, GpuRequestFailsWithoutGpu) {
+    if (TensorFlowSessionHasGpu()) {
+        GTEST_SKIP() << "A GPU device is visible; the GPU-free negative path is not exercised";
+    }
+
+    const auto path = WriteMinimalSavedModel("neuriplo-tf-gpu-negative");
+    try {
+        TFDetectionAPI infer(path.string(), true);
+        FAIL() << "TFDetectionAPI(use_gpu=true) loaded without a GPU device";
+    } catch (const ModelLoadException& error) {
+        EXPECT_NE(std::string(error.what()).find("use_gpu=true"), std::string::npos)
+            << "error should name the GPU request: " << error.what();
+    } catch (const std::exception& error) {
+        FAIL() << "expected ModelLoadException, got " << error.what();
+    }
+
+    fs::remove_all(path);
 }
 
 // Inference test - works with both real model and mock
