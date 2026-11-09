@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Optional TensorFlow GPU image: `docker/Dockerfile.libtensorflow` accepts
+  `TF_BASE_IMAGE` and `TF_GPU=1` to build from a pinned CUDA/cuDNN runtime while
+  the CPU image stays the default, and `scripts/setup_tensorflow_pip.sh --gpu`
+  validates the NVIDIA driver and CUDA 12.x / cuDNN 9.x libraries. A
+  `use_gpu=true` request with no visible GPU device now fails the load with
+  `ModelLoadException` instead of silently running on CPU. The GPU image build
+  path is added; no live GPU run is claimed.
+
 ### Fixed
 - Support data-dependent TensorRT outputs with bounded buffers, concrete runtime shapes, truthful dynamic metadata, empty tensors and safe context reloads.
 

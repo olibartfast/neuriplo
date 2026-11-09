@@ -675,6 +675,56 @@ jobs:
               .
 
   # =============================================================
+  # TensorFlow GPU image (build-only, no GPU runner)
+  # Builds the opt-in CUDA/cuDNN variant of docker/Dockerfile.libtensorflow
+  # through TF_BASE_IMAGE. The CPU image stays the default; this job proves the
+  # full GPU image (including the final stage and its health check) compiles and
+  # that the CUDA/cuDNN runtime resolves (the Dockerfile asserts it with
+  # ldconfig). A live run needs --gpus all and a host driver, which hosted
+  # runners do not provide.
+  #
+  # This job does not write a BuildKit cache: it is a seventh cache writer
+  # otherwise, which overruns the 6 GB prune budget. It reads a cache scope but
+  # leaves cache pruning to the six jobs that feed it.
+  #
+  # Standalone on purpose: scripts/ci/backend_matrices.json is unchanged.
+  # It reuses the LIBTENSORFLOW change detection, so TensorFlow source or
+  # Dockerfile changes trigger it. Changes to a new GPU-only path are not
+  # classified here; changed_backends.py fails open to all backends.
+  # =============================================================
+  build-libtensorflow-gpu:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'LIBTENSORFLOW') }}
+    name: LIBTENSORFLOW GPU build-only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: ${{ !env.ACT }}
+        uses: ./.github/actions/free-disk-space
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx-retry
+
+      - name: Build GPU image (full image + CUDA/cuDNN check)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 60
+          max_attempts: 2
+          command: |
+            docker buildx build \
+              --file docker/Dockerfile.libtensorflow \
+              --target final \
+              --build-arg TF_BASE_IMAGE=nvidia/cuda:12.6.1-cudnn-runtime-ubuntu24.04 \
+              --build-arg TF_GPU=1 \
+              --tag neuriplo-libtensorflow-gpu:ci \
+              --load \
+              --cache-from type=gha,scope=docker-LIBTENSORFLOW-GPU \
+              .
+
+  # =============================================================
   # ExecuTorch Build (build-only — tests use mock inference, but
   # model export requires Python torch install done separately)
   # =============================================================
