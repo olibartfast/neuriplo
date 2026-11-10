@@ -103,51 +103,6 @@ bool TensorFlowSessionHasGpu() {
                        [](const tensorflow::DeviceAttributes& device) { return device.device_type() == "GPU"; });
 }
 
-// Comma-joined device names a default session can see. Used to make the CPU/GPU
-// parity result diagnosable without changing the backend API.
-std::string TensorFlowDeviceSummary() {
-    tensorflow::SessionOptions options;
-    tensorflow::Session* session = nullptr;
-    auto status = tensorflow::NewSession(options, &session);
-    if (!status.ok()) {
-        return "<session creation failed: " + status.ToString() + ">";
-    }
-    std::vector<tensorflow::DeviceAttributes> devices;
-    status = session->ListDevices(&devices);
-    const auto close_status = session->Close();
-    (void)close_status;
-    delete session;
-    if (!status.ok()) {
-        return "<ListDevices failed: " + status.ToString() + ">";
-    }
-    std::string summary;
-    for (const auto& device : devices) {
-        if (!summary.empty()) {
-            summary += ", ";
-        }
-        summary += device.name();
-    }
-    return summary;
-}
-
-struct TopClass {
-    int index;
-    float score;
-};
-
-std::vector<TopClass> TopKClasses(const std::vector<TensorElement>& output, size_t k) {
-    std::vector<TopClass> scored;
-    scored.reserve(output.size());
-    for (size_t i = 0; i < output.size(); ++i) {
-        scored.push_back({static_cast<int>(i), std::get<float>(output[i])});
-    }
-    const size_t keep = std::min(k, scored.size());
-    std::partial_sort(scored.begin(), scored.begin() + keep, scored.end(),
-                      [](const TopClass& lhs, const TopClass& rhs) { return lhs.score > rhs.score; });
-    scored.resize(keep);
-    return scored;
-}
-
 } // namespace
 
 class TensorFlowInferTest : public ::testing::Test {
