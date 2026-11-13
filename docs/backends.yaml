@@ -116,8 +116,8 @@ backends:
     dir_default: "$DEPENDENCY_ROOT/ggml"
     dockerfile: docker/Dockerfile.ggml
     test_exe: GGMLInferTest
-    model_format: "quantized GGML"
-    model_source: "`scripts/convert_to_ggml.sh`"
+    model_format: "custom NGGL (float32 weights, not GGUF)"
+    model_source: "`scripts/convert_onnx_to_ggml.py` from `resnet18-v1-7.onnx` (model stage of `docker/Dockerfile.ggml`)"
     arch: [x86_64, arm64]
     gpu: false
 

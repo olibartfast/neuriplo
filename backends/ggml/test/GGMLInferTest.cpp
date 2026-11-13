@@ -2,15 +2,31 @@
 
 #include "testing/TestBlob.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
+#include <numeric>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace fs = std::filesystem;
+
+// ---------------------------------------------------------------------------
+// T-9 / R-7 note: MockGGMLInfer and the Mock* tests below exercise only the
+// test harness itself. A green run WITHOUT a real model artifact
+// ("Using mock inference for testing") is explicitly NOT loader evidence:
+// only the RealModel* tests count, and they SKIP (never fake-pass) when no
+// artifact is present.
+// ---------------------------------------------------------------------------
 
 // Mock inference implementation for unit testing
 class MockGGMLInfer {
@@ -128,7 +144,8 @@ TEST_F(GGMLInferTest, IntegrationTest) {
     }
 }
 
-// Unit test - only runs with mock
+// Unit test - only runs with mock. NON-EVIDENCE per R-7: verifies the harness,
+// not the loader. A pass here must never be cited as loader validation.
 TEST_F(GGMLInferTest, MockUnitTest) {
     if (has_real_model) {
         GTEST_SKIP() << "Skipping mock unit test - real model is available";
@@ -166,6 +183,331 @@ TEST_F(GGMLInferTest, GGMLSpecificTest) {
     } else {
         // Test mock GGML functionality
         ASSERT_TRUE(true); // Mock should always pass basic tests
+    }
+}
+
+namespace {
+// Removes a temp file when it goes out of scope, even past FAIL().
+struct ScopedRemove {
+    explicit ScopedRemove(fs::path p) : path(std::move(p)) {}
+    ~ScopedRemove() {
+        std::error_code ec;
+        fs::remove(path, ec);
+    }
+    fs::path path;
+};
+} // namespace
+
+// T-16/T-17 (R-3/Q-2): ORT parity helpers. Reference logits come from
+// scripts/ggml_ort_reference.py (/tmp/ortenv stock onnxruntime on
+// resnet18-v1-7.onnx), stored as .npy float32 vectors of 1000 logits.
+namespace {
+
+// Minimal strict .npy v1.0 reader: float32 little-endian C-order only, which
+// is exactly what np.save of a float32 (1000,) array writes. The caller
+// SKIP-checks existence first; here a present-but-malformed file is a hard
+// error (never silent fallback: that would fake parity evidence).
+bool load_ort_ref_logits(const fs::path& path, std::vector<float>& out, std::string& error) {
+    std::ifstream f(path, std::ios::binary);
+    char magic[6] = {0, 0, 0, 0, 0, 0};
+    f.read(magic, 6);
+    if (f.gcount() != 6 || std::memcmp(magic, "\x93NUMPY", 6) != 0) {
+        error = "bad npy magic in " + path.string();
+        return false;
+    }
+    uint8_t major = 0;
+    uint8_t minor = 0;
+    f.read(reinterpret_cast<char*>(&major), 1);
+    f.read(reinterpret_cast<char*>(&minor), 1);
+    if (f.gcount() != 1 || major != 1) {
+        error = "unsupported npy version in " + path.string();
+        return false;
+    }
+    uint16_t header_len = 0;
+    f.read(reinterpret_cast<char*>(&header_len), 2);
+    if (f.gcount() != 2) {
+        error = "truncated npy header length in " + path.string();
+        return false;
+    }
+    std::string header(header_len, '\0');
+    f.read(header.data(), header_len);
+    if (f.gcount() != header_len) {
+        error = "truncated npy header in " + path.string();
+        return false;
+    }
+    // Expect descr '<f4' (or '|f4'/'=f4') and shape (1000,).
+    if (header.find("'descr'") == std::string::npos || header.find("f4") == std::string::npos ||
+        header.find("1000") == std::string::npos) {
+        error = "unexpected npy header (want float32 shape (1000,)) in " + path.string() + ": " + header;
+        return false;
+    }
+    out.resize(1000);
+    f.read(reinterpret_cast<char*>(out.data()), 1000 * sizeof(float));
+    if (f.gcount() != 1000 * static_cast<std::streamsize>(sizeof(float))) {
+        error = "truncated npy data in " + path.string();
+        return false;
+    }
+    return true;
+}
+
+std::vector<float> tensor_to_floats(const std::vector<TensorElement>& elements) {
+    std::vector<float> values;
+    values.reserve(elements.size());
+    for (const auto& element : elements) {
+        values.push_back(std::get<float>(element));
+    }
+    return values;
+}
+
+// Indices of the 5 largest logits, descending. Exact-order comparison: ties
+// in float logits are not expected from either runtime.
+std::vector<int> top5_classes(const std::vector<float>& logits) {
+    std::vector<int> idx(logits.size());
+    std::iota(idx.begin(), idx.end(), 0);
+    std::partial_sort(idx.begin(), idx.begin() + 5, idx.end(), [&](int a, int b) { return logits[a] > logits[b]; });
+    idx.resize(5);
+    return idx;
+}
+
+double max_abs_diff(const std::vector<float>& a, const std::vector<float>& b) {
+    double worst = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        worst = std::max(worst, static_cast<double>(std::fabs(a[i] - b[i])));
+    }
+    return worst;
+}
+
+// Deterministic spatially-nonuniform NCHW input (review finding 1): uniform
+// inputs cannot validate the NCHW->[W,H,C,N] layout claim or expose
+// spatial-only bugs. Integer math first, then float division — the ORT
+// reference script (scripts/ggml_ort_reference.py) implements the identical
+// formula, so any layout transposition shows up as parity failure.
+inline std::vector<uint8_t> gradient_blob_bytes(int n = 1, int c = 3, int h = 224, int w = 224) {
+    const std::size_t elements = static_cast<std::size_t>(n) * c * h * w;
+    std::vector<uint8_t> bytes(elements * sizeof(float));
+    auto* typed = reinterpret_cast<float*>(bytes.data());
+    for (int nn = 0; nn < n; ++nn) {
+        for (int cc = 0; cc < c; ++cc) {
+            for (int yy = 0; yy < h; ++yy) {
+                for (int xx = 0; xx < w; ++xx) {
+                    const int v = (xx * 13 + yy * 17 + cc * 19) % 256;
+                    typed[nn * c * h * w + cc * h * w + yy * w + xx] = static_cast<float>(v) / 255.0F;
+                }
+            }
+        }
+    }
+    return bytes;
+}
+
+inline std::vector<std::vector<uint8_t>> gradient_blob_tensors() { return {gradient_blob_bytes()}; }
+
+} // namespace
+
+// (1) Real-model golden: fixed input -> 1000 finite values, not all zeros,
+// deterministic across two runs. Skips (never fake-passes) without artifact.
+// Q-2 hook: logs max-abs-diff vs the old zeros vector; no tolerance is
+// asserted here because none has been measured against the ORT reference.
+TEST_F(GGMLInferTest, RealModelGolden) {
+    if (!has_real_model) {
+        GTEST_SKIP() << "Skipping golden test - no real model available (model_path.txt missing)";
+    }
+
+    // Fixed, deterministic, non-zero input: gray-128 normalized NCHW blob.
+    const auto input_tensors = neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized);
+
+    const auto [out1, shape1] = real_infer->get_infer_results(input_tensors);
+    const auto [out2, shape2] = real_infer->get_infer_results(input_tensors);
+
+    ASSERT_EQ(shape1.size(), 1u);
+    ASSERT_EQ(shape1[0], (std::vector<int64_t>{1, 1000}));
+    ASSERT_EQ(out1.size(), 1u);
+    ASSERT_EQ(out1[0].size(), 1000u);
+
+    bool any_nonzero = false;
+    double max_abs_vs_zero = 0.0;
+    for (const auto& element : out1[0]) {
+        ASSERT_TRUE(std::holds_alternative<float>(element));
+        const float value = std::get<float>(element);
+        ASSERT_TRUE(std::isfinite(value)) << "logit is not finite";
+        if (value != 0.0F) {
+            any_nonzero = true;
+        }
+        max_abs_vs_zero = std::max(max_abs_vs_zero, static_cast<double>(std::fabs(value)));
+    }
+    EXPECT_TRUE(any_nonzero) << "real loader returned all zeros (placeholder behavior)";
+    RecordProperty("max_abs_diff_vs_zeros", max_abs_vs_zero);
+    std::cout << "[Q-2 hook] max_abs_diff_vs_zeros=" << max_abs_vs_zero << std::endl;
+
+    ASSERT_EQ(out2.size(), 1u);
+    ASSERT_EQ(out2[0].size(), 1000u);
+    for (size_t i = 0; i < 1000; ++i) {
+        ASSERT_FLOAT_EQ(std::get<float>(out1[0][i]), std::get<float>(out2[0][i]))
+            << "non-deterministic logit at index " << i;
+    }
+
+    // Input sensitivity: a zeros input must produce different logits than the
+    // gray input (catches constant-output bugs the checks above would miss).
+    const auto zero_tensors = neuriplo::testing::zero_blob_tensors();
+    const auto [out_zero, shape_zero] = real_infer->get_infer_results(zero_tensors);
+    ASSERT_EQ(out_zero[0].size(), 1000u);
+    bool any_diff = false;
+    for (size_t i = 0; i < 1000; ++i) {
+        if (std::get<float>(out1[0][i]) != std::get<float>(out_zero[0][i])) {
+            any_diff = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(any_diff) << "logits identical for gray vs zeros input (constant-output bug)";
+}
+
+// T-17 (R-3/Q-2): ORT parity golden. Same two fixed inputs through the real
+// GGML loader and the stock-onnxruntime reference (T-16:
+// scripts/ggml_ort_reference.py): top-5 classes must agree exactly and
+// max-abs-logit-diff must stay within the adopted tolerance. SKIPs (never
+// fake-passes) without the model artifact or without the reference files.
+TEST_F(GGMLInferTest, ParityVsOrt) {
+    if (!has_real_model) {
+        GTEST_SKIP() << "Skipping parity test - no real model available (model_path.txt missing)";
+    }
+    const fs::path gray_ref_path = "/tmp/ort_ref_gray.npy";
+    const fs::path zeros_ref_path = "/tmp/ort_ref_zeros.npy";
+    const fs::path gradient_ref_path = "/tmp/ort_ref_gradient.npy";
+    if (!fs::exists(gray_ref_path) || !fs::exists(zeros_ref_path) || !fs::exists(gradient_ref_path)) {
+        GTEST_SKIP() << "Skipping parity test - ORT reference files missing "
+                        "(run /tmp/ortenv/bin/python scripts/ggml_ort_reference.py)";
+    }
+
+    constexpr double kParityTolerance = 1e-3;
+    const std::vector<std::pair<std::string, std::vector<std::vector<uint8_t>>>> cases = {
+        {"gray", neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized)},
+        {"zeros", neuriplo::testing::zero_blob_tensors()},
+        {"gradient", gradient_blob_tensors()},
+    };
+    const std::vector<fs::path> ref_paths = {gray_ref_path, zeros_ref_path, gradient_ref_path};
+
+    for (size_t c = 0; c < cases.size(); ++c) {
+        const std::string& label = cases[c].first;
+        std::vector<float> ref_logits;
+        std::string error;
+        ASSERT_TRUE(load_ort_ref_logits(ref_paths[c], ref_logits, error)) << error;
+        ASSERT_EQ(ref_logits.size(), 1000u);
+
+        const auto [outputs, shapes] = real_infer->get_infer_results(cases[c].second);
+        ASSERT_EQ(outputs.size(), 1u);
+        ASSERT_EQ(outputs[0].size(), 1000u);
+        for (const auto& element : outputs[0]) {
+            ASSERT_TRUE(std::holds_alternative<float>(element));
+        }
+        const std::vector<float> got_logits = tensor_to_floats(outputs[0]);
+
+        const double diff = max_abs_diff(got_logits, ref_logits);
+        const std::vector<int> got_top5 = top5_classes(got_logits);
+        const std::vector<int> ref_top5 = top5_classes(ref_logits);
+        const bool top5_agree = (got_top5 == ref_top5);
+
+        RecordProperty(("ort_max_abs_diff_" + label).c_str(), diff);
+        RecordProperty(("ort_top5_agree_" + label).c_str(), top5_agree ? 1 : 0);
+        std::cout << "[parity] input=" << label << " max_abs_diff=" << diff << " top5_agree=" << top5_agree
+                  << " ggml_top5=[";
+        for (size_t i = 0; i < got_top5.size(); ++i) {
+            std::cout << (i == 0 ? "" : ",") << got_top5[i];
+        }
+        std::cout << "] ort_top5=[";
+        for (size_t i = 0; i < ref_top5.size(); ++i) {
+            std::cout << (i == 0 ? "" : ",") << ref_top5[i];
+        }
+        std::cout << "]" << std::endl;
+
+        EXPECT_TRUE(top5_agree) << "input=" << label << " top-5 class mismatch (max_abs_diff=" << diff << ")";
+        EXPECT_LE(diff, kParityTolerance)
+            << "input=" << label << " max_abs_diff=" << diff << " exceeds tolerance " << kParityTolerance;
+    }
+}
+
+// (2) Missing file: constructor throws and the message names the path.
+TEST_F(GGMLInferTest, MissingFileThrowsWithPath) {
+    const fs::path missing = fs::temp_directory_path() / "ggml_missing_model_test.ggml";
+    ScopedRemove guard(missing);
+    {
+        std::error_code ec;
+        fs::remove(missing, ec); // ensure absent
+    }
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
+    try {
+        GGMLInfer infer(missing.string(), false, 1, input_sizes);
+        FAIL() << "expected load of missing file to throw: " << missing;
+    } catch (const std::exception& e) {
+        EXPECT_NE(std::string(e.what()).find(missing.string()), std::string::npos)
+            << "error message must name the missing path; got: " << e.what();
+    }
+}
+
+// (3) Truncated/corrupt file: loader must reject it, not accept near-empty bytes.
+TEST_F(GGMLInferTest, TruncatedCorruptFileThrows) {
+    const fs::path corrupt = fs::temp_directory_path() / "ggml_corrupt_model_test.ggml";
+    ScopedRemove guard(corrupt);
+    {
+        std::ofstream out(corrupt, std::ios::binary | std::ios::trunc);
+        out << "NOT_A_GGML_MODEL_TRUNCATED";
+        // Deliberately tiny: far short of any valid weight file.
+    }
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
+    try {
+        GGMLInfer infer(corrupt.string(), false, 1, input_sizes);
+        FAIL() << "expected load of truncated/corrupt file to throw: " << corrupt;
+    } catch (const std::exception& e) {
+        const std::string msg = e.what();
+        EXPECT_FALSE(msg.empty());
+        EXPECT_NE(msg.find(corrupt.string()), std::string::npos)
+            << "corrupt-file error must name the path; got: " << msg;
+        std::cout << "corrupt-file error: " << msg << std::endl;
+    }
+}
+
+// (4) Wrong byte size: inference throws with expected-vs-got detail.
+TEST_F(GGMLInferTest, WrongByteSizeThrowsWithExpectedVsGot) {
+    if (!has_real_model) {
+        GTEST_SKIP() << "needs a loadable model artifact; no model_path.txt";
+    }
+    const std::vector<uint8_t> short_bytes(100, 0);
+    try {
+        (void)real_infer->get_infer_results({short_bytes});
+        FAIL() << "expected byte-size mismatch to throw";
+    } catch (const InferenceExecutionException& e) {
+        const std::string msg = e.what();
+        EXPECT_NE(msg.find("Expected"), std::string::npos) << msg;
+        EXPECT_NE(msg.find("got"), std::string::npos) << msg;
+    }
+}
+
+// (5) Multi-input: single-input backend rejects two tensors.
+TEST_F(GGMLInferTest, MultiInputThrows) {
+    if (!has_real_model) {
+        GTEST_SKIP() << "needs a loadable model artifact; no model_path.txt";
+    }
+    auto inputs = neuriplo::testing::zero_blob_tensors();
+    inputs.push_back(inputs.front());
+    try {
+        (void)real_infer->get_infer_results(inputs);
+        FAIL() << "expected multi-input to throw";
+    } catch (const InferenceExecutionException& e) {
+        EXPECT_NE(std::string(e.what()).find("single input"), std::string::npos) << e.what();
+    }
+}
+
+// (6) use_gpu=true fails fast and names the GPU request; never silently CPU.
+// setup_backend throws before the model file is opened, so no artifact needed.
+TEST_F(GGMLInferTest, UseGpuThrowsNamingRequest) {
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
+    const std::string probe_path = has_real_model ? model_path : "nonexistent-probe.ggml";
+    try {
+        GGMLInfer infer(probe_path, true, 1, input_sizes);
+        FAIL() << "use_gpu=true must fail fast, not silently run CPU";
+    } catch (const std::exception& e) {
+        std::string lowered = e.what();
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        EXPECT_NE(lowered.find("gpu"), std::string::npos) << "error must name the GPU request; got: " << e.what();
     }
 }
 

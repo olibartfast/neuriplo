@@ -9,8 +9,9 @@ class GGMLInfer : public InferenceInterface {
   private:
     struct ggml_context* ctx_;
     struct ggml_backend* backend_;
+    ggml_backend_buffer_t buffer_;
     struct ggml_cgraph* graph_;
-    struct ggml_tensor* input_tensor_;
+    struct ggml_tensor* feat_tensor_;
     std::vector<struct ggml_tensor*> output_tensors_;
     std::vector<std::string> output_names_;
     bool model_loaded_;

@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Real ResNet18 classifier path for the `GGML` backend: `GGMLInfer` parses the
+  NGGL weight file (`scripts/convert_onnx_to_ggml.py`), builds the full
+  stem + 8-block + GAP + FC graph with BatchNorm folded at load, and returns
+  computed logits. ORT parity on identical inputs: top-5 exact, max-abs-diff
+  ~6e-06 (tolerance 1e-3). `use_gpu=true` now fails fast instead of silently
+  running CPU; backend-buffer allocation failure is fatal.
 - Optional TensorFlow GPU image: `docker/Dockerfile.libtensorflow` accepts
   `TF_BASE_IMAGE` and `TF_GPU=1` to build from a pinned CUDA/cuDNN runtime while
   the CPU image stays the default, and `scripts/setup_tensorflow_pip.sh --gpu`
