@@ -15,7 +15,7 @@ Written before implementation; execute from here.
 
 ## Manual (brev)
 
-- [ ] [V-6] fresh CPU instance: configure + build + test + converter (real
+- [x] [V-6] fresh CPU instance: configure + build + test + converter (real
   resnet50) + parity golden; then `brev delete` + `brev ls` empty.
 
 ## Evidence
@@ -27,7 +27,7 @@ Written before implementation; execute from here.
 | V-3 | resnet18 no-regress | pass | 2026-11-13 | ParityVsOrt still exact (6.38e-06/4.59e-06/5.72e-06); full ctest 77/77 |
 | V-4 | bad layout throws | pass (existing) | 2026-11-13 | unknown file → path + shapes seen (R-5 path, covered by corrupt/negative tests) |
 | V-5 | gates | pass | 2026-11-13 | ctest 77/77, gen_backend_docs --check, diff-check, clang-format clean |
-| V-6 | brev re-gate | not executed | - | |
+| V-6 | brev re-gate | pass | 2026-11-13 | `ggml-resnet50` fresh box: SDK+BLAS rebuilt, configure+build green, real resnet18 (102t) + resnet50 (299t) conversions; `GGMLInferTest` 11 passed/1 correctly skipped; ParityVsOrt exact (4.05e-06/6.26e-06/7.63e-06), ParityVsOrt50 exact (3.34e-06/1.91e-06/3.81e-06) |
 
 ## Deviations
 
