@@ -556,7 +556,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
 | TensorRT | TensorRT engine (.engine) | converted from ONNX at test time |
 | OpenVINO | IR (.xml / .bin) | `backends/openvino/test/generate_model.sh` |
-| GGML | quantized GGML | `scripts/convert_to_ggml.sh` |
+| GGML | custom NGGL (float32 weights, not GGUF) | `scripts/convert_onnx_to_ggml.py` from `resnet18-v1-7.onnx` (model stage of `docker/Dockerfile.ggml`) |
 | Apache TVM | compiled TVM module | `backends/tvm/test/generate_model.sh` |
 | MIGraphX | ONNX only | `backends/migraphx/test/generate_model.sh` |
 | Cactus | GGUF | downloaded by Dockerfile or mock fallback |
