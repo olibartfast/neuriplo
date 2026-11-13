@@ -13,8 +13,10 @@ specs/2026-11-13-ggml-real-loader/requirements.md):
 
 The loader (backends/ggml/src/GGMLInfer.cpp) requires the exact ResNet18
 classifier tensors `resnetv15_dense0_weight` ([1000,512] or [512,1000] float;
-ONNX Gemm transB=1 weight) and `resnetv15_dense0_bias` ([1000] float), plus
-the fixed conv/BN role tensors of the ResNet18 topology. All other float
+ONNX Gemm transB=1 weight) or the ResNet50 pair `resnetv17_dense0_weight`
+([1000,2048] or [2048,1000]) plus `..._dense0_bias` ([1000] float), plus
+the fixed conv/BN role tensors of the ResNet18/50 topologies (exact per-file
+names, e.g. resnetv15_* / resnetv17_*). All other float
 initializers are carried verbatim; integer initializers and 0-d/>4-d float
 tensors are skipped with a printed note. Extra tensors are ignored by the
 loader. This file is custom NGGL, not GGUF.
@@ -32,7 +34,9 @@ import sys
 
 NGGL_MAGIC = b"NGGL"
 NGGL_VERSION = 1
-FC_WEIGHT_SHAPE = (1000, 512)
+# Accepted classifier-head weights: ResNet18 ([1000,512]) and ResNet50
+# ([1000,2048]). Both are ONNX Gemm transB=1 row-major.
+FC_WEIGHT_SHAPES = ((1000, 512), (1000, 2048))
 FC_BIAS_SHAPE = (1000,)
 
 
@@ -68,11 +72,12 @@ def _read_float_initializers(onnx_path):
 
 
 def _check_fc_pair(tensors):
-    """Fail unless a [1000,512] weight and a [1000] bias are present."""
+    """Fail unless a [1000,512] (ResNet18) or [1000,2048] (ResNet50) weight
+    and a [1000] bias are present."""
     shapes = {tuple(dims) for _, dims, _ in tensors}
-    if tuple(FC_WEIGHT_SHAPE) not in shapes:
+    if not any(tuple(s) in shapes for s in FC_WEIGHT_SHAPES):
         print(f"error: minimum FC contract not satisfied: no 2D "
-              f"{list(FC_WEIGHT_SHAPE)} weight found", file=sys.stderr)
+              f"{list(FC_WEIGHT_SHAPES)} weight found", file=sys.stderr)
         return False
     if tuple(FC_BIAS_SHAPE) not in shapes:
         print("error: minimum FC contract not satisfied: no 1D [1000] bias found",

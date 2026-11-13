@@ -23,20 +23,25 @@
 // All integers little-endian (= native on the supported x86_64 CPU target);
 // floats are native-endian F32. dims[] are in ONNX order as written by
 // scripts/convert_onnx_to_ggml.py (all float initializers, names verbatim).
-// The topology is built from exact tensor names (the file named
-// resnet18-v1-7.onnx carries resnetv15_* names): stem conv0/bn0, stage1
-// conv0..3/bn0..3, stages 2..4 conv0..4/bn0..4 (conv2/bn2 is the 1x1 stride-2
-// downsample of the first block), FC resnetv15_dense0_{weight,bias}.
+// The topology is built from exact tensor names: the file named
+// resnet18-v1-7.onnx carries resnetv15_* names (basic blocks, 512-d FC),
+// the file named resnet50-v1-12.onnx carries resnetv17_* names (bottleneck
+// blocks, 2048-d FC). Stem (shared): conv0/bn0. ResNet-18 stages: stage1
+// conv0..3/bn0..3, stages 2..4 conv0..4/bn0..4 (conv2/bn2 is the 1x1
+// stride-2 downsample of the first block). ResNet-50 stages [3,4,6,3]
+// bottleneck blocks: block b uses convs (3b,3b+1,3b+2) for b==0 else
+// (3b+1,3b+2,3b+3); conv3/bn3 is the 1x1 downsample of the stage entry
+// (stride 1 on stage 1, 2 below). FC <prefix>dense0_{weight,bias}.
 // Graph for the fixed Nx3x224x224 F32 -> 1000 path: input NCHW blob
 // [N,3,224,224] (row-major, which coincides element-for-element with ggml
 // [W,H,C,N]) -> conv7x7/s2/p3 64ch -> folded bias add -> relu ->
-// maxpool k3/s2/p1 -> layer1: 2x basic(64, s1, no downsample) -> layer2:
-// basic(128, s2 + 1x1 downsample) + basic(128, s1) -> layer3: basic(256,
-// s2 + ds) + basic(256, s1) -> layer4: basic(512, s2 + ds) + basic(512, s1)
-// -> global avgpool k7 -> reshape 512 -> FC[1000,512] verbatim orientation +
-// bias -> logits [1000,N]. Basic block: conv3x3/s/p1 -> bias -> relu ->
-// conv3x3/s1/p1 -> bias -> skip add -> relu. BN is folded exactly at load
-// (D-7); no BN op in-graph.
+// maxpool k3/s2/p1 -> stage blocks (basic: conv3x3/s/p1 -> bias -> relu ->
+// conv3x3/s1/p1 -> bias -> skip add -> relu; bottleneck: 1x1 reduce/s ->
+// bias -> relu -> 3x3/s1/p1 -> bias -> relu -> 1x1 expand -> bias ->
+// skip add -> relu; entry skips are 1x1/s/p0 -> bias, no relu)
+// -> global avgpool k7 -> reshape K -> FC[1000,K] verbatim orientation +
+// bias -> logits [1000,N] (K=512 ResNet-18, K=2048 ResNet-50). BN is
+// folded exactly at load (D-7); no BN op in-graph.
 namespace {
 
 constexpr size_t kInputChannels = 3;
@@ -45,10 +50,13 @@ constexpr size_t kInputWidth = 224;
 constexpr int64_t kInputElements = 150528; // 3*224*224
 constexpr int64_t kNumClasses = 1000;
 // D-7: exact frozen-inference BN fold; epsilon verified uniform (1e-5) in
-// resnet18-v1-7.onnx (all 20 BatchNormalization nodes).
+// resnet18-v1-7.onnx (all 20 BatchNormalization nodes) and in
+// resnet50-v1-12.onnx (all 53 nodes; file value 9.9999997e-06, the float32
+// spelling of 1e-5).
 constexpr double kBatchNormEps = 1e-5;
 constexpr uint32_t kFileVersion = 1;
-constexpr uint32_t kMaxTensors = 256;
+// ResNet-50 carries 299 float initializers; headroom for larger variants.
+constexpr uint32_t kMaxTensors = 512;
 constexpr uint32_t kMaxNameLen = 256;
 
 struct LoadedTensor {
@@ -99,7 +107,7 @@ const LoadedTensor& require_tensor(const std::map<std::string, LoadedTensor>& te
 }
 
 void require_dims(const LoadedTensor& t, const std::string& name, const std::string& model_path,
-                  const std::vector<uint32_t>& expected) {
+                  const std::vector<uint32_t>& expected, const std::string& seen = "") {
     if (t.dims != expected) {
         auto fmt = [](const std::vector<uint32_t>& d) {
             std::string s;
@@ -111,16 +119,18 @@ void require_dims(const LoadedTensor& t, const std::string& name, const std::str
             }
             return s;
         };
-        fail_model(model_path,
-                   "tensor '" + name + "' has dims [" + fmt(t.dims) + "], expected [" + fmt(expected) + "]");
+        fail_model(model_path, "tensor '" + name + "' has dims [" + fmt(t.dims) + "], expected [" + fmt(expected) +
+                                   "]" + (seen.empty() ? "" : "; tensors:" + seen));
     }
 }
 
 // Fold BatchNormalization into the preceding conv (D-7: frozen inference,
 // per-channel s = gamma/sqrt(var+eps), beta = param_b - mean*s) and permute
 // the kernel ONNX row-major [O,I,H,W] -> ggml [KW,KH,IC,OC], i.e. file
-// element ((o*I+i)*H+ky)*W+kx lands at ggml (kx,ky,i,o) (D-8). Conv must
-// carry no own bias in ResNet (the BN shift subsumes it); presence fails.
+// element ((o*I+i)*H+ky)*W+kx lands at ggml (kx,ky,i,o) (D-8). A conv own
+// bias (present on the resnet50-v1-12 1x1 convs, absent on resnet18) is
+// subsumed exactly: y = s*(conv(x) + cb - mean) + beta, so the folded bias
+// is beta[o] + s[o]*(cb[o] - mean[o]); a missing bias counts as zeros.
 std::pair<std::vector<float>, std::vector<float>>
 fold_bn_and_permute_kernel(const std::map<std::string, LoadedTensor>& tensors, const std::string& conv_name,
                            const std::string& bn_prefix, const std::string& model_path, const std::string& seen) {
@@ -140,9 +150,14 @@ fold_bn_and_permute_kernel(const std::map<std::string, LoadedTensor>& tensors, c
         fail_model(model_path, "tensor '" + conv_name + "' does not end in '_weight'");
     }
     const std::string own_bias = conv_name.substr(0, conv_name.size() - kWeightSuffix.size()) + "_bias";
-    if (tensors.count(own_bias) != 0) {
-        fail_model(model_path, "tensor '" + conv_name + "' has unexpected own bias '" + own_bias +
-                                   "'; cannot fold BN (ResNet convs are bias-free)");
+    std::vector<float> conv_bias;
+    const auto own_it = tensors.find(own_bias);
+    if (own_it != tensors.end()) {
+        if (own_it->second.dims.size() != 1 || own_it->second.dims[0] != O) {
+            fail_model(model_path, "tensor '" + own_bias + "' has wrong shape (need 1D [" + std::to_string(O) +
+                                       "]) for BN fold of '" + conv_name + "'");
+        }
+        conv_bias = own_it->second.data;
     }
 
     const LoadedTensor& gamma = require_tensor(tensors, bn_prefix + "gamma", model_path, seen);
@@ -161,7 +176,9 @@ fold_bn_and_permute_kernel(const std::map<std::string, LoadedTensor>& tensors, c
     for (uint32_t o = 0; o < O; ++o) {
         const double s =
             static_cast<double>(gamma.data[o]) / std::sqrt(static_cast<double>(var.data[o]) + kBatchNormEps);
-        folded_bias[o] = static_cast<float>(static_cast<double>(beta.data[o]) - static_cast<double>(mean.data[o]) * s);
+        const double cb = conv_bias.empty() ? 0.0 : static_cast<double>(conv_bias[o]);
+        folded_bias[o] =
+            static_cast<float>(static_cast<double>(beta.data[o]) + s * (cb - static_cast<double>(mean.data[o])));
         for (uint32_t i = 0; i < I; ++i) {
             for (uint32_t ky = 0; ky < H; ++ky) {
                 for (uint32_t kx = 0; kx < W; ++kx) {
@@ -194,6 +211,20 @@ struct ggml_tensor* basic_block(struct ggml_context* ctx, struct ggml_tensor* x,
                                 const FoldedConv& c2, const FoldedConv* downsample, int stride) {
     struct ggml_tensor* h = conv_bias_add(ctx, x, c1, stride, 1, true);
     h = conv_bias_add(ctx, h, c2, 1, 1, false);
+    struct ggml_tensor* skip = (downsample != nullptr) ? conv_bias_add(ctx, x, *downsample, stride, 0, false) : x;
+    return ggml_relu(ctx, ggml_add(ctx, h, skip));
+}
+
+// Bottleneck residual block (ResNet-50): 1x1 reduce (carries the stride on
+// stage entries) -> bias -> relu -> 3x3/s1/p1 -> bias -> relu -> 1x1 expand
+// -> bias -> skip add -> relu. The downsample path (every stage entry:
+// channel and/or spatial change) is 1x1/s/p0 -> bias with no relu.
+struct ggml_tensor* bottleneck_block(struct ggml_context* ctx, struct ggml_tensor* x, const FoldedConv& reduce,
+                                     const FoldedConv& mid, const FoldedConv& expand, const FoldedConv* downsample,
+                                     int stride) {
+    struct ggml_tensor* h = conv_bias_add(ctx, x, reduce, stride, 0, true);
+    h = conv_bias_add(ctx, h, mid, 1, 1, true);
+    h = conv_bias_add(ctx, h, expand, 1, 0, false);
     struct ggml_tensor* skip = (downsample != nullptr) ? conv_bias_add(ctx, x, *downsample, stride, 0, false) : x;
     return ggml_relu(ctx, ggml_add(ctx, h, skip));
 }
@@ -384,8 +415,82 @@ void GGMLInfer::load_model(const std::string& model_path) {
         fail_model(model_path, "trailing bytes after tensor data");
     }
 
-    // --- full ResNet18 topology from exact tensor names (D-6) ---
+    // --- ResNet topology from exact tensor names (D-6) ---
+    // Dispatch ResNet-18 vs ResNet-50 by FC input dim (512 vs 2048) plus
+    // bottleneck tensor presence (enforced by the stage requires below):
+    // exact per-file classifier names first (D-1), dims-only structural
+    // fallback where names genuinely vary. Anything unrecognized fails loud
+    // with the path and the shapes seen (R-5).
     const std::string shapes_seen = describe_shapes(tensors);
+
+    struct VariantSpec {
+        const char* prefix;
+        const char* fc_weight;
+        const char* fc_bias;
+    };
+    // resnet18-v1-7.onnx carries resnetv15_* (512-d FC);
+    // resnet50-v1-12.onnx carries resnetv17_* (2048-d FC).
+    constexpr VariantSpec kVariants[] = {
+        {"resnetv15_", "resnetv15_dense0_weight", "resnetv15_dense0_bias"},
+        {"resnetv17_", "resnetv17_dense0_weight", "resnetv17_dense0_bias"},
+    };
+    std::string prefix;
+    std::string fc_w_name;
+    std::string fc_b_name;
+    for (const auto& v : kVariants) {
+        if (tensors.count(v.fc_weight) != 0 && tensors.count(v.fc_bias) != 0) {
+            prefix = v.prefix;
+            fc_w_name = v.fc_weight;
+            fc_b_name = v.fc_bias;
+            break;
+        }
+    }
+    if (fc_w_name.empty()) {
+        // Dims-only fallback: one 2D [1000,K]/[K,1000] classifier weight
+        // decides; the stage prefix is stripped from its name so the stage
+        // requires below resolve under the file's own naming.
+        std::string w_name;
+        for (const auto& kv : tensors) {
+            const auto& d = kv.second.dims;
+            if (d.size() == 2 && ((d[0] == 1000 && d[1] != 1000) || (d[1] == 1000 && d[0] != 1000))) {
+                if (!w_name.empty()) {
+                    fail_model(model_path,
+                               "ambiguous classifier weights (need one 2D [1000,K]/[K,1000]); tensors:" + shapes_seen);
+                }
+                w_name = kv.first;
+            }
+        }
+        if (w_name.empty()) {
+            fail_model(model_path, "no recognized ResNet-18/50 classifier pair (need [1000,512]/[1000,2048] weight + "
+                                   "[1000] bias); tensors:" +
+                                       shapes_seen);
+        }
+        constexpr char kFcSuffix[] = "dense0_weight";
+        constexpr size_t kFcSuffixLen = sizeof(kFcSuffix) - 1;
+        if (w_name.size() < kFcSuffixLen ||
+            w_name.compare(w_name.size() - kFcSuffixLen, kFcSuffixLen, kFcSuffix, kFcSuffixLen) != 0) {
+            fail_model(model_path,
+                       "classifier weight '" + w_name + "' has no 'dense0_weight' suffix; tensors:" + shapes_seen);
+        }
+        prefix = w_name.substr(0, w_name.size() - kFcSuffixLen);
+        fc_w_name = w_name;
+        fc_b_name = prefix + "dense0_bias";
+        require_tensor(tensors, fc_b_name, model_path, shapes_seen);
+    }
+    const LoadedTensor& fc_weight_probe = require_tensor(tensors, fc_w_name, model_path, shapes_seen);
+    if (fc_weight_probe.dims.size() != 2 ||
+        !((fc_weight_probe.dims[0] == 1000 && (fc_weight_probe.dims[1] == 512 || fc_weight_probe.dims[1] == 2048)) ||
+          (fc_weight_probe.dims[1] == 1000 && (fc_weight_probe.dims[0] == 512 || fc_weight_probe.dims[0] == 2048)))) {
+        fail_model(model_path, "classifier weight '" + fc_w_name +
+                                   "' has unexpected dims (need [1000,512]/[1000,2048] "
+                                   "or transposed); tensors:" +
+                                   shapes_seen);
+    }
+    const uint32_t fc_in_dim = (fc_weight_probe.dims[0] == 1000) ? fc_weight_probe.dims[1] : fc_weight_probe.dims[0];
+    // FC input dim decides the block topology; the stage requires below are
+    // the bottleneck tensor-presence check (a 2048-d file without bottleneck
+    // stage tensors fails on the first missing/wrong-shaped conv).
+    const bool is_bottleneck = (fc_in_dim == 2048);
 
     // Constant fills staged here: tensor storage is only valid after the
     // backend buffer is allocated, so weights are memcpy'd post-alloc.
@@ -403,7 +508,8 @@ void GGMLInfer::load_model(const std::string& model_path) {
 
     auto folded_conv = [&](const std::string& conv_name, const std::string& bn_prefix, uint32_t O, uint32_t I,
                            uint32_t H, uint32_t W) -> FoldedConv {
-        require_dims(require_tensor(tensors, conv_name, model_path, shapes_seen), conv_name, model_path, {O, I, H, W});
+        require_dims(require_tensor(tensors, conv_name, model_path, shapes_seen), conv_name, model_path, {O, I, H, W},
+                     shapes_seen);
         auto folded = fold_bn_and_permute_kernel(tensors, conv_name, bn_prefix, model_path, shapes_seen);
         FoldedConv c;
         c.weight = new_const_4d(W, H, I, O, std::move(folded.first));
@@ -419,74 +525,112 @@ void GGMLInfer::load_model(const std::string& model_path) {
     struct ggml_tensor* x = feat_tensor_;
 
     // Stem: conv7x7/s2/p3 64ch -> folded bias -> relu -> maxpool k3/s2/p1.
-    // 224 -> conv -> 112 -> pool -> 56.
+    // 224 -> conv -> 112 -> pool -> 56. Shared by both variants.
     {
-        const FoldedConv stem = folded_conv("resnetv15_conv0_weight", "resnetv15_batchnorm0_", 64, 3, 7, 7);
+        const FoldedConv stem = folded_conv(prefix + "conv0_weight", prefix + "batchnorm0_", 64, 3, 7, 7);
         x = conv_bias_add(ctx_, x, stem, 2, 3, true);
         x = ggml_pool_2d(ctx_, x, GGML_OP_POOL_MAX, 3, 3, 2, 2, 1.0f, 1.0f);
     }
 
-    // Layer1: 2x basic(64, s1, no downsample), 56x56x64.
-    {
-        const FoldedConv c0 =
-            folded_conv("resnetv15_stage1_conv0_weight", "resnetv15_stage1_batchnorm0_", 64, 64, 3, 3);
-        const FoldedConv c1 =
-            folded_conv("resnetv15_stage1_conv1_weight", "resnetv15_stage1_batchnorm1_", 64, 64, 3, 3);
-        x = basic_block(ctx_, x, c0, c1, nullptr, 1);
-        const FoldedConv c2 =
-            folded_conv("resnetv15_stage1_conv2_weight", "resnetv15_stage1_batchnorm2_", 64, 64, 3, 3);
-        const FoldedConv c3 =
-            folded_conv("resnetv15_stage1_conv3_weight", "resnetv15_stage1_batchnorm3_", 64, 64, 3, 3);
-        x = basic_block(ctx_, x, c2, c3, nullptr, 1);
+    if (!is_bottleneck) {
+        // ResNet-18: layer1 2x basic(64, s1, no downsample), 56x56x64.
+        {
+            const FoldedConv c0 =
+                folded_conv(prefix + "stage1_conv0_weight", prefix + "stage1_batchnorm0_", 64, 64, 3, 3);
+            const FoldedConv c1 =
+                folded_conv(prefix + "stage1_conv1_weight", prefix + "stage1_batchnorm1_", 64, 64, 3, 3);
+            x = basic_block(ctx_, x, c0, c1, nullptr, 1);
+            const FoldedConv c2 =
+                folded_conv(prefix + "stage1_conv2_weight", prefix + "stage1_batchnorm2_", 64, 64, 3, 3);
+            const FoldedConv c3 =
+                folded_conv(prefix + "stage1_conv3_weight", prefix + "stage1_batchnorm3_", 64, 64, 3, 3);
+            x = basic_block(ctx_, x, c2, c3, nullptr, 1);
+        }
+
+        // Layers 2..4: basic(C, s2 + 1x1 downsample conv2/bn2) + basic(C, s1).
+        // 56 -> 28 (128ch) -> 14 (256ch) -> 7 (512ch).
+        for (int stage = 2; stage <= 4; ++stage) {
+            const uint32_t C = stage == 2 ? 128 : (stage == 3 ? 256 : 512);
+            const uint32_t Cin = C / 2;
+            const std::string pre = prefix + "stage" + std::to_string(stage) + "_";
+            const FoldedConv c0 = folded_conv(pre + "conv0_weight", pre + "batchnorm0_", C, Cin, 3, 3);
+            const FoldedConv c1 = folded_conv(pre + "conv1_weight", pre + "batchnorm1_", C, C, 3, 3);
+            const FoldedConv ds = folded_conv(pre + "conv2_weight", pre + "batchnorm2_", C, Cin, 1, 1);
+            x = basic_block(ctx_, x, c0, c1, &ds, 2);
+            const FoldedConv c3 = folded_conv(pre + "conv3_weight", pre + "batchnorm3_", C, C, 3, 3);
+            const FoldedConv c4 = folded_conv(pre + "conv4_weight", pre + "batchnorm4_", C, C, 3, 3);
+            x = basic_block(ctx_, x, c3, c4, nullptr, 1);
+        }
+    } else {
+        // ResNet-50: stages [3,4,6,3] bottleneck blocks, widths 64/128/256/512
+        // expanding 4x. Every stage entry (block 0) carries the stride on the
+        // 1x1 reduce (1 on stage 1, 2 below) and a 1x1 downsample on the skip;
+        // later blocks are stride-1 with identity skips. Per-block conv
+        // indices: block 0 -> (0,1,2), block b>=1 -> (3b+1,3b+2,3b+3);
+        // the downsample is always conv3/bn3.
+        constexpr uint32_t kBlocks[4] = {3, 4, 6, 3};
+        constexpr uint32_t kWidth[4] = {64, 128, 256, 512};
+        uint32_t in_ch = 64; // stem output channels
+        for (int s = 0; s < 4; ++s) {
+            const uint32_t C = kWidth[s];
+            const int entry_stride = (s == 0) ? 1 : 2;
+            const std::string pre = prefix + "stage" + std::to_string(s + 1) + "_";
+            for (uint32_t b = 0; b < kBlocks[s]; ++b) {
+                const uint32_t base = (b == 0) ? 0 : 3 * b + 1;
+                const uint32_t in = (b == 0) ? in_ch : 4 * C;
+                const int stride = (b == 0) ? entry_stride : 1;
+                const FoldedConv reduce = folded_conv(pre + "conv" + std::to_string(base) + "_weight",
+                                                      pre + "batchnorm" + std::to_string(base) + "_", C, in, 1, 1);
+                const FoldedConv mid = folded_conv(pre + "conv" + std::to_string(base + 1) + "_weight",
+                                                   pre + "batchnorm" + std::to_string(base + 1) + "_", C, C, 3, 3);
+                const FoldedConv expand =
+                    folded_conv(pre + "conv" + std::to_string(base + 2) + "_weight",
+                                pre + "batchnorm" + std::to_string(base + 2) + "_", 4 * C, C, 1, 1);
+                if (b == 0) {
+                    const FoldedConv ds = folded_conv(pre + "conv3_weight", pre + "batchnorm3_", 4 * C, in_ch, 1, 1);
+                    x = bottleneck_block(ctx_, x, reduce, mid, expand, &ds, stride);
+                } else {
+                    x = bottleneck_block(ctx_, x, reduce, mid, expand, nullptr, stride);
+                }
+            }
+            in_ch = 4 * C;
+        }
     }
 
-    // Layers 2..4: basic(C, s2 + 1x1 downsample conv2/bn2) + basic(C, s1).
-    // 56 -> 28 (128ch) -> 14 (256ch) -> 7 (512ch).
-    for (int stage = 2; stage <= 4; ++stage) {
-        const uint32_t C = stage == 2 ? 128 : (stage == 3 ? 256 : 512);
-        const uint32_t Cin = C / 2;
-        const std::string pre = "resnetv15_stage" + std::to_string(stage) + "_";
-        const FoldedConv c0 = folded_conv(pre + "conv0_weight", pre + "batchnorm0_", C, Cin, 3, 3);
-        const FoldedConv c1 = folded_conv(pre + "conv1_weight", pre + "batchnorm1_", C, C, 3, 3);
-        const FoldedConv ds = folded_conv(pre + "conv2_weight", pre + "batchnorm2_", C, Cin, 1, 1);
-        x = basic_block(ctx_, x, c0, c1, &ds, 2);
-        const FoldedConv c3 = folded_conv(pre + "conv3_weight", pre + "batchnorm3_", C, C, 3, 3);
-        const FoldedConv c4 = folded_conv(pre + "conv4_weight", pre + "batchnorm4_", C, C, 3, 3);
-        x = basic_block(ctx_, x, c3, c4, nullptr, 1);
-    }
-
-    // Head: global avgpool k7 (7x7 -> 1x1) -> reshape 512 -> FC.
-    const LoadedTensor& fc_weight = require_tensor(tensors, "resnetv15_dense0_weight", model_path, shapes_seen);
-    const LoadedTensor& fc_bias = require_tensor(tensors, "resnetv15_dense0_bias", model_path, shapes_seen);
-    // Normalize the weight to ggml ne order [512, 1000] (ONNX Gemm transB=1:
-    // file holds row-major [1000,512], i.e. W[n][k] at n*512+k). ggml is
+    // Head: global avgpool k7 (7x7 -> 1x1) -> reshape K -> FC.
+    const LoadedTensor& fc_weight = require_tensor(tensors, fc_w_name, model_path, shapes_seen);
+    const LoadedTensor& fc_bias = require_tensor(tensors, fc_b_name, model_path, shapes_seen);
+    // Normalize the weight to ggml ne order [K, 1000] (ONNX Gemm transB=1:
+    // file holds row-major [1000,K], i.e. W[n][k] at n*K+k). ggml is
     // column-major and ggml_mul_mat(a,b) needs a->ne[0] == b->ne[0],
     // yielding [a->ne[1], b->ne[1]] with dst[n,m] = sum_k a[k,n]*b[k,m]:
-    // row-major [1000,512] bytes already coincide with ne=[512,1000]
-    // element (k,n) at k+n*512, so they copy verbatim. A file already in
-    // [512,1000] row-major order is transposed into place instead.
-    std::vector<float> w_normalized(512 * 1000);
-    if (fc_weight.dims == std::vector<uint32_t>{1000, 512}) {
+    // row-major [1000,K] bytes already coincide with ne=[K,1000]
+    // element (k,n) at k+n*K, so they copy verbatim. A file already in
+    // [K,1000] row-major order is transposed into place instead.
+    std::vector<float> w_normalized(static_cast<size_t>(fc_in_dim) * 1000);
+    if (fc_weight.dims == std::vector<uint32_t>{1000, fc_in_dim}) {
         w_normalized = fc_weight.data;
-    } else if (fc_weight.dims == std::vector<uint32_t>{512, 1000}) {
-        for (int64_t k = 0; k < 512; ++k) {
+    } else if (fc_weight.dims == std::vector<uint32_t>{fc_in_dim, 1000}) {
+        for (uint32_t k = 0; k < fc_in_dim; ++k) {
             for (int64_t n = 0; n < 1000; ++n) {
-                w_normalized[static_cast<size_t>(k) + static_cast<size_t>(n) * 512] =
+                w_normalized[static_cast<size_t>(k) + static_cast<size_t>(n) * fc_in_dim] =
                     fc_weight.data[static_cast<size_t>(k) * 1000 + n];
             }
         }
     } else {
-        fail_model(model_path, "tensor 'resnetv15_dense0_weight' has unexpected dims (need [1000,512] or [512,1000])");
+        fail_model(model_path,
+                   "tensor '" + fc_w_name +
+                       "' has unexpected dims (need [1000,K] or [K,1000], K=512/2048); tensors:" + shapes_seen);
     }
-    require_dims(fc_bias, "resnetv15_dense0_bias", model_path, {1000});
+    require_dims(fc_bias, fc_b_name, model_path, {1000}, shapes_seen);
 
-    struct ggml_tensor* fc_w = ggml_new_tensor_2d(ctx_, GGML_TYPE_F32, 512, 1000);
+    struct ggml_tensor* fc_w = ggml_new_tensor_2d(ctx_, GGML_TYPE_F32, fc_in_dim, 1000);
     pending.push_back(PendingFill{fc_w, std::move(w_normalized)});
     struct ggml_tensor* fc_b = ggml_new_tensor_1d(ctx_, GGML_TYPE_F32, kNumClasses);
     pending.push_back(PendingFill{fc_b, fc_bias.data});
 
     struct ggml_tensor* gap = ggml_pool_2d(ctx_, x, GGML_OP_POOL_AVG, 7, 7, 1, 1, 0.0f, 0.0f);
-    struct ggml_tensor* feat = ggml_reshape_2d(ctx_, gap, 512, N);
+    struct ggml_tensor* feat = ggml_reshape_2d(ctx_, gap, fc_in_dim, N);
     struct ggml_tensor* mm = ggml_mul_mat(ctx_, fc_w, feat);
     struct ggml_tensor* logits = ggml_add(ctx_, mm, ggml_repeat(ctx_, fc_b, mm));
 
@@ -506,7 +650,9 @@ void GGMLInfer::load_model(const std::string& model_path) {
         std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(float));
     }
 
-    LOG(INFO) << "GGML model loaded: full ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)";
+    LOG(INFO) << "GGML model loaded: full "
+              << (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + FC 1000, real weights)"
+                                : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)");
 }
 
 void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes) {

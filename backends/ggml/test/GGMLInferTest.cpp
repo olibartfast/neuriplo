@@ -301,6 +301,74 @@ inline std::vector<uint8_t> gradient_blob_bytes(int n = 1, int c = 3, int h = 22
 
 inline std::vector<std::vector<uint8_t>> gradient_blob_tensors() { return {gradient_blob_bytes()}; }
 
+struct ParityCaseResult {
+    std::string label;
+    double diff;
+    bool top5_agree;
+    std::vector<int> got_top5;
+    std::vector<int> ref_top5;
+};
+
+// Shared parity runner ... Returns per-case results so the calling TEST_F can
+// RecordProperty them (a free function has no fixture to record on).
+std::vector<ParityCaseResult>
+check_parity_cases(GGMLInfer& infer,
+                   const std::vector<std::pair<std::string, std::vector<std::vector<uint8_t>>>>& cases,
+                   const std::vector<fs::path>& ref_paths, double tolerance) {
+    EXPECT_EQ(cases.size(), ref_paths.size()) << "parity harness miswired: cases != refs";
+    std::vector<ParityCaseResult> results;
+    if (cases.size() != ref_paths.size()) {
+        return results;
+    }
+    for (size_t c = 0; c < cases.size(); ++c) {
+        const std::string& label = cases[c].first;
+        std::vector<float> ref_logits;
+        std::string error;
+        if (!load_ort_ref_logits(ref_paths[c], ref_logits, error)) {
+            ADD_FAILURE() << error;
+            return results;
+        }
+        EXPECT_EQ(ref_logits.size(), 1000u);
+        if (ref_logits.size() != 1000u) {
+            return results;
+        }
+
+        const auto [outputs, shapes] = infer.get_infer_results(cases[c].second);
+        EXPECT_EQ(outputs.size(), 1u);
+        EXPECT_EQ(outputs[0].size(), 1000u);
+        if (outputs.empty() || outputs[0].size() != 1000u) {
+            ADD_FAILURE() << "input=" << label << " bad output shape";
+            return results;
+        }
+        for (const auto& element : outputs[0]) {
+            EXPECT_TRUE(std::holds_alternative<float>(element));
+        }
+        const std::vector<float> got_logits = tensor_to_floats(outputs[0]);
+
+        const double diff = max_abs_diff(got_logits, ref_logits);
+        const std::vector<int> got_top5 = top5_classes(got_logits);
+        const std::vector<int> ref_top5 = top5_classes(ref_logits);
+        const bool top5_agree = (got_top5 == ref_top5);
+
+        std::cout << "[parity] input=" << label << " max_abs_diff=" << diff << " top5_agree=" << top5_agree
+                  << " ggml_top5=[";
+        for (size_t i = 0; i < got_top5.size(); ++i) {
+            std::cout << (i == 0 ? "" : ",") << got_top5[i];
+        }
+        std::cout << "] ort_top5=[";
+        for (size_t i = 0; i < ref_top5.size(); ++i) {
+            std::cout << (i == 0 ? "" : ",") << ref_top5[i];
+        }
+        std::cout << "]" << std::endl;
+
+        EXPECT_TRUE(top5_agree) << "input=" << label << " top-5 class mismatch (max_abs_diff=" << diff << ")";
+        EXPECT_LE(diff, tolerance) << "input=" << label << " max_abs_diff=" << diff << " exceeds tolerance "
+                                   << tolerance;
+        results.push_back({label, diff, top5_agree, got_top5, ref_top5});
+    }
+    return results;
+}
+
 } // namespace
 
 // (1) Real-model golden: fixed input -> 1000 finite values, not all zeros,
@@ -385,42 +453,48 @@ TEST_F(GGMLInferTest, ParityVsOrt) {
     };
     const std::vector<fs::path> ref_paths = {gray_ref_path, zeros_ref_path, gradient_ref_path};
 
-    for (size_t c = 0; c < cases.size(); ++c) {
-        const std::string& label = cases[c].first;
-        std::vector<float> ref_logits;
-        std::string error;
-        ASSERT_TRUE(load_ort_ref_logits(ref_paths[c], ref_logits, error)) << error;
-        ASSERT_EQ(ref_logits.size(), 1000u);
+    const auto results18 = check_parity_cases(*real_infer, cases, ref_paths, kParityTolerance);
+    for (const auto& r : results18) {
+        RecordProperty(("ort_max_abs_diff_" + r.label).c_str(), r.diff);
+        RecordProperty(("ort_top5_agree_" + r.label).c_str(), r.top5_agree ? 1 : 0);
+    }
+}
 
-        const auto [outputs, shapes] = real_infer->get_infer_results(cases[c].second);
-        ASSERT_EQ(outputs.size(), 1u);
-        ASSERT_EQ(outputs[0].size(), 1000u);
-        for (const auto& element : outputs[0]) {
-            ASSERT_TRUE(std::holds_alternative<float>(element));
+// T-17b (R-3): ResNet-50 ORT parity golden. Same bar as ParityVsOrt, own
+// artifact (/tmp/resnet50.ggml) and own references (/tmp/ort50_ref_*.npy);
+// SKIPs without either. Proves the bottleneck topology, not just dispatch.
+TEST_F(GGMLInferTest, ParityVsOrt50) {
+    const fs::path model_path = "/tmp/resnet50.ggml";
+    if (!fs::exists(model_path)) {
+        GTEST_SKIP() << "Skipping resnet50 parity test - no model artifact (/tmp/resnet50.ggml missing; "
+                        "convert: python3 scripts/convert_onnx_to_ggml.py --input <resnet50.onnx>)";
+    }
+    const std::vector<fs::path> ref_paths = {
+        "/tmp/ort50_ref_gray.npy",
+        "/tmp/ort50_ref_zeros.npy",
+        "/tmp/ort50_ref_gradient.npy",
+    };
+    for (const auto& ref_path : ref_paths) {
+        if (!fs::exists(ref_path)) {
+            GTEST_SKIP() << "Skipping resnet50 parity test - ORT reference files missing "
+                            "(run /tmp/ortenv/bin/python scripts/ggml_ort_reference.py --model "
+                            "<resnet50.onnx> --gray-out /tmp/ort50_ref_gray.npy --zeros-out "
+                            "/tmp/ort50_ref_zeros.npy --gradient-out /tmp/ort50_ref_gradient.npy)";
         }
-        const std::vector<float> got_logits = tensor_to_floats(outputs[0]);
+    }
 
-        const double diff = max_abs_diff(got_logits, ref_logits);
-        const std::vector<int> got_top5 = top5_classes(got_logits);
-        const std::vector<int> ref_top5 = top5_classes(ref_logits);
-        const bool top5_agree = (got_top5 == ref_top5);
-
-        RecordProperty(("ort_max_abs_diff_" + label).c_str(), diff);
-        RecordProperty(("ort_top5_agree_" + label).c_str(), top5_agree ? 1 : 0);
-        std::cout << "[parity] input=" << label << " max_abs_diff=" << diff << " top5_agree=" << top5_agree
-                  << " ggml_top5=[";
-        for (size_t i = 0; i < got_top5.size(); ++i) {
-            std::cout << (i == 0 ? "" : ",") << got_top5[i];
-        }
-        std::cout << "] ort_top5=[";
-        for (size_t i = 0; i < ref_top5.size(); ++i) {
-            std::cout << (i == 0 ? "" : ",") << ref_top5[i];
-        }
-        std::cout << "]" << std::endl;
-
-        EXPECT_TRUE(top5_agree) << "input=" << label << " top-5 class mismatch (max_abs_diff=" << diff << ")";
-        EXPECT_LE(diff, kParityTolerance)
-            << "input=" << label << " max_abs_diff=" << diff << " exceeds tolerance " << kParityTolerance;
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
+    GGMLInfer infer50(model_path.string(), false, 1, input_sizes);
+    constexpr double kParityTolerance = 1e-3;
+    const std::vector<std::pair<std::string, std::vector<std::vector<uint8_t>>>> cases = {
+        {"gray", neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized)},
+        {"zeros", neuriplo::testing::zero_blob_tensors()},
+        {"gradient", gradient_blob_tensors()},
+    };
+    const auto results50 = check_parity_cases(infer50, cases, ref_paths, kParityTolerance);
+    for (const auto& r : results50) {
+        RecordProperty(("ort50_max_abs_diff_" + r.label).c_str(), r.diff);
+        RecordProperty(("ort50_top5_agree_" + r.label).c_str(), r.top5_agree ? 1 : 0);
     }
 }
 
