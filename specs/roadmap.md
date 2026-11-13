@@ -365,6 +365,13 @@ existing ExecuTorch SDK PR, including OpenVINO and GGML. See
 [validation](2026-10-28-prebuilt-sdk-images/validation.md). This phase changes
 packaging and CI only; it does not close real-model release validation.
 
+## llama.cpp v1.0.0 VLM compatibility — in validation
+
+The v1.0.0 upgrade updates the mtmd input-length contract, SDK setup and link
+behavior, and adds strict Gemma 4 real-fixture coverage. The local CPU
+integration, backend build, and test suite passed; Brev validation is tracked in
+[`2026-11-13-llamacpp-v1-vlm/validation.md`](2026-11-13-llamacpp-v1-vlm/validation.md).
+
 ## TensorRT data-dependent outputs — validated on Jetson Orin
 
 LightGlue requires bounded allocation and runtime output shapes. See [validation](2026-11-07-trt-data-dependent-outputs/validation.md).
