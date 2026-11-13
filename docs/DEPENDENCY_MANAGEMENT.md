@@ -19,7 +19,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `TVM` | Apache TVM | `0.22.0` | x86_64, ARM64 | no |
 | `MIGRAPHX` | MIGraphX | `2.12.0` | x86_64 only | yes |
 | `CACTUS` | Cactus | `v1.14` | ARM64 only | no |
-| `LLAMACPP` | llama.cpp | `b9085` | x86_64, ARM64 | no |
+| `LLAMACPP` | llama.cpp | `v1.0.0` | x86_64, ARM64 | no |
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
@@ -237,7 +237,7 @@ Per-backend version overrides (default from `versions.env`):
 | `TVM_VERSION` | `0.22.0` |
 | `MIGRAPHX_VERSION` | `2.12.0` |
 | `CACTUS_VERSION` | `v1.14` |
-| `LLAMACPP_VERSION` | `b9085` |
+| `LLAMACPP_VERSION` | `v1.0.0` |
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
 | `DALI_VERSION` | `2.2.0` |

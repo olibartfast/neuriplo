@@ -43,6 +43,23 @@ changed from `const llama_vocab*` (vocabulary object) to `const char*` (template
 **Key insight:** Always check the API changelog when bumping llama.cpp versions. The chat
 template API was restructured significantly around b9xxx.
 
+For llama.cpp v1.0.0, `mtmd_input_text` also gained an explicit `text_len`
+field between `text` and `add_special`. An old three-field aggregate can still
+compile while assigning the booleans to `text_len` and `add_special`, leaving
+`parse_special` false. Set all four fields explicitly; the VLM integration test
+uses a multi-character prompt and a real projector to exercise image tokenization.
+
+The v1.0.0 SDK also enables the standalone app target by default. When disabling
+the server and examples for a library-only installation, pass
+`-DLLAMA_BUILD_APP=OFF` as well; otherwise the default app target refers to
+server/CLI implementation libraries that were disabled.
+
+To run that strict test, set `NEURIPLO_LLAMACPP_VLM_MODEL` and
+`NEURIPLO_LLAMACPP_VLM_MMPROJ` to compatible Gemma 4 GGUF files before running
+`LlamaCppInferTest`. Set `NEURIPLO_LLAMACPP_VLM_USE_GPU=1` to request the
+backend's existing GPU path. With neither fixture variable set the opt-in test is
+skipped; if either variable is supplied, missing files or inference errors fail.
+
 ---
 
 ## llama_backend_init/free lifecycle
