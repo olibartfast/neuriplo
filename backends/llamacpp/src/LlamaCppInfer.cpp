@@ -225,7 +225,8 @@ LlamaCppInfer::infer_multimodal(const std::string& raw_prompt, const std::vector
 
     // Tokenize prompt + image
     mtmd_input_chunks* raw_chunks = mtmd_input_chunks_init();
-    mtmd_input_text input_text{formatted_prompt.c_str(), /*add_special=*/true, /*parse_special=*/true};
+    mtmd_input_text input_text{formatted_prompt.c_str(), formatted_prompt.size(), /*add_special=*/true,
+                               /*parse_special=*/true};
     const mtmd_bitmap* bitmaps_arr[] = {bmp.ptr.get()};
     const int32_t tok_ret = mtmd_tokenize(ctx_mtmd_, raw_chunks, &input_text, bitmaps_arr, 1);
     mtmd::input_chunks chunks(raw_chunks);

@@ -169,6 +169,10 @@ elseif(backend STREQUAL "LLAMACPP")
         target_link_options(${target} PRIVATE
             "-Wl,-rpath-link,${LLAMACPP_DIR}/lib"
             "-Wl,-rpath,${LLAMACPP_DIR}/lib")
+        # Executables that link the shared neuriplo library must also resolve
+        # its DT_NEEDED llama/ggml libraries while linking against v1's SONAMEs.
+        target_link_options(${target} INTERFACE
+            "-Wl,-rpath-link,${LLAMACPP_DIR}/lib")
     endif()
 elseif(backend STREQUAL "EXECUTORCH")
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/executorch/src)
