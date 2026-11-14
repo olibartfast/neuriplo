@@ -710,20 +710,20 @@ void GGMLInfer::load_model(const std::string& model_path) {
             require_dims(b, base + ".bias", model_path, {O}, shapes_seen);
             return new_const_4d(1, 1, O, 1, b.data);
         };
-        auto yact = [&](struct ggml_tensor* xx, struct ggml_tensor* w, struct ggml_tensor* b, int s,
+        auto yact = [&](struct ggml_tensor * xx, struct ggml_tensor * w, struct ggml_tensor * b, int s,
                         int p) -> struct ggml_tensor* {
             struct ggml_tensor* h = ggml_conv_2d(ctx_, w, xx, s, s, p, p, 1, 1);
             h = ggml_add(ctx_, h, ggml_repeat(ctx_, b, h));
             return ggml_mul(ctx_, h, ggml_sigmoid(ctx_, h));
         };
-        auto yconv = [&](struct ggml_tensor* xx, struct ggml_tensor* w, struct ggml_tensor* b, int s,
+        auto yconv = [&](struct ggml_tensor * xx, struct ggml_tensor * w, struct ggml_tensor * b, int s,
                          int p) -> struct ggml_tensor* {
             struct ggml_tensor* h = ggml_conv_2d(ctx_, w, xx, s, s, p, p, 1, 1);
             return ggml_add(ctx_, h, ggml_repeat(ctx_, b, h));
         };
         // C2f block (nodes 6-20 pattern): cv1 1x1 -> split -> n bottlenecks
         // (3x3+silu, 3x3+silu [, +residual]) chained -> concat all -> cv2 1x1.
-        auto c2f = [&](struct ggml_tensor* xx, const std::string& pre, uint32_t C, uint32_t Cin, int n,
+        auto c2f = [&](struct ggml_tensor * xx, const std::string& pre, uint32_t C, uint32_t Cin, int n,
                        bool residual) -> struct ggml_tensor* {
             struct ggml_tensor* h =
                 yact(xx, ykernel(pre + ".cv1.conv", C, Cin, 1, 1), ybias(pre + ".cv1.conv", C), 1, 0);
