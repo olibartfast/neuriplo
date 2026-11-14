@@ -21,6 +21,7 @@ Run: /tmp/ortenv/bin/python scripts/ggml_ort_reference.py
 import argparse
 import struct
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -44,6 +45,8 @@ def main() -> int:
     ap.add_argument("--gradient-out", default="/tmp/ort_ref_gradient.npy")
     ap.add_argument("--img-size", type=int, default=224,
                     help="square spatial size (224 resnet, 640 yolo)")
+    ap.add_argument("--all-outputs", action="store_true",
+                    help="save every session output as <stem>_out<i>.npy (default: first output only)")
     args = ap.parse_args()
 
     import onnxruntime as ort
@@ -72,22 +75,33 @@ def main() -> int:
 
     sess = ort.InferenceSession(args.model, providers=["CPUExecutionProvider"])
     input_name = sess.get_inputs()[0].name
-    output_name = sess.get_outputs()[0].name
-    print(f"model={args.model} input={input_name} output={output_name} "
+    output_names = [output.name for output in sess.get_outputs()]
+    print(f"model={args.model} input={input_name} outputs={output_names} "
           f"ort={ort.__version__} numpy={np.__version__}")
+
+    def output_path(base, index):
+        if not args.all_outputs:
+            return base
+        path = Path(base)
+        return path.with_name(f"{path.stem}_out{index}{path.suffix}")
 
     for label, blob, out_path in (("gray", gray, args.gray_out), ("zeros", zeros, args.zeros_out),
                                    ("gradient", gradient, args.gradient_out)):
-        logits = np.asarray(sess.run([output_name], {input_name: blob})[0], dtype=np.float32)
-        flat = logits.reshape(-1)
-        np.save(out_path, flat)
-        print(f"{label}: saved {out_path} shape={flat.shape} dtype={flat.dtype}")
-        if flat.size == 1000:
-            for rank, (cls, score) in enumerate(top5(flat), start=1):
-                print(f"  top{rank}: class={cls} logit={score:.6f}")
-        else:
-            amax = int(np.argmax(flat))
-            print(f"  max_cell={amax} value={float(flat[amax]):.6f}")
+        raw_outputs = sess.run(output_names, {input_name: blob})
+        for index, raw_output in enumerate(raw_outputs):
+            logits = np.asarray(raw_output, dtype=np.float32)
+            flat = logits.reshape(-1)
+            target = output_path(out_path, index)
+            np.save(target, flat)
+            print(f"{label}[{index}]: saved {target} shape={logits.shape} dtype={flat.dtype}")
+            if flat.size == 1000:
+                for rank, (cls, score) in enumerate(top5(flat), start=1):
+                    print(f"  top{rank}: class={cls} logit={score:.6f}")
+            else:
+                amax = int(np.argmax(flat))
+                print(f"  max_cell={amax} value={float(flat[amax]):.6f}")
+            if not args.all_outputs:
+                break
 
     return 0
 

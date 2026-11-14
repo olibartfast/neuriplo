@@ -523,6 +523,81 @@ TEST_F(GGMLInferTest, ParityVsYolo) {
     }
 }
 
+// YOLOv8n-seg raw-output parity (R-3/R-4): output0 [1,116,8400] must match
+// ORT by max cell and max-abs-diff; output1 [1,32,160,160] must match
+// elementwise. SKIPs without the artifact or reference files.
+TEST_F(GGMLInferTest, ParityVsYoloSeg) {
+    const fs::path model_path = "/tmp/yolov8n-seg.ggml";
+    if (!fs::exists(model_path)) {
+        GTEST_SKIP() << "Skipping yolo-seg parity test - no model artifact (/tmp/yolov8n-seg.ggml missing; "
+                        "convert: python3 scripts/convert_onnx_to_ggml.py --input <yolov8n-seg.onnx>)";
+    }
+    const std::vector<fs::path> ref_paths = {
+        "/tmp/ort_yoloseg_gray_out0.npy",  "/tmp/ort_yoloseg_gray_out1.npy",     "/tmp/ort_yoloseg_zeros_out0.npy",
+        "/tmp/ort_yoloseg_zeros_out1.npy", "/tmp/ort_yoloseg_gradient_out0.npy", "/tmp/ort_yoloseg_gradient_out1.npy",
+    };
+    for (const auto& ref_path : ref_paths) {
+        if (!fs::exists(ref_path)) {
+            GTEST_SKIP() << "Skipping yolo-seg parity test - ORT reference files missing "
+                            "(run scripts/ggml_ort_reference.py --all-outputs --img-size 640)";
+        }
+    }
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 640, 640}};
+    GGMLInfer infer(model_path.string(), false, 1, input_sizes);
+    constexpr double kDetTolerance = 1e-2;
+    constexpr double kProtoTolerance = 1e-2;
+    const std::vector<std::pair<std::string, std::vector<std::vector<uint8_t>>>> cases = {
+        {"gray", neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized, 1, 3, 640, 640)},
+        {"zeros", neuriplo::testing::zero_blob_tensors(1, 3, 640, 640)},
+        {"gradient", gradient_blob_tensors(1, 3, 640, 640)},
+    };
+    for (size_t c = 0; c < cases.size(); ++c) {
+        std::vector<float> ref_det;
+        std::vector<float> ref_proto;
+        std::string error;
+        ASSERT_TRUE(load_ort_ref_logits(ref_paths[2 * c], ref_det, error)) << error;
+        ASSERT_TRUE(load_ort_ref_logits(ref_paths[2 * c + 1], ref_proto, error)) << error;
+        ASSERT_EQ(ref_det.size(), static_cast<size_t>(116 * 8400));
+        ASSERT_EQ(ref_proto.size(), static_cast<size_t>(32 * 160 * 160));
+
+        const auto [outputs, shapes] = infer.get_infer_results(cases[c].second);
+        ASSERT_EQ(outputs.size(), 2u);
+        ASSERT_EQ(shapes.size(), 2u);
+        ASSERT_EQ(shapes[0], (std::vector<int64_t>{1, 116, 8400}));
+        ASSERT_EQ(shapes[1], (std::vector<int64_t>{1, 32, 160, 160}));
+        ASSERT_EQ(outputs[0].size(), ref_det.size());
+        ASSERT_EQ(outputs[1].size(), ref_proto.size());
+
+        const std::vector<float> got_det = tensor_to_floats(outputs[0]);
+        const std::vector<float> got_proto = tensor_to_floats(outputs[1]);
+        EXPECT_TRUE(std::all_of(got_det.begin(), got_det.end(), [](float v) { return std::isfinite(v); }));
+        EXPECT_TRUE(std::all_of(got_proto.begin(), got_proto.end(), [](float v) { return std::isfinite(v); }));
+        const double det_diff = max_abs_diff(got_det, ref_det);
+        const double proto_diff = max_abs_diff(got_proto, ref_proto);
+        const auto got_max = std::max_element(got_det.begin(), got_det.end());
+        const auto ref_max = std::max_element(ref_det.begin(), ref_det.end());
+        const bool max_cell_agree = std::distance(got_det.begin(), got_max) == std::distance(ref_det.begin(), ref_max);
+
+        RecordProperty(("yoloseg_det_max_abs_diff_" + cases[c].first).c_str(), det_diff);
+        RecordProperty(("yoloseg_det_max_cell_agree_" + cases[c].first).c_str(), max_cell_agree ? 1 : 0);
+        RecordProperty(("yoloseg_proto_max_abs_diff_" + cases[c].first).c_str(), proto_diff);
+        std::cout << "[yoloseg-parity] input=" << cases[c].first << " det_diff=" << det_diff
+                  << " det_max_cell_agree=" << max_cell_agree << " proto_diff=" << proto_diff << std::endl;
+        EXPECT_TRUE(max_cell_agree) << "input=" << cases[c].first << " output0 max cell mismatch";
+        EXPECT_LE(det_diff, kDetTolerance)
+            << "input=" << cases[c].first << " output0 max_abs_diff=" << det_diff << " exceeds tolerance";
+        EXPECT_LE(proto_diff, kProtoTolerance)
+            << "input=" << cases[c].first << " output1 max_abs_diff=" << proto_diff << " exceeds tolerance";
+        if (c == 0) {
+            const auto [repeat_outputs, repeat_shapes] = infer.get_infer_results(cases[c].second);
+            ASSERT_EQ(repeat_outputs.size(), 2u);
+            ASSERT_EQ(repeat_shapes.size(), 2u);
+            EXPECT_EQ(tensor_to_floats(repeat_outputs[0]), got_det) << "output0 is not deterministic";
+            EXPECT_EQ(tensor_to_floats(repeat_outputs[1]), got_proto) << "output1 is not deterministic";
+        }
+    }
+}
+
 // T-17b (R-3): ResNet-50 ORT parity golden. Same bar as ParityVsOrt, own
 // artifact (/tmp/resnet50.ggml) and own references (/tmp/ort50_ref_*.npy);
 // SKIPs without either. Proves the bottleneck topology, not just dispatch.

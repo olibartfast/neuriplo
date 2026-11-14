@@ -459,14 +459,26 @@ void GGMLInfer::load_model(const std::string& model_path) {
     // with the path and the shapes seen (R-5).
     const std::string shapes_seen = describe_shapes(tensors);
 
-    // YOLOv8n detection: dot-separated ultralytics tensor names anchored at
-    // the stem conv. Fixed 1x3x640x640 input, [1,84,8400] raw output.
+    // YOLOv8n family: dot-separated ultralytics tensor names anchored at the
+    // stem conv. Detection returns [1,84,8400]; segmentation adds the cv4
+    // mask-coefficient head and the proto branch, returning
+    // [1,116,8400] and [1,32,160,160].
+    const bool has_seg_proto = tensors.count("model.22.proto.cv1.conv.weight") != 0;
+    const bool has_seg_cv4 = tensors.count("model.22.cv4.0.0.conv.weight") != 0;
+    if (has_seg_proto != has_seg_cv4) {
+        fail_model(model_path, "incomplete YOLOv8n-seg head (proto and cv4 tensors must both be present)");
+    }
     const bool is_yolo = tensors.count("model.0.conv.weight") != 0;
     is_yolo_ = is_yolo;
+    is_yolo_seg_ = has_seg_proto;
+    if (is_yolo_seg_ && !is_yolo) {
+        fail_model(model_path, "YOLOv8n-seg head tensors found without the YOLOv8n stem");
+    }
     if (is_yolo) {
         input_height_ = 640;
         input_width_ = 640;
-        output_shape_ = {1, 84, 8400};
+        output_shapes_ = is_yolo_seg_ ? std::vector<std::vector<int64_t>>{{1, 116, 8400}, {1, 32, 160, 160}}
+                                      : std::vector<std::vector<int64_t>>{{1, 84, 8400}};
         if (batch_size_ != 1) {
             fail_model(model_path, "GGML YOLOv8n path is fixed batch-1 (box math constants are single-batch)");
         }
@@ -556,10 +568,25 @@ void GGMLInfer::load_model(const std::string& model_path) {
         std::vector<float> data;
     };
     std::vector<PendingFill> pending;
+    // ConvTranspose's CPU kernel supports F16 weights only; the kernel is
+    // filled after the backend buffer is allocated, like the F32 constants.
+    struct PendingFillF16 {
+        struct ggml_tensor* tensor = nullptr;
+        std::vector<ggml_fp16_t> data;
+    };
+    std::vector<PendingFillF16> pending_f16;
     auto new_const_4d = [&](int64_t n0, int64_t n1, int64_t n2, int64_t n3,
                             std::vector<float> data) -> struct ggml_tensor* {
         struct ggml_tensor* t = ggml_new_tensor_4d(ctx_, GGML_TYPE_F32, n0, n1, n2, n3);
         pending.push_back(PendingFill{t, std::move(data)});
+        return t;
+    };
+    auto new_const_4d_f16 = [&](int64_t n0, int64_t n1, int64_t n2, int64_t n3,
+                                std::vector<float> data) -> struct ggml_tensor* {
+        struct ggml_tensor* t = ggml_new_tensor_4d(ctx_, GGML_TYPE_F16, n0, n1, n2, n3);
+        std::vector<ggml_fp16_t> half(data.size());
+        ggml_fp32_to_fp16_row(data.data(), half.data(), static_cast<int64_t>(data.size()));
+        pending_f16.push_back(PendingFillF16{t, std::move(half)});
         return t;
     };
 
@@ -581,6 +608,7 @@ void GGMLInfer::load_model(const std::string& model_path) {
 
     struct ggml_tensor* x = feat_tensor_;
     struct ggml_tensor* logits = nullptr;
+    struct ggml_tensor* seg_proto = nullptr;
 
     if (!is_yolo) {
 
@@ -710,20 +738,20 @@ void GGMLInfer::load_model(const std::string& model_path) {
             require_dims(b, base + ".bias", model_path, {O}, shapes_seen);
             return new_const_4d(1, 1, O, 1, b.data);
         };
-        auto yact = [&](struct ggml_tensor * xx, struct ggml_tensor * w, struct ggml_tensor * b, int s,
+        auto yact = [&](struct ggml_tensor* xx, struct ggml_tensor* w, struct ggml_tensor* b, int s,
                         int p) -> struct ggml_tensor* {
             struct ggml_tensor* h = ggml_conv_2d(ctx_, w, xx, s, s, p, p, 1, 1);
             h = ggml_add(ctx_, h, ggml_repeat(ctx_, b, h));
             return ggml_mul(ctx_, h, ggml_sigmoid(ctx_, h));
         };
-        auto yconv = [&](struct ggml_tensor * xx, struct ggml_tensor * w, struct ggml_tensor * b, int s,
+        auto yconv = [&](struct ggml_tensor* xx, struct ggml_tensor* w, struct ggml_tensor* b, int s,
                          int p) -> struct ggml_tensor* {
             struct ggml_tensor* h = ggml_conv_2d(ctx_, w, xx, s, s, p, p, 1, 1);
             return ggml_add(ctx_, h, ggml_repeat(ctx_, b, h));
         };
         // C2f block (nodes 6-20 pattern): cv1 1x1 -> split -> n bottlenecks
         // (3x3+silu, 3x3+silu [, +residual]) chained -> concat all -> cv2 1x1.
-        auto c2f = [&](struct ggml_tensor * xx, const std::string& pre, uint32_t C, uint32_t Cin, int n,
+        auto c2f = [&](struct ggml_tensor* xx, const std::string& pre, uint32_t C, uint32_t Cin, int n,
                        bool residual) -> struct ggml_tensor* {
             struct ggml_tensor* h =
                 yact(xx, ykernel(pre + ".cv1.conv", C, Cin, 1, 1), ybias(pre + ".cv1.conv", C), 1, 0);
@@ -835,29 +863,78 @@ void GGMLInfer::load_model(const std::string& model_path) {
         struct ggml_tensor* dm = ggml_mul_mat(ctx_, dwq, dflat); // [1,33600]
         struct ggml_tensor* d4 = ggml_reshape_4d(ctx_, dm, 8400, 1, 4, 1);
         // Box decode: xy = A - slice0, wh = B + slice1, center/corner combine,
-        // /2, concat, *strides. All consts carried (float initializers).
+        // /2, concat, *strides. The seg export numbers the same constants
+        // differently from the detection export, so select by presence.
+        const bool has_det_consts = tensors.count("/model.22/Constant_12_output_0") != 0;
+        const std::string a_name = has_det_consts ? "/model.22/Constant_12_output_0" : "/model.22/Constant_15_output_0";
+        const std::string b_name = has_det_consts ? "/model.22/Constant_13_output_0" : "/model.22/Constant_16_output_0";
+        const std::string stride_name =
+            has_det_consts ? "/model.22/Constant_15_output_0" : "/model.22/Constant_18_output_0";
         const size_t row4 = static_cast<size_t>(8400) * sizeof(float);
         struct ggml_tensor* xy = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 0);
         struct ggml_tensor* wh = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 2 * row4);
-        struct ggml_tensor* A = yconst("/model.22/Constant_12_output_0", {1, 2, 8400});
-        struct ggml_tensor* B = yconst("/model.22/Constant_13_output_0", {1, 2, 8400});
+        struct ggml_tensor* A = yconst(a_name, {1, 2, 8400});
+        struct ggml_tensor* B = yconst(b_name, {1, 2, 8400});
         struct ggml_tensor* sub0 = ggml_sub(ctx_, A, xy);
         struct ggml_tensor* add1 = ggml_add(ctx_, B, wh);
         struct ggml_tensor* add2 = ggml_add(ctx_, sub0, add1);
         struct ggml_tensor* sub1 = ggml_sub(ctx_, add1, sub0);
         struct ggml_tensor* div1 = ggml_scale(ctx_, add2, 0.5f);
         struct ggml_tensor* cat2 = ggml_concat(ctx_, div1, sub1, 2);
-        struct ggml_tensor* mul2 =
-            ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst("/model.22/Constant_15_output_0", {1, 8400}), cat2));
+        struct ggml_tensor* mul2 = ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst(stride_name, {1, 8400}), cat2));
         // Cls sigmoid: 1 / (1 + exp(-x)).
         struct ggml_tensor* ones = new_const_4d(8400, 1, 80, 1, std::vector<float>(8400 * 80, 1.0f));
         struct ggml_tensor* sig = ggml_div(ctx_, ones, ggml_add(ctx_, ones, ggml_exp(ctx_, ggml_neg(ctx_, clsc))));
         logits = ggml_concat(ctx_, mul2, sig, 2); // [8400,1,84,1] == NCHW [1,84,8400]
+
+        if (is_yolo_seg_) {
+            // Mask coefficients: cv4 branch per scale (C->32, 32->32, 1x1
+            // 32->32, no activation), concatenated along the flat spatial
+            // dim and appended after box(4)+class(80) -> 116 channels.
+            struct ggml_tensor* mask_parts[3];
+            for (int s = 0; s < 3; ++s) {
+                const std::string pm = "model.22.cv4." + std::to_string(s);
+                struct ggml_tensor* hm =
+                    yact(feats[s], ykernel(pm + ".0.conv", 32, feats[s]->ne[2], 3, 3), ybias(pm + ".0.conv", 32), 1, 1);
+                hm = yact(hm, ykernel(pm + ".1.conv", 32, 32, 3, 3), ybias(pm + ".1.conv", 32), 1, 1);
+                hm = yconv(hm, ykernel(pm + ".2", 32, 32, 1, 1), ybias(pm + ".2", 32), 1, 0);
+                mask_parts[s] = ggml_reshape_4d(ctx_, hm, hm->ne[0] * hm->ne[1], 1, 32, 1);
+            }
+            struct ggml_tensor* mask_coeff =
+                ggml_concat(ctx_, ggml_concat(ctx_, mask_parts[0], mask_parts[1], 0), mask_parts[2], 0);
+            logits = ggml_concat(ctx_, logits, mask_coeff, 2); // [8400,1,116,1]
+
+            // Prototype masks: P3 -> cv1(SiLU) -> 2x up ConvTranspose ->
+            // cv2(SiLU) -> cv3(SiLU). The ONNX ConvTranspose weight is
+            // [Cin,Cout,kH,kW]; ggml's p0 kernel takes [kW,kH,Cout,Cin]
+            // and requires F16 weights on the CPU backend.
+            const LoadedTensor& up_w =
+                require_tensor(tensors, "model.22.proto.upsample.weight", model_path, shapes_seen);
+            require_dims(up_w, "model.22.proto.upsample.weight", model_path, {64, 64, 2, 2}, shapes_seen);
+            // ONNX [Cin,Cout,kH,kW] row-major and ggml [kW,kH,Cout,Cin]
+            // column-major have the same flat order for this 64/64/2/2
+            // kernel (the same reversed-dims coincidence used by the conv
+            // weights above), so the copy is intentional, not a no-op bug.
+            struct ggml_tensor* up_weight = new_const_4d_f16(2, 2, 64, 64, up_w.data);
+            struct ggml_tensor* proto = yact(feats[0], ykernel("model.22.proto.cv1.conv", 64, 64, 3, 3),
+                                             ybias("model.22.proto.cv1.conv", 64), 1, 1);
+            proto = ggml_conv_transpose_2d_p0(ctx_, up_weight, proto, 2);
+            proto = ggml_add(ctx_, proto, ggml_repeat(ctx_, ybias("model.22.proto.upsample", 64), proto));
+            proto = yact(proto, ykernel("model.22.proto.cv2.conv", 64, 64, 3, 3), ybias("model.22.proto.cv2.conv", 64),
+                         1, 1);
+            seg_proto = yact(proto, ykernel("model.22.proto.cv3.conv", 32, 64, 1, 1),
+                             ybias("model.22.proto.cv3.conv", 32), 1, 0); // [160,160,32,1]
+        }
     }
 
     graph_ = ggml_new_graph(ctx_);
     ggml_build_forward_expand(graph_, logits);
-    output_tensors_ = {logits};
+    if (seg_proto != nullptr) {
+        ggml_build_forward_expand(graph_, seg_proto);
+        output_tensors_ = {logits, seg_proto};
+    } else {
+        output_tensors_ = {logits};
+    }
 
     // Allocate backend buffer (tensors use no_alloc ctx, so pointers are
     // unset until now); allocation failure is fatal.
@@ -870,11 +947,18 @@ void GGMLInfer::load_model(const std::string& model_path) {
     for (const auto& fill : pending) {
         std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(float));
     }
+    for (const auto& fill : pending_f16) {
+        std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(ggml_fp16_t));
+    }
 
     LOG(INFO) << "GGML model loaded: full "
-              << (is_yolo ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
-                          : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + FC 1000, real weights)"
-                                           : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)"));
+              << (is_yolo_seg_
+                      ? "YOLOv8n-seg (CSP stem + C2f + SPPF + PAN + decoupled head + DFL + mask/proto, "
+                        "real weights)"
+                      : (is_yolo ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
+                                 : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + FC 1000, real "
+                                                    "weights)"
+                                                  : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)")));
 }
 
 void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes) {
@@ -903,14 +987,18 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
     }
 
     // Output metadata follows the per-model contract set at load
-    // (resnet {N,1000}, yolo {1,84,8400}).
-    std::vector<int64_t> output_shape = output_shape_;
-    if (output_shape.size() == 2) {
-        output_shape[0] = static_cast<int64_t>(batch_size_);
+    // (resnet {N,1000}, detection {1,84,8400}, segmentation
+    // {1,116,8400} + {1,32,160,160}).
+    output_names_.clear();
+    for (size_t i = 0; i < output_shapes_.size(); ++i) {
+        std::vector<int64_t> output_shape = output_shapes_[i];
+        if (output_shape.size() == 2) {
+            output_shape[0] = static_cast<int64_t>(batch_size_);
+        }
+        const std::string name = output_shapes_.size() == 1 ? "output" : "output" + std::to_string(i);
+        inference_metadata_.addOutput(name, output_shape, batch_size_);
+        output_names_.push_back(name);
     }
-    inference_metadata_.addOutput("output", output_shape, batch_size_);
-
-    output_names_.push_back("output");
 }
 
 std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
@@ -957,26 +1045,53 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
             throw std::runtime_error("GGML backend unavailable during inference");
         }
 
-        // Real outputs: read the output tensor produced by the graph, flat in
-        // NCHW-coincident order (resnet {N,1000}, yolo {1,84,8400}).
-        struct ggml_tensor* logits = output_tensors_.at(0);
-        const float* logits_f32 = static_cast<const float*>(logits->data);
-        const bool is3d = output_shape_.size() == 3;
-        const int64_t out_classes = is3d ? output_shape_[1] : output_shape_.back();
-        const int64_t out_rows = is3d ? output_shape_[2] : 1;
+        // Real outputs: read every tensor the graph exposes, flat in
+        // NCHW-coincident order. ResNet keeps its per-batch {N,1000} layout;
+        // YOLO detection returns {1,84,8400}; segmentation returns
+        // {1,116,8400} then {1,32,160,160}.
+        if (output_tensors_.empty() || output_tensors_.size() != output_shapes_.size()) {
+            throw std::runtime_error(
+                "GGML output contract mismatch: tensors=" + std::to_string(output_tensors_.size()) +
+                " shapes=" + std::to_string(output_shapes_.size()));
+        }
         std::vector<std::vector<TensorElement>> outputs;
         std::vector<std::vector<int64_t>> shapes;
-        for (size_t b = 0; b < static_cast<size_t>(batch_size_); ++b) {
-            std::vector<TensorElement> output_data;
-            output_data.reserve(static_cast<size_t>(out_classes * out_rows));
-            for (int64_t c = 0; c < out_classes * out_rows; ++c) {
-                output_data.emplace_back(logits_f32[b * static_cast<size_t>(out_classes * out_rows) + c]);
+        if (output_tensors_.size() == 1 && output_shapes_[0].size() == 2) {
+            // Existing single-output classifier contract: one vector per
+            // batch entry, shape {batch_size, classes}.
+            struct ggml_tensor* logits = output_tensors_.at(0);
+            if (logits->type != GGML_TYPE_F32) {
+                throw std::runtime_error("GGML output is not F32 (type=" +
+                                         std::to_string(static_cast<int>(logits->type)) + "); refusing to reinterpret");
             }
-            outputs.push_back(std::move(output_data));
-            if (is3d) {
-                shapes.push_back({static_cast<int64_t>(batch_size_), out_classes, out_rows});
-            } else {
+            const float* logits_f32 = static_cast<const float*>(logits->data);
+            const int64_t out_classes = output_shapes_[0].back();
+            const int64_t out_rows = 1;
+            for (size_t b = 0; b < static_cast<size_t>(batch_size_); ++b) {
+                std::vector<TensorElement> output_data;
+                output_data.reserve(static_cast<size_t>(out_classes * out_rows));
+                for (int64_t c = 0; c < out_classes * out_rows; ++c) {
+                    output_data.emplace_back(logits_f32[b * static_cast<size_t>(out_classes * out_rows) + c]);
+                }
+                outputs.push_back(std::move(output_data));
                 shapes.push_back({static_cast<int64_t>(batch_size_), out_classes});
+            }
+        } else {
+            for (size_t oi = 0; oi < output_tensors_.size(); ++oi) {
+                if (output_tensors_[oi]->type != GGML_TYPE_F32) {
+                    throw std::runtime_error("GGML output[" + std::to_string(oi) + "] is not F32 (type=" +
+                                             std::to_string(static_cast<int>(output_tensors_[oi]->type)) +
+                                             "); refusing to reinterpret");
+                }
+                const size_t elements = static_cast<size_t>(ggml_nelements(output_tensors_[oi]));
+                const float* data = static_cast<const float*>(output_tensors_[oi]->data);
+                std::vector<TensorElement> output_data;
+                output_data.reserve(elements);
+                for (size_t i = 0; i < elements; ++i) {
+                    output_data.emplace_back(data[i]);
+                }
+                outputs.push_back(std::move(output_data));
+                shapes.push_back(output_shapes_[oi]);
             }
         }
 

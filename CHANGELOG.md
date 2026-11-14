@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
+  LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
+  attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity
+  tests are in `GGMLOpsParityTest`; full RT-DETR graph execution remains
+  blocked on multi-input/INT64 support and a generic ONNX-subset importer.
+- YOLOv8n-seg path for the `GGML` backend: the loader now returns every graph
+  output (detection `[1,116,8400]` plus prototype masks `[1,32,160,160]`) and
+  builds the cv4 mask-coefficient head and proto branch from real weights.
+  ORT parity on gray/zeros/gradient: `output0` max-cell agreement and
+  max-abs-diff ~1.5e-3, `output1` max-abs-diff ~1.7e-3 (adopted 1e-2).
 - YOLOv8n detection path for the `GGML` backend: full CSP stem + C2f + SPPF +
   PAN + decoupled head + in-graph DFL from real weights, returning the raw
   `[1,84,8400]` tensor. ORT parity: max-cell agreement on gray/zeros/gradient

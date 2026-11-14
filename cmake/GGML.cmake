@@ -1,5 +1,6 @@
 set(GGML_SOURCES
 ${INFER_ROOT}/ggml/src/GGMLInfer.cpp
+${INFER_ROOT}/ggml/src/GGMLOps.cpp
 # Add more GGML source files here if needed
 )
 
