@@ -11,7 +11,7 @@ Written before implementation; execute from this file.
 - [x] [V-4] → [R-4]: resnet18/50 goldens still green.
 - [x] [V-5] → gates: full ctest, `gen_backend_docs --check`, `git diff --check`,
   clang-format clean (C++ only).
-- [ ] [V-6] → brev re-gate on the real artifact + teardown verified.
+- [x] [V-6] → brev re-gate on the real artifact + teardown verified.
 
 ## Evidence
 
@@ -19,10 +19,10 @@ Written before implementation; execute from this file.
 |----|---------------|--------|------|-------|
 | V-1 | yolo convert | pass | 2026-11-14 | `yolov8n.onnx` (opset 12, static 640) → NGGL 132 float tensors; DFL/mul/const initializers carried; int64 shape params hardcoded+documented |
 | V-2 | yolo load+run | pass | 2026-11-14 | full graph loads; [1,84,8400] finite on zeros/gray |
-| V-3 | yolo parity | pass | 2026-11-14 | max-cell agree gray+zeros; max-abs-diff 2.01e-03/9.15e-04 vs adopted ≤1e-2 |
+| V-3 | yolo parity | pass | 2026-11-14 | max-cell agree gray/zeros/gradient; max-abs-diff 2.01e-03/9.15e-04/6.71e-04 vs adopted ≤1e-2 |
 | V-4 | resnet no-regress | pass | 2026-11-14 | full ctest 77/77 ( ParityVsOrt/50 green locally) |
 | V-5 | gates | pass | 2026-11-14 | ctest 77/77, gen_backend_docs --check, diff-check, clang-format clean |
-| V-6 | brev re-gate | not executed | - | |
+| V-6 | brev re-gate | pass | 2026-11-14 | `ggml-yolo` fresh box (SDK+BLAS rebuilt): all 3 models converted from real ONNX; `GGMLInferTest` 12 passed/1 skipped; ParityVsOrt + ParityVsOrt50 + ParityVsYolo all exact |
 
 ## Deviations
 
