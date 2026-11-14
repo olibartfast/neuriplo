@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- YOLOv8n detection path for the `GGML` backend: full CSP stem + C2f + SPPF +
+  PAN + decoupled head + in-graph DFL from real weights, returning the raw
+  `[1,84,8400]` tensor. ORT parity: max-cell agreement on gray/zeros/gradient
+  inputs, max-abs-diff ~2e-3 vs adopted 1e-2 tolerance.
 - Real ResNet18 classifier path for the `GGML` backend: `GGMLInfer` parses the
   NGGL weight file (`scripts/convert_onnx_to_ggml.py`), builds the full
   stem + 8-block + GAP + FC graph with BatchNorm folded at load, and returns

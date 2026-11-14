@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert an ONNX classifier to the minimal NGGL weight file read by GGMLInfer.
+"""Convert an ONNX model to the minimal NGGL weight file read by GGMLInfer.
 
 NGGL layout (little-endian, Q-1 decision in
 specs/2026-11-13-ggml-real-loader/requirements.md):
@@ -72,8 +72,17 @@ def _read_float_initializers(onnx_path):
 
 
 def _check_fc_pair(tensors):
-    """Fail unless a [1000,512] (ResNet18) or [1000,2048] (ResNet50) weight
-    and a [1000] bias are present."""
+    """Fail unless the file carries a loadable head. ResNet files need a
+    [1000,512] (ResNet18) or [1000,2048] (ResNet50) weight plus a [1000]
+    bias. YOLO detection files (ultralytics `model.*` naming) need the fixed
+    DFL conv weight instead (the head is decoded, not classified)."""
+    names = {name for name, _, _ in tensors}
+    if any(n.startswith("model.") for n in names):
+        if "model.22.dfl.conv.weight" not in names:
+            print("error: YOLO file missing fixed DFL conv weight "
+                  "'model.22.dfl.conv.weight'", file=sys.stderr)
+            return False
+        return True
     shapes = {tuple(dims) for _, dims, _ in tensors}
     if not any(tuple(s) in shapes for s in FC_WEIGHT_SHAPES):
         print(f"error: minimum FC contract not satisfied: no 2D "
@@ -155,11 +164,11 @@ def main(argv=None):
     parser.add_argument("--batch-size", type=int, default=1,
                         help="batch size (recorded for callers; loader uses its own)")
     args = parser.parse_args(argv)
-    # Fixed layout packet: only the default geometry is supported. Reject
-    # anything else loudly instead of silently ignoring it.
-    if args.input_shape != "3,224,224":
+    # Fixed layout packets: only the documented geometries are supported.
+    # Reject anything else loudly instead of silently ignoring it.
+    if args.input_shape not in ("3,224,224", "3,640,640"):
         print(f"error: unsupported --input-shape '{args.input_shape}': "
-              "this packet supports only 3,224,224", file=sys.stderr)
+              "this packet supports only 3,224,224 (ResNet) or 3,640,640 (YOLOv8n)", file=sys.stderr)
         return 2
     if args.batch_size != 1:
         print(f"error: unsupported --batch-size {args.batch_size}: "

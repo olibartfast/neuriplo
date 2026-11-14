@@ -235,15 +235,23 @@ bool load_ort_ref_logits(const fs::path& path, std::vector<float>& out, std::str
         error = "truncated npy header in " + path.string();
         return false;
     }
-    // Expect descr '<f4' (or '|f4'/'=f4') and shape (1000,).
+    // Expect descr '<f4' (or '|f4'/'=f4') and a 1D shape (N,).
+    const auto shape_pos = header.find("'shape'");
+    const auto num_pos = header.find_first_of("0123456789", shape_pos == std::string::npos ? 0 : shape_pos);
+    const auto comma_pos = header.find(',', num_pos == std::string::npos ? 0 : num_pos);
     if (header.find("'descr'") == std::string::npos || header.find("f4") == std::string::npos ||
-        header.find("1000") == std::string::npos) {
-        error = "unexpected npy header (want float32 shape (1000,)) in " + path.string() + ": " + header;
+        shape_pos == std::string::npos || num_pos == std::string::npos || comma_pos == std::string::npos) {
+        error = "unexpected npy header (want float32 1D shape) in " + path.string() + ": " + header;
         return false;
     }
-    out.resize(1000);
-    f.read(reinterpret_cast<char*>(out.data()), 1000 * sizeof(float));
-    if (f.gcount() != 1000 * static_cast<std::streamsize>(sizeof(float))) {
+    const size_t count = static_cast<size_t>(std::stoul(header.substr(num_pos, comma_pos - num_pos)));
+    if (count == 0 || count > (1u << 26)) {
+        error = "implausible npy element count in " + path.string();
+        return false;
+    }
+    out.resize(count);
+    f.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(count * sizeof(float)));
+    if (static_cast<size_t>(f.gcount()) != count * sizeof(float)) {
         error = "truncated npy data in " + path.string();
         return false;
     }
@@ -299,7 +307,9 @@ inline std::vector<uint8_t> gradient_blob_bytes(int n = 1, int c = 3, int h = 22
     return bytes;
 }
 
-inline std::vector<std::vector<uint8_t>> gradient_blob_tensors() { return {gradient_blob_bytes()}; }
+inline std::vector<std::vector<uint8_t>> gradient_blob_tensors(int n = 1, int c = 3, int h = 224, int w = 224) {
+    return {gradient_blob_bytes(n, c, h, w)};
+}
 
 struct ParityCaseResult {
     std::string label;
@@ -457,6 +467,59 @@ TEST_F(GGMLInferTest, ParityVsOrt) {
     for (const auto& r : results18) {
         RecordProperty(("ort_max_abs_diff_" + r.label).c_str(), r.diff);
         RecordProperty(("ort_top5_agree_" + r.label).c_str(), r.top5_agree ? 1 : 0);
+    }
+}
+
+// YOLOv8n ORT parity golden (R-3): same fixed inputs through the real GGML
+// YOLO graph and stock onnxruntime on yolov8n.onnx. Compares the raw
+// [1,84,8400] outputs: max-cell agreement (argmax over all 705600 values must
+// match — decoding identical maxima means identical detections downstream)
+// and max-abs-diff within tolerance. SKIPs without artifact or refs.
+TEST_F(GGMLInferTest, ParityVsYolo) {
+    const fs::path model_path = "/tmp/yolov8n.ggml";
+    if (!fs::exists(model_path)) {
+        GTEST_SKIP() << "Skipping yolo parity test - no model artifact (/tmp/yolov8n.ggml missing; "
+                        "convert: python3 scripts/convert_onnx_to_ggml.py --input /tmp/yolov8n.onnx)";
+    }
+    const std::vector<fs::path> ref_paths = {"/tmp/ort_yolo_gray.npy", "/tmp/ort_yolo_zeros.npy",
+                                             "/tmp/ort_yolo_gradient.npy"};
+    for (const auto& ref_path : ref_paths) {
+        if (!fs::exists(ref_path)) {
+            GTEST_SKIP() << "Skipping yolo parity test - ORT reference files missing";
+        }
+    }
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 640, 640}};
+    GGMLInfer infer(model_path.string(), false, 1, input_sizes);
+    constexpr double kYoloParityTolerance = 1e-2;
+    const std::vector<std::pair<std::string, std::vector<std::vector<uint8_t>>>> cases = {
+        {"gray", neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized, 1, 3, 640, 640)},
+        {"zeros", neuriplo::testing::zero_blob_tensors(1, 3, 640, 640)},
+        {"gradient", gradient_blob_tensors(1, 3, 640, 640)},
+    };
+    const std::vector<fs::path> refs = {"/tmp/ort_yolo_gray.npy", "/tmp/ort_yolo_zeros.npy",
+                                        "/tmp/ort_yolo_gradient.npy"};
+    for (size_t c = 0; c < cases.size(); ++c) {
+        std::vector<float> ref_logits;
+        std::string error;
+        ASSERT_TRUE(load_ort_ref_logits(refs[c], ref_logits, error)) << error;
+        ASSERT_EQ(ref_logits.size(), static_cast<size_t>(84 * 8400));
+        const auto [outputs, shapes] = infer.get_infer_results(cases[c].second);
+        ASSERT_EQ(outputs.size(), 1u);
+        ASSERT_EQ(outputs[0].size(), static_cast<size_t>(84 * 8400));
+        ASSERT_EQ(shapes[0], (std::vector<int64_t>{1, 84, 8400}));
+        const std::vector<float> got_logits = tensor_to_floats(outputs[0]);
+        const double diff = max_abs_diff(got_logits, ref_logits);
+        const auto got_max = std::max_element(got_logits.begin(), got_logits.end());
+        const auto ref_max = std::max_element(ref_logits.begin(), ref_logits.end());
+        const bool max_cell_agree =
+            std::distance(got_logits.begin(), got_max) == std::distance(ref_logits.begin(), ref_max);
+        RecordProperty(("yolo_max_abs_diff_" + cases[c].first).c_str(), diff);
+        RecordProperty(("yolo_max_cell_agree_" + cases[c].first).c_str(), max_cell_agree ? 1 : 0);
+        std::cout << "[yolo-parity] input=" << cases[c].first << " max_abs_diff=" << diff
+                  << " max_cell_agree=" << max_cell_agree << std::endl;
+        EXPECT_TRUE(max_cell_agree) << "input=" << cases[c].first << " max cell mismatch";
+        EXPECT_LE(diff, kYoloParityTolerance)
+            << "input=" << cases[c].first << " max_abs_diff=" << diff << " exceeds tolerance";
     }
 }
 

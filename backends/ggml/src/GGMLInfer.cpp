@@ -229,6 +229,33 @@ struct ggml_tensor* bottleneck_block(struct ggml_context* ctx, struct ggml_tenso
     return ggml_relu(ctx, ggml_add(ctx, h, skip));
 }
 
+// ---- YOLOv8 helpers (fixed 640 geometry; NCHW stored ggml-order) ----
+
+// Split a channel dim in half. Input must be contiguous (conv/silu outputs
+// are); the two views share storage, no copy.
+inline std::pair<struct ggml_tensor*, struct ggml_tensor*> split_half(struct ggml_context* ctx, struct ggml_tensor* x) {
+    const int64_t W = x->ne[0];
+    const int64_t H = x->ne[1];
+    const int64_t C = x->ne[2];
+    const int64_t N = x->ne[3];
+    // nb strides of a contiguous tensor, in bytes.
+    const size_t nb1 = static_cast<size_t>(W) * sizeof(float);
+    const size_t nb2 = nb1 * static_cast<size_t>(H);
+    const size_t nb3 = nb2 * static_cast<size_t>(C);
+    struct ggml_tensor* a = ggml_view_4d(ctx, x, W, H, C / 2, N, nb1, nb2, nb3, 0);
+    struct ggml_tensor* b = ggml_view_4d(ctx, x, W, H, C / 2, N, nb1, nb2, nb3, (nb3 / 2));
+    return {a, b};
+}
+
+// Channel concat of 2..4 inputs (ggml dim 2 == NCHW dim 1).
+inline struct ggml_tensor* concat_ch(struct ggml_context* ctx, const std::vector<struct ggml_tensor*>& xs) {
+    struct ggml_tensor* out = xs[0];
+    for (size_t i = 1; i < xs.size(); ++i) {
+        out = ggml_concat(ctx, out, xs[i], 2);
+    }
+    return ggml_cont(ctx, out);
+}
+
 } // namespace
 
 GGMLInfer::GGMLInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
@@ -367,7 +394,16 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 fail_model(model_path, "truncated dims of tensor '" + name + "'");
             }
             if (dims[d] == 0) {
-                fail_model(model_path, "tensor '" + name + "' has zero-sized dim " + std::to_string(d));
+                // Zero-sized dims are legal (e.g. an empty Resize roi);
+                // the product below becomes 0 and num_elements must be 0.
+                dim_product = 0;
+                // Still consume the dim value check below; skip the rest.
+                for (++d; d < ndims; ++d) {
+                    if (!read_pod(file, dims[d])) {
+                        fail_model(model_path, "truncated dims of tensor '" + name + "'");
+                    }
+                }
+                break;
             }
             if (dim_product > (uint64_t(1) << 32) / dims[d]) {
                 fail_model(model_path, "tensor '" + name + "' dims overflow");
@@ -423,74 +459,95 @@ void GGMLInfer::load_model(const std::string& model_path) {
     // with the path and the shapes seen (R-5).
     const std::string shapes_seen = describe_shapes(tensors);
 
-    struct VariantSpec {
-        const char* prefix;
-        const char* fc_weight;
-        const char* fc_bias;
-    };
-    // resnet18-v1-7.onnx carries resnetv15_* (512-d FC);
-    // resnet50-v1-12.onnx carries resnetv17_* (2048-d FC).
-    constexpr VariantSpec kVariants[] = {
-        {"resnetv15_", "resnetv15_dense0_weight", "resnetv15_dense0_bias"},
-        {"resnetv17_", "resnetv17_dense0_weight", "resnetv17_dense0_bias"},
-    };
+    // YOLOv8n detection: dot-separated ultralytics tensor names anchored at
+    // the stem conv. Fixed 1x3x640x640 input, [1,84,8400] raw output.
+    const bool is_yolo = tensors.count("model.0.conv.weight") != 0;
+    is_yolo_ = is_yolo;
+    if (is_yolo) {
+        input_height_ = 640;
+        input_width_ = 640;
+        output_shape_ = {1, 84, 8400};
+        if (batch_size_ != 1) {
+            fail_model(model_path, "GGML YOLOv8n path is fixed batch-1 (box math constants are single-batch)");
+        }
+    }
+
     std::string prefix;
     std::string fc_w_name;
     std::string fc_b_name;
-    for (const auto& v : kVariants) {
-        if (tensors.count(v.fc_weight) != 0 && tensors.count(v.fc_bias) != 0) {
-            prefix = v.prefix;
-            fc_w_name = v.fc_weight;
-            fc_b_name = v.fc_bias;
-            break;
-        }
-    }
-    if (fc_w_name.empty()) {
-        // Dims-only fallback: one 2D [1000,K]/[K,1000] classifier weight
-        // decides; the stage prefix is stripped from its name so the stage
-        // requires below resolve under the file's own naming.
-        std::string w_name;
-        for (const auto& kv : tensors) {
-            const auto& d = kv.second.dims;
-            if (d.size() == 2 && ((d[0] == 1000 && d[1] != 1000) || (d[1] == 1000 && d[0] != 1000))) {
-                if (!w_name.empty()) {
-                    fail_model(model_path,
-                               "ambiguous classifier weights (need one 2D [1000,K]/[K,1000]); tensors:" + shapes_seen);
-                }
-                w_name = kv.first;
+    uint32_t fc_in_dim = 0;
+    bool is_bottleneck = false;
+    if (!is_yolo) {
+        struct VariantSpec {
+            const char* prefix;
+            const char* fc_weight;
+            const char* fc_bias;
+        };
+        // resnet18-v1-7.onnx carries resnetv15_* (512-d FC);
+        // resnet50-v1-12.onnx carries resnetv17_* (2048-d FC).
+        constexpr VariantSpec kVariants[] = {
+            {"resnetv15_", "resnetv15_dense0_weight", "resnetv15_dense0_bias"},
+            {"resnetv17_", "resnetv17_dense0_weight", "resnetv17_dense0_bias"},
+        };
+        for (const auto& v : kVariants) {
+            if (tensors.count(v.fc_weight) != 0 && tensors.count(v.fc_bias) != 0) {
+                prefix = v.prefix;
+                fc_w_name = v.fc_weight;
+                fc_b_name = v.fc_bias;
+                break;
             }
         }
-        if (w_name.empty()) {
-            fail_model(model_path, "no recognized ResNet-18/50 classifier pair (need [1000,512]/[1000,2048] weight + "
-                                   "[1000] bias); tensors:" +
+        if (fc_w_name.empty()) {
+            // Dims-only fallback: one 2D [1000,K]/[K,1000] classifier weight
+            // decides; the stage prefix is stripped from its name so the stage
+            // requires below resolve under the file's own naming.
+            std::string w_name;
+            for (const auto& kv : tensors) {
+                const auto& d = kv.second.dims;
+                if (d.size() == 2 && ((d[0] == 1000 && d[1] != 1000) || (d[1] == 1000 && d[0] != 1000))) {
+                    if (!w_name.empty()) {
+                        fail_model(model_path,
+                                   "ambiguous classifier weights (need one 2D [1000,K]/[K,1000]); tensors:" +
+                                       shapes_seen);
+                    }
+                    w_name = kv.first;
+                }
+            }
+            if (w_name.empty()) {
+                fail_model(model_path,
+                           "no recognized ResNet-18/50 classifier pair (need [1000,512]/[1000,2048] weight + "
+                           "[1000] bias); tensors:" +
+                               shapes_seen);
+            }
+            constexpr char kFcSuffix[] = "dense0_weight";
+            constexpr size_t kFcSuffixLen = sizeof(kFcSuffix) - 1;
+            if (w_name.size() < kFcSuffixLen ||
+                w_name.compare(w_name.size() - kFcSuffixLen, kFcSuffixLen, kFcSuffix, kFcSuffixLen) != 0) {
+                fail_model(model_path,
+                           "classifier weight '" + w_name + "' has no 'dense0_weight' suffix; tensors:" + shapes_seen);
+            }
+            prefix = w_name.substr(0, w_name.size() - kFcSuffixLen);
+            fc_w_name = w_name;
+            fc_b_name = prefix + "dense0_bias";
+            require_tensor(tensors, fc_b_name, model_path, shapes_seen);
+        }
+        const LoadedTensor& fc_weight_probe = require_tensor(tensors, fc_w_name, model_path, shapes_seen);
+        if (fc_weight_probe.dims.size() != 2 ||
+            !((fc_weight_probe.dims[0] == 1000 &&
+               (fc_weight_probe.dims[1] == 512 || fc_weight_probe.dims[1] == 2048)) ||
+              (fc_weight_probe.dims[1] == 1000 &&
+               (fc_weight_probe.dims[0] == 512 || fc_weight_probe.dims[0] == 2048)))) {
+            fail_model(model_path, "classifier weight '" + fc_w_name +
+                                       "' has unexpected dims (need [1000,512]/[1000,2048] "
+                                       "or transposed); tensors:" +
                                        shapes_seen);
         }
-        constexpr char kFcSuffix[] = "dense0_weight";
-        constexpr size_t kFcSuffixLen = sizeof(kFcSuffix) - 1;
-        if (w_name.size() < kFcSuffixLen ||
-            w_name.compare(w_name.size() - kFcSuffixLen, kFcSuffixLen, kFcSuffix, kFcSuffixLen) != 0) {
-            fail_model(model_path,
-                       "classifier weight '" + w_name + "' has no 'dense0_weight' suffix; tensors:" + shapes_seen);
-        }
-        prefix = w_name.substr(0, w_name.size() - kFcSuffixLen);
-        fc_w_name = w_name;
-        fc_b_name = prefix + "dense0_bias";
-        require_tensor(tensors, fc_b_name, model_path, shapes_seen);
-    }
-    const LoadedTensor& fc_weight_probe = require_tensor(tensors, fc_w_name, model_path, shapes_seen);
-    if (fc_weight_probe.dims.size() != 2 ||
-        !((fc_weight_probe.dims[0] == 1000 && (fc_weight_probe.dims[1] == 512 || fc_weight_probe.dims[1] == 2048)) ||
-          (fc_weight_probe.dims[1] == 1000 && (fc_weight_probe.dims[0] == 512 || fc_weight_probe.dims[0] == 2048)))) {
-        fail_model(model_path, "classifier weight '" + fc_w_name +
-                                   "' has unexpected dims (need [1000,512]/[1000,2048] "
-                                   "or transposed); tensors:" +
-                                   shapes_seen);
-    }
-    const uint32_t fc_in_dim = (fc_weight_probe.dims[0] == 1000) ? fc_weight_probe.dims[1] : fc_weight_probe.dims[0];
-    // FC input dim decides the block topology; the stage requires below are
-    // the bottleneck tensor-presence check (a 2048-d file without bottleneck
-    // stage tensors fails on the first missing/wrong-shaped conv).
-    const bool is_bottleneck = (fc_in_dim == 2048);
+        fc_in_dim = (fc_weight_probe.dims[0] == 1000) ? fc_weight_probe.dims[1] : fc_weight_probe.dims[0];
+        // FC input dim decides the block topology; the stage requires below are
+        // the bottleneck tensor-presence check (a 2048-d file without bottleneck
+        // stage tensors fails on the first missing/wrong-shaped conv).
+        is_bottleneck = (fc_in_dim == 2048);
+    } // end if (!is_yolo): ResNet dispatch
 
     // Constant fills staged here: tensor storage is only valid after the
     // backend buffer is allocated, so weights are memcpy'd post-alloc.
@@ -519,120 +576,284 @@ void GGMLInfer::load_model(const std::string& model_path) {
 
     const int64_t N = static_cast<int64_t>(batch_size_);
     // feat_tensor_ is the graph input [W,H,C,N], fed (NCHW-coincident copy)
-    // each inference.
-    feat_tensor_ = ggml_new_tensor_4d(ctx_, GGML_TYPE_F32, kInputWidth, kInputHeight, kInputChannels, N);
+    // each inference. Geometry is per-model (members set at dispatch).
+    feat_tensor_ = ggml_new_tensor_4d(ctx_, GGML_TYPE_F32, input_width_, input_height_, kInputChannels, N);
 
     struct ggml_tensor* x = feat_tensor_;
+    struct ggml_tensor* logits = nullptr;
 
-    // Stem: conv7x7/s2/p3 64ch -> folded bias -> relu -> maxpool k3/s2/p1.
-    // 224 -> conv -> 112 -> pool -> 56. Shared by both variants.
-    {
-        const FoldedConv stem = folded_conv(prefix + "conv0_weight", prefix + "batchnorm0_", 64, 3, 7, 7);
-        x = conv_bias_add(ctx_, x, stem, 2, 3, true);
-        x = ggml_pool_2d(ctx_, x, GGML_OP_POOL_MAX, 3, 3, 2, 2, 1.0f, 1.0f);
-    }
+    if (!is_yolo) {
 
-    if (!is_bottleneck) {
-        // ResNet-18: layer1 2x basic(64, s1, no downsample), 56x56x64.
+        // Stem: conv7x7/s2/p3 64ch -> folded bias -> relu -> maxpool k3/s2/p1.
+        // 224 -> conv -> 112 -> pool -> 56. Shared by both variants.
         {
-            const FoldedConv c0 =
-                folded_conv(prefix + "stage1_conv0_weight", prefix + "stage1_batchnorm0_", 64, 64, 3, 3);
-            const FoldedConv c1 =
-                folded_conv(prefix + "stage1_conv1_weight", prefix + "stage1_batchnorm1_", 64, 64, 3, 3);
-            x = basic_block(ctx_, x, c0, c1, nullptr, 1);
-            const FoldedConv c2 =
-                folded_conv(prefix + "stage1_conv2_weight", prefix + "stage1_batchnorm2_", 64, 64, 3, 3);
-            const FoldedConv c3 =
-                folded_conv(prefix + "stage1_conv3_weight", prefix + "stage1_batchnorm3_", 64, 64, 3, 3);
-            x = basic_block(ctx_, x, c2, c3, nullptr, 1);
+            const FoldedConv stem = folded_conv(prefix + "conv0_weight", prefix + "batchnorm0_", 64, 3, 7, 7);
+            x = conv_bias_add(ctx_, x, stem, 2, 3, true);
+            x = ggml_pool_2d(ctx_, x, GGML_OP_POOL_MAX, 3, 3, 2, 2, 1.0f, 1.0f);
         }
 
-        // Layers 2..4: basic(C, s2 + 1x1 downsample conv2/bn2) + basic(C, s1).
-        // 56 -> 28 (128ch) -> 14 (256ch) -> 7 (512ch).
-        for (int stage = 2; stage <= 4; ++stage) {
-            const uint32_t C = stage == 2 ? 128 : (stage == 3 ? 256 : 512);
-            const uint32_t Cin = C / 2;
-            const std::string pre = prefix + "stage" + std::to_string(stage) + "_";
-            const FoldedConv c0 = folded_conv(pre + "conv0_weight", pre + "batchnorm0_", C, Cin, 3, 3);
-            const FoldedConv c1 = folded_conv(pre + "conv1_weight", pre + "batchnorm1_", C, C, 3, 3);
-            const FoldedConv ds = folded_conv(pre + "conv2_weight", pre + "batchnorm2_", C, Cin, 1, 1);
-            x = basic_block(ctx_, x, c0, c1, &ds, 2);
-            const FoldedConv c3 = folded_conv(pre + "conv3_weight", pre + "batchnorm3_", C, C, 3, 3);
-            const FoldedConv c4 = folded_conv(pre + "conv4_weight", pre + "batchnorm4_", C, C, 3, 3);
-            x = basic_block(ctx_, x, c3, c4, nullptr, 1);
+        if (!is_bottleneck) {
+            // ResNet-18: layer1 2x basic(64, s1, no downsample), 56x56x64.
+            {
+                const FoldedConv c0 =
+                    folded_conv(prefix + "stage1_conv0_weight", prefix + "stage1_batchnorm0_", 64, 64, 3, 3);
+                const FoldedConv c1 =
+                    folded_conv(prefix + "stage1_conv1_weight", prefix + "stage1_batchnorm1_", 64, 64, 3, 3);
+                x = basic_block(ctx_, x, c0, c1, nullptr, 1);
+                const FoldedConv c2 =
+                    folded_conv(prefix + "stage1_conv2_weight", prefix + "stage1_batchnorm2_", 64, 64, 3, 3);
+                const FoldedConv c3 =
+                    folded_conv(prefix + "stage1_conv3_weight", prefix + "stage1_batchnorm3_", 64, 64, 3, 3);
+                x = basic_block(ctx_, x, c2, c3, nullptr, 1);
+            }
+
+            // Layers 2..4: basic(C, s2 + 1x1 downsample conv2/bn2) + basic(C, s1).
+            // 56 -> 28 (128ch) -> 14 (256ch) -> 7 (512ch).
+            for (int stage = 2; stage <= 4; ++stage) {
+                const uint32_t C = stage == 2 ? 128 : (stage == 3 ? 256 : 512);
+                const uint32_t Cin = C / 2;
+                const std::string pre = prefix + "stage" + std::to_string(stage) + "_";
+                const FoldedConv c0 = folded_conv(pre + "conv0_weight", pre + "batchnorm0_", C, Cin, 3, 3);
+                const FoldedConv c1 = folded_conv(pre + "conv1_weight", pre + "batchnorm1_", C, C, 3, 3);
+                const FoldedConv ds = folded_conv(pre + "conv2_weight", pre + "batchnorm2_", C, Cin, 1, 1);
+                x = basic_block(ctx_, x, c0, c1, &ds, 2);
+                const FoldedConv c3 = folded_conv(pre + "conv3_weight", pre + "batchnorm3_", C, C, 3, 3);
+                const FoldedConv c4 = folded_conv(pre + "conv4_weight", pre + "batchnorm4_", C, C, 3, 3);
+                x = basic_block(ctx_, x, c3, c4, nullptr, 1);
+            }
+        } else {
+            // ResNet-50: stages [3,4,6,3] bottleneck blocks, widths 64/128/256/512
+            // expanding 4x. Every stage entry (block 0) carries the stride on the
+            // 1x1 reduce (1 on stage 1, 2 below) and a 1x1 downsample on the skip;
+            // later blocks are stride-1 with identity skips. Per-block conv
+            // indices: block 0 -> (0,1,2), block b>=1 -> (3b+1,3b+2,3b+3);
+            // the downsample is always conv3/bn3.
+            constexpr uint32_t kBlocks[4] = {3, 4, 6, 3};
+            constexpr uint32_t kWidth[4] = {64, 128, 256, 512};
+            uint32_t in_ch = 64; // stem output channels
+            for (int s = 0; s < 4; ++s) {
+                const uint32_t C = kWidth[s];
+                const int entry_stride = (s == 0) ? 1 : 2;
+                const std::string pre = prefix + "stage" + std::to_string(s + 1) + "_";
+                for (uint32_t b = 0; b < kBlocks[s]; ++b) {
+                    const uint32_t base = (b == 0) ? 0 : 3 * b + 1;
+                    const uint32_t in = (b == 0) ? in_ch : 4 * C;
+                    const int stride = (b == 0) ? entry_stride : 1;
+                    const FoldedConv reduce = folded_conv(pre + "conv" + std::to_string(base) + "_weight",
+                                                          pre + "batchnorm" + std::to_string(base) + "_", C, in, 1, 1);
+                    const FoldedConv mid = folded_conv(pre + "conv" + std::to_string(base + 1) + "_weight",
+                                                       pre + "batchnorm" + std::to_string(base + 1) + "_", C, C, 3, 3);
+                    const FoldedConv expand =
+                        folded_conv(pre + "conv" + std::to_string(base + 2) + "_weight",
+                                    pre + "batchnorm" + std::to_string(base + 2) + "_", 4 * C, C, 1, 1);
+                    if (b == 0) {
+                        const FoldedConv ds =
+                            folded_conv(pre + "conv3_weight", pre + "batchnorm3_", 4 * C, in_ch, 1, 1);
+                        x = bottleneck_block(ctx_, x, reduce, mid, expand, &ds, stride);
+                    } else {
+                        x = bottleneck_block(ctx_, x, reduce, mid, expand, nullptr, stride);
+                    }
+                }
+                in_ch = 4 * C;
+            }
         }
-    } else {
-        // ResNet-50: stages [3,4,6,3] bottleneck blocks, widths 64/128/256/512
-        // expanding 4x. Every stage entry (block 0) carries the stride on the
-        // 1x1 reduce (1 on stage 1, 2 below) and a 1x1 downsample on the skip;
-        // later blocks are stride-1 with identity skips. Per-block conv
-        // indices: block 0 -> (0,1,2), block b>=1 -> (3b+1,3b+2,3b+3);
-        // the downsample is always conv3/bn3.
-        constexpr uint32_t kBlocks[4] = {3, 4, 6, 3};
-        constexpr uint32_t kWidth[4] = {64, 128, 256, 512};
-        uint32_t in_ch = 64; // stem output channels
-        for (int s = 0; s < 4; ++s) {
-            const uint32_t C = kWidth[s];
-            const int entry_stride = (s == 0) ? 1 : 2;
-            const std::string pre = prefix + "stage" + std::to_string(s + 1) + "_";
-            for (uint32_t b = 0; b < kBlocks[s]; ++b) {
-                const uint32_t base = (b == 0) ? 0 : 3 * b + 1;
-                const uint32_t in = (b == 0) ? in_ch : 4 * C;
-                const int stride = (b == 0) ? entry_stride : 1;
-                const FoldedConv reduce = folded_conv(pre + "conv" + std::to_string(base) + "_weight",
-                                                      pre + "batchnorm" + std::to_string(base) + "_", C, in, 1, 1);
-                const FoldedConv mid = folded_conv(pre + "conv" + std::to_string(base + 1) + "_weight",
-                                                   pre + "batchnorm" + std::to_string(base + 1) + "_", C, C, 3, 3);
-                const FoldedConv expand =
-                    folded_conv(pre + "conv" + std::to_string(base + 2) + "_weight",
-                                pre + "batchnorm" + std::to_string(base + 2) + "_", 4 * C, C, 1, 1);
-                if (b == 0) {
-                    const FoldedConv ds = folded_conv(pre + "conv3_weight", pre + "batchnorm3_", 4 * C, in_ch, 1, 1);
-                    x = bottleneck_block(ctx_, x, reduce, mid, expand, &ds, stride);
-                } else {
-                    x = bottleneck_block(ctx_, x, reduce, mid, expand, nullptr, stride);
+
+        // Head: global avgpool k7 (7x7 -> 1x1) -> reshape K -> FC.
+        const LoadedTensor& fc_weight = require_tensor(tensors, fc_w_name, model_path, shapes_seen);
+        const LoadedTensor& fc_bias = require_tensor(tensors, fc_b_name, model_path, shapes_seen);
+        // Normalize the weight to ggml ne order [K, 1000] (ONNX Gemm transB=1:
+        // file holds row-major [1000,K], i.e. W[n][k] at n*K+k). ggml is
+        // column-major and ggml_mul_mat(a,b) needs a->ne[0] == b->ne[0],
+        // yielding [a->ne[1], b->ne[1]] with dst[n,m] = sum_k a[k,n]*b[k,m]:
+        // row-major [1000,K] bytes already coincide with ne=[K,1000]
+        // element (k,n) at k+n*K, so they copy verbatim. A file already in
+        // [K,1000] row-major order is transposed into place instead.
+        std::vector<float> w_normalized(static_cast<size_t>(fc_in_dim) * 1000);
+        if (fc_weight.dims == std::vector<uint32_t>{1000, fc_in_dim}) {
+            w_normalized = fc_weight.data;
+        } else if (fc_weight.dims == std::vector<uint32_t>{fc_in_dim, 1000}) {
+            for (uint32_t k = 0; k < fc_in_dim; ++k) {
+                for (int64_t n = 0; n < 1000; ++n) {
+                    w_normalized[static_cast<size_t>(k) + static_cast<size_t>(n) * fc_in_dim] =
+                        fc_weight.data[static_cast<size_t>(k) * 1000 + n];
                 }
             }
-            in_ch = 4 * C;
+        } else {
+            fail_model(model_path,
+                       "tensor '" + fc_w_name +
+                           "' has unexpected dims (need [1000,K] or [K,1000], K=512/2048); tensors:" + shapes_seen);
         }
-    }
+        require_dims(fc_bias, fc_b_name, model_path, {1000}, shapes_seen);
 
-    // Head: global avgpool k7 (7x7 -> 1x1) -> reshape K -> FC.
-    const LoadedTensor& fc_weight = require_tensor(tensors, fc_w_name, model_path, shapes_seen);
-    const LoadedTensor& fc_bias = require_tensor(tensors, fc_b_name, model_path, shapes_seen);
-    // Normalize the weight to ggml ne order [K, 1000] (ONNX Gemm transB=1:
-    // file holds row-major [1000,K], i.e. W[n][k] at n*K+k). ggml is
-    // column-major and ggml_mul_mat(a,b) needs a->ne[0] == b->ne[0],
-    // yielding [a->ne[1], b->ne[1]] with dst[n,m] = sum_k a[k,n]*b[k,m]:
-    // row-major [1000,K] bytes already coincide with ne=[K,1000]
-    // element (k,n) at k+n*K, so they copy verbatim. A file already in
-    // [K,1000] row-major order is transposed into place instead.
-    std::vector<float> w_normalized(static_cast<size_t>(fc_in_dim) * 1000);
-    if (fc_weight.dims == std::vector<uint32_t>{1000, fc_in_dim}) {
-        w_normalized = fc_weight.data;
-    } else if (fc_weight.dims == std::vector<uint32_t>{fc_in_dim, 1000}) {
-        for (uint32_t k = 0; k < fc_in_dim; ++k) {
-            for (int64_t n = 0; n < 1000; ++n) {
-                w_normalized[static_cast<size_t>(k) + static_cast<size_t>(n) * fc_in_dim] =
-                    fc_weight.data[static_cast<size_t>(k) * 1000 + n];
-            }
-        }
+        struct ggml_tensor* fc_w = ggml_new_tensor_2d(ctx_, GGML_TYPE_F32, fc_in_dim, 1000);
+        pending.push_back(PendingFill{fc_w, std::move(w_normalized)});
+        struct ggml_tensor* fc_b = ggml_new_tensor_1d(ctx_, GGML_TYPE_F32, kNumClasses);
+        pending.push_back(PendingFill{fc_b, fc_bias.data});
+
+        struct ggml_tensor* gap = ggml_pool_2d(ctx_, x, GGML_OP_POOL_AVG, 7, 7, 1, 1, 0.0f, 0.0f);
+        struct ggml_tensor* feat = ggml_reshape_2d(ctx_, gap, fc_in_dim, N);
+        struct ggml_tensor* mm = ggml_mul_mat(ctx_, fc_w, feat);
+        logits = ggml_add(ctx_, mm, ggml_repeat(ctx_, fc_b, mm));
     } else {
-        fail_model(model_path,
-                   "tensor '" + fc_w_name +
-                       "' has unexpected dims (need [1000,K] or [K,1000], K=512/2048); tensors:" + shapes_seen);
+        // ---- YOLOv8n: fixed 1x3x640x640 in, [1,84,8400] raw out ----
+        // Helpers share new_const_4d/pending above. Conventions: NCHW blobs map
+        // to ggml [W,H,C,N] (reversed axes, coincident storage); kernels
+        // [O,I,H,W] -> [KW,KH,IC,OC] verbatim (D-8 coincidence).
+        auto ykernel = [&](const std::string& base, uint32_t O, uint32_t I, uint32_t H,
+                           uint32_t W) -> struct ggml_tensor* {
+            const LoadedTensor& w = require_tensor(tensors, base + ".weight", model_path, shapes_seen);
+            require_dims(w, base + ".weight", model_path, {O, I, H, W}, shapes_seen);
+            return new_const_4d(W, H, I, O, w.data);
+        };
+        auto ybias = [&](const std::string& base, uint32_t O) -> struct ggml_tensor* {
+            const LoadedTensor& b = require_tensor(tensors, base + ".bias", model_path, shapes_seen);
+            require_dims(b, base + ".bias", model_path, {O}, shapes_seen);
+            return new_const_4d(1, 1, O, 1, b.data);
+        };
+        auto yact = [&](struct ggml_tensor* xx, struct ggml_tensor* w, struct ggml_tensor* b, int s,
+                        int p) -> struct ggml_tensor* {
+            struct ggml_tensor* h = ggml_conv_2d(ctx_, w, xx, s, s, p, p, 1, 1);
+            h = ggml_add(ctx_, h, ggml_repeat(ctx_, b, h));
+            return ggml_mul(ctx_, h, ggml_sigmoid(ctx_, h));
+        };
+        auto yconv = [&](struct ggml_tensor* xx, struct ggml_tensor* w, struct ggml_tensor* b, int s,
+                         int p) -> struct ggml_tensor* {
+            struct ggml_tensor* h = ggml_conv_2d(ctx_, w, xx, s, s, p, p, 1, 1);
+            return ggml_add(ctx_, h, ggml_repeat(ctx_, b, h));
+        };
+        // C2f block (nodes 6-20 pattern): cv1 1x1 -> split -> n bottlenecks
+        // (3x3+silu, 3x3+silu [, +residual]) chained -> concat all -> cv2 1x1.
+        auto c2f = [&](struct ggml_tensor* xx, const std::string& pre, uint32_t C, uint32_t Cin, int n,
+                       bool residual) -> struct ggml_tensor* {
+            struct ggml_tensor* h =
+                yact(xx, ykernel(pre + ".cv1.conv", C, Cin, 1, 1), ybias(pre + ".cv1.conv", C), 1, 0);
+            h = ggml_cont(ctx_, h);
+            auto halves = split_half(ctx_, h);
+            std::vector<struct ggml_tensor*> parts = {halves.first, halves.second};
+            struct ggml_tensor* cur = halves.second;
+            for (int i = 0; i < n; ++i) {
+                const std::string bpre = pre + ".m." + std::to_string(i) + ".";
+                struct ggml_tensor* b =
+                    yact(cur, ykernel(bpre + "cv1.conv", C / 2, C / 2, 3, 3), ybias(bpre + "cv1.conv", C / 2), 1, 1);
+                b = yact(b, ykernel(bpre + "cv2.conv", C / 2, C / 2, 3, 3), ybias(bpre + "cv2.conv", C / 2), 1, 1);
+                if (residual) {
+                    b = ggml_add(ctx_, cur, b);
+                }
+                parts.push_back(b);
+                cur = b;
+            }
+            struct ggml_tensor* cat = concat_ch(ctx_, parts);
+            const uint32_t cat_ch = C / 2 * static_cast<uint32_t>(n + 2);
+            return yact(cat, ykernel(pre + ".cv2.conv", C, cat_ch, 1, 1), ybias(pre + ".cv2.conv", C), 1, 0);
+        };
+        // Box-tail constants (NCHW -> ggml reversed, coincident storage):
+        // [1,2,8400] anchors -> [8400,1,2,1]; [1,8400] strides -> [8400,1,1,1].
+        // Returned at natural shape (same-shape elementwise ops need no repeat).
+        auto yconst = [&](const std::string& name, std::initializer_list<uint32_t> dims) -> struct ggml_tensor* {
+            const LoadedTensor& t = require_tensor(tensors, name, model_path, shapes_seen);
+            if (t.dims != std::vector<uint32_t>(dims)) {
+                fail_model(model_path, "tensor '" + name + "' has unexpected dims; tensors:" + shapes_seen);
+            }
+            if (t.dims == std::vector<uint32_t>{1, 2, 8400}) {
+                return new_const_4d(8400, 1, 2, 1, t.data);
+            }
+            if (t.dims == std::vector<uint32_t>{1, 8400}) {
+                return new_const_4d(8400, 1, 1, 1, t.data);
+            }
+            fail_model(model_path, "tensor '" + name + "' has unsupported const shape; tensors:" + shapes_seen);
+            return nullptr;
+        };
+
+        // --- backbone ---
+        struct ggml_tensor* y = yact(x, ykernel("model.0.conv", 16, 3, 3, 3), ybias("model.0.conv", 16), 2, 1); // 320
+        y = yact(y, ykernel("model.1.conv", 32, 16, 3, 3), ybias("model.1.conv", 32), 2, 1);                    // 160
+        y = c2f(y, "model.2", 32, 32, 1, true);                                                                 // 160
+        y = yact(y, ykernel("model.3.conv", 64, 32, 3, 3), ybias("model.3.conv", 64), 2, 1);                    // 80
+        struct ggml_tensor* m4 = c2f(y, "model.4", 64, 64, 2, true);                                            // 80
+        y = yact(m4, ykernel("model.5.conv", 128, 64, 3, 3), ybias("model.5.conv", 128), 2, 1);                 // 40
+        struct ggml_tensor* m6 = c2f(y, "model.6", 128, 128, 2, true);                                          // 40
+        y = yact(m6, ykernel("model.7.conv", 256, 128, 3, 3), ybias("model.7.conv", 256), 2, 1);                // 20
+        y = c2f(y, "model.8", 256, 256, 1, true);                                                               // 20
+        // SPPF: cv1 1x1 128ch, 3x chained maxpool k5 s1 p2, concat, cv2 1x1 256ch.
+        {
+            struct ggml_tensor* h =
+                yact(y, ykernel("model.9.cv1.conv", 128, 256, 1, 1), ybias("model.9.cv1.conv", 128), 1, 0);
+            struct ggml_tensor* p1 = ggml_pool_2d(ctx_, h, GGML_OP_POOL_MAX, 5, 5, 1, 1, 2.0f, 2.0f);
+            struct ggml_tensor* p2 = ggml_pool_2d(ctx_, p1, GGML_OP_POOL_MAX, 5, 5, 1, 1, 2.0f, 2.0f);
+            struct ggml_tensor* p3 = ggml_pool_2d(ctx_, p2, GGML_OP_POOL_MAX, 5, 5, 1, 1, 2.0f, 2.0f);
+            y = yact(concat_ch(ctx_, {h, p1, p2, p3}), ykernel("model.9.cv2.conv", 256, 512, 1, 1),
+                     ybias("model.9.cv2.conv", 256), 1, 0);
+        }
+        struct ggml_tensor* p5 = y; // 20x20x256
+        // --- neck ---
+        struct ggml_tensor* up1 = ggml_upscale(ctx_, p5, 2, GGML_SCALE_MODE_NEAREST);              // 40
+        struct ggml_tensor* n12 = c2f(concat_ch(ctx_, {up1, m6}), "model.12", 128, 384, 1, false); // 40
+        struct ggml_tensor* up2 = ggml_upscale(ctx_, n12, 2, GGML_SCALE_MODE_NEAREST);             // 80
+        struct ggml_tensor* p3f = c2f(concat_ch(ctx_, {up2, m4}), "model.15", 64, 192, 1, false);  // 80, P3
+        struct ggml_tensor* d5 =
+            yact(p3f, ykernel("model.16.conv", 64, 64, 3, 3), ybias("model.16.conv", 64), 2, 1);   // 40
+        struct ggml_tensor* p4f = c2f(concat_ch(ctx_, {d5, n12}), "model.18", 128, 192, 1, false); // 40, P4
+        struct ggml_tensor* d6 =
+            yact(p4f, ykernel("model.19.conv", 128, 128, 3, 3), ybias("model.19.conv", 128), 2, 1); // 20
+        struct ggml_tensor* p5f = c2f(concat_ch(ctx_, {d6, p5}), "model.21", 256, 384, 1, false);   // 20, P5
+        // --- decoupled head per scale (P3/P4/P5): box branch 64ch, cls branch 80ch ---
+        struct ggml_tensor* box_parts[3];
+        struct ggml_tensor* cls_parts[3];
+        struct ggml_tensor* feats[3] = {p3f, p4f, p5f};
+        for (int s = 0; s < 3; ++s) {
+            const std::string pre = "model.22.cv2." + std::to_string(s);
+            struct ggml_tensor* hb =
+                yact(feats[s], ykernel(pre + ".0.conv", 64, feats[s]->ne[2], 3, 3), ybias(pre + ".0.conv", 64), 1, 1);
+            hb = yact(hb, ykernel(pre + ".1.conv", 64, 64, 3, 3), ybias(pre + ".1.conv", 64), 1, 1);
+            hb = yconv(hb, ykernel(pre + ".2", 64, 64, 1, 1), ybias(pre + ".2", 64), 1, 0);
+            box_parts[s] = ggml_reshape_4d(ctx_, hb, hb->ne[0] * hb->ne[1], 1, 64, 1);
+            const std::string pc = "model.22.cv3." + std::to_string(s);
+            struct ggml_tensor* hc =
+                yact(feats[s], ykernel(pc + ".0.conv", 80, feats[s]->ne[2], 3, 3), ybias(pc + ".0.conv", 80), 1, 1);
+            hc = yact(hc, ykernel(pc + ".1.conv", 80, 80, 3, 3), ybias(pc + ".1.conv", 80), 1, 1);
+            hc = yconv(hc, ykernel(pc + ".2", 80, 80, 1, 1), ybias(pc + ".2", 80), 1, 0);
+            cls_parts[s] = ggml_reshape_4d(ctx_, hc, hc->ne[0] * hc->ne[1], 1, 80, 1);
+        }
+        // Concat along the flat spatial dim (NCHW axis=-1 == ggml dim 0).
+        struct ggml_tensor* reg =
+            ggml_concat(ctx_, ggml_concat(ctx_, box_parts[0], box_parts[1], 0), box_parts[2], 0); // [8400,1,64,1]
+        struct ggml_tensor* clsc =
+            ggml_concat(ctx_, ggml_concat(ctx_, cls_parts[0], cls_parts[1], 0), cls_parts[2], 0); // [8400,1,80,1]
+        // DFL: split the 64 reg channels into 4 coords x 16 bins. ggml reshape
+        // splits column-major, so [8400,1,64,1] -> [8400,1,16,4] yields
+        // g = k + 16*c, exactly the row-major [1,4,16,8400] split. Permute
+        // with axes (1,3,0,2) — ggml semantics result[axis_k] = input[k] —
+        // giving [16,8400,4,1] with the 16 bins at ne[0] for softmax. Then
+        // cont (the permuted view is strided) and softmax over the bins.
+        struct ggml_tensor* dfl_rs = ggml_reshape_4d(ctx_, reg, 8400, 1, 16, 4);
+        struct ggml_tensor* dfl_in = ggml_cont(ctx_, ggml_permute(ctx_, dfl_rs, 1, 3, 0, 2));
+        struct ggml_tensor* dsm = ggml_soft_max(ctx_, dfl_in);
+        struct ggml_tensor* dflat = ggml_reshape_2d(ctx_, dsm, 16, 33600);
+        const LoadedTensor& dw = require_tensor(tensors, "model.22.dfl.conv.weight", model_path, shapes_seen);
+        require_dims(dw, "model.22.dfl.conv.weight", model_path, {1, 16, 1, 1}, shapes_seen);
+        struct ggml_tensor* dwq = new_const_4d(16, 1, 1, 1, dw.data);
+        struct ggml_tensor* dm = ggml_mul_mat(ctx_, dwq, dflat); // [1,33600]
+        struct ggml_tensor* d4 = ggml_reshape_4d(ctx_, dm, 8400, 1, 4, 1);
+        // Box decode: xy = A - slice0, wh = B + slice1, center/corner combine,
+        // /2, concat, *strides. All consts carried (float initializers).
+        const size_t row4 = static_cast<size_t>(8400) * sizeof(float);
+        struct ggml_tensor* xy = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 0);
+        struct ggml_tensor* wh = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 2 * row4);
+        struct ggml_tensor* A = yconst("/model.22/Constant_12_output_0", {1, 2, 8400});
+        struct ggml_tensor* B = yconst("/model.22/Constant_13_output_0", {1, 2, 8400});
+        struct ggml_tensor* sub0 = ggml_sub(ctx_, A, xy);
+        struct ggml_tensor* add1 = ggml_add(ctx_, B, wh);
+        struct ggml_tensor* add2 = ggml_add(ctx_, sub0, add1);
+        struct ggml_tensor* sub1 = ggml_sub(ctx_, add1, sub0);
+        struct ggml_tensor* div1 = ggml_scale(ctx_, add2, 0.5f);
+        struct ggml_tensor* cat2 = ggml_concat(ctx_, div1, sub1, 2);
+        struct ggml_tensor* mul2 =
+            ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst("/model.22/Constant_15_output_0", {1, 8400}), cat2));
+        // Cls sigmoid: 1 / (1 + exp(-x)).
+        struct ggml_tensor* ones = new_const_4d(8400, 1, 80, 1, std::vector<float>(8400 * 80, 1.0f));
+        struct ggml_tensor* sig = ggml_div(ctx_, ones, ggml_add(ctx_, ones, ggml_exp(ctx_, ggml_neg(ctx_, clsc))));
+        logits = ggml_concat(ctx_, mul2, sig, 2); // [8400,1,84,1] == NCHW [1,84,8400]
     }
-    require_dims(fc_bias, fc_b_name, model_path, {1000}, shapes_seen);
-
-    struct ggml_tensor* fc_w = ggml_new_tensor_2d(ctx_, GGML_TYPE_F32, fc_in_dim, 1000);
-    pending.push_back(PendingFill{fc_w, std::move(w_normalized)});
-    struct ggml_tensor* fc_b = ggml_new_tensor_1d(ctx_, GGML_TYPE_F32, kNumClasses);
-    pending.push_back(PendingFill{fc_b, fc_bias.data});
-
-    struct ggml_tensor* gap = ggml_pool_2d(ctx_, x, GGML_OP_POOL_AVG, 7, 7, 1, 1, 0.0f, 0.0f);
-    struct ggml_tensor* feat = ggml_reshape_2d(ctx_, gap, fc_in_dim, N);
-    struct ggml_tensor* mm = ggml_mul_mat(ctx_, fc_w, feat);
-    struct ggml_tensor* logits = ggml_add(ctx_, mm, ggml_repeat(ctx_, fc_b, mm));
 
     graph_ = ggml_new_graph(ctx_);
     ggml_build_forward_expand(graph_, logits);
@@ -651,8 +872,9 @@ void GGMLInfer::load_model(const std::string& model_path) {
     }
 
     LOG(INFO) << "GGML model loaded: full "
-              << (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + FC 1000, real weights)"
-                                : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)");
+              << (is_yolo ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
+                          : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + FC 1000, real weights)"
+                                           : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)"));
 }
 
 void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes) {
@@ -670,9 +892,22 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
         std::string input_name = "input" + std::to_string(i + 1);
         inference_metadata_.addInput(input_name, shape, batch_size_);
     }
+    if (is_yolo_) {
+        // Fixed YOLOv8n contract: identical-byte-count inputs would silently
+        // reinterpret any same-product geometry as 640x640, so enforce it.
+        const std::vector<int64_t>& in0 = input_sizes[0];
+        if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == 640 &&
+              in0[3] == 640)) {
+            throw std::runtime_error("GGML YOLOv8n path requires exactly {N,3,640,640} input");
+        }
+    }
 
-    // Setup output tensors (placeholder - would be determined from actual model)
-    std::vector<int64_t> output_shape = {static_cast<int64_t>(batch_size_), 1000}; // Example: 1000 classes
+    // Output metadata follows the per-model contract set at load
+    // (resnet {N,1000}, yolo {1,84,8400}).
+    std::vector<int64_t> output_shape = output_shape_;
+    if (output_shape.size() == 2) {
+        output_shape[0] = static_cast<int64_t>(batch_size_);
+    }
     inference_metadata_.addOutput("output", output_shape, batch_size_);
 
     output_names_.push_back("output");
@@ -696,16 +931,17 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
 
         const std::vector<uint8_t>& input_raw = input_tensors[0];
 
-        // Fixed contract: single 4D F32 input, 150528 elements per batch entry.
-        const size_t expected_bytes =
-            static_cast<size_t>(kInputElements) * sizeof(float) * static_cast<size_t>(batch_size_);
+        // Fixed contract: single 4D F32 input, HxWx3 elements per batch entry
+        // (geometry set at load: 224 for ResNet, 640 for YOLOv8n).
+        const size_t elems_per_sample = static_cast<size_t>(input_height_) * input_width_ * kInputChannels;
+        const size_t expected_bytes = elems_per_sample * sizeof(float) * static_cast<size_t>(batch_size_);
 
         if (input_raw.size() != expected_bytes) {
             throw std::runtime_error("Input data size mismatch. Expected " + std::to_string(expected_bytes) +
                                      " bytes (based on tensor type/shape), got " + std::to_string(input_raw.size()));
         }
 
-        // Feed the graph input [W,H,C,N] (D-8): the NCHW blob [N,3,224,224]
+        // Feed the graph input [W,H,C,N] (D-8): the NCHW blob [N,3,H,W]
         // is row-major x + W*(y + H*(c + C*n)), which coincides
         // element-for-element with ggml [W,H,C,N] (x + ne0*(y + ne1*(c +
         // ne2*n))), so the layout conversion is a single copy per infer with
@@ -721,19 +957,27 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
             throw std::runtime_error("GGML backend unavailable during inference");
         }
 
-        // Real outputs: read the logits tensor produced by the graph.
+        // Real outputs: read the output tensor produced by the graph, flat in
+        // NCHW-coincident order (resnet {N,1000}, yolo {1,84,8400}).
         struct ggml_tensor* logits = output_tensors_.at(0);
         const float* logits_f32 = static_cast<const float*>(logits->data);
+        const bool is3d = output_shape_.size() == 3;
+        const int64_t out_classes = is3d ? output_shape_[1] : output_shape_.back();
+        const int64_t out_rows = is3d ? output_shape_[2] : 1;
         std::vector<std::vector<TensorElement>> outputs;
         std::vector<std::vector<int64_t>> shapes;
         for (size_t b = 0; b < static_cast<size_t>(batch_size_); ++b) {
             std::vector<TensorElement> output_data;
-            output_data.reserve(static_cast<size_t>(kNumClasses));
-            for (int64_t c = 0; c < kNumClasses; ++c) {
-                output_data.emplace_back(logits_f32[b * static_cast<size_t>(kNumClasses) + c]);
+            output_data.reserve(static_cast<size_t>(out_classes * out_rows));
+            for (int64_t c = 0; c < out_classes * out_rows; ++c) {
+                output_data.emplace_back(logits_f32[b * static_cast<size_t>(out_classes * out_rows) + c]);
             }
             outputs.push_back(std::move(output_data));
-            shapes.push_back({static_cast<int64_t>(batch_size_), kNumClasses});
+            if (is3d) {
+                shapes.push_back({static_cast<int64_t>(batch_size_), out_classes, out_rows});
+            } else {
+                shapes.push_back({static_cast<int64_t>(batch_size_), out_classes});
+            }
         }
 
         end_timer();
