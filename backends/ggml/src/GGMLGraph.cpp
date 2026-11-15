@@ -187,10 +187,30 @@ int Graph::add_op(Op op, const std::vector<int>& inputs, const std::vector<float
         impl_->require_inputs(inputs, 2, "Add");
         result = ggml_add(impl_->ctx, impl_->at(inputs[0]), impl_->at(inputs[1]));
         break;
+    case Op::Sub:
+        impl_->require_inputs(inputs, 2, "Sub");
+        result = ggml_sub(impl_->ctx, impl_->at(inputs[0]), impl_->at(inputs[1]));
+        break;
     case Op::Mul:
         impl_->require_inputs(inputs, 2, "Mul");
         result = ggml_mul(impl_->ctx, impl_->at(inputs[0]), impl_->at(inputs[1]));
         break;
+    case Op::Div:
+        impl_->require_inputs(inputs, 2, "Div");
+        result = ggml_div(impl_->ctx, impl_->at(inputs[0]), impl_->at(inputs[1]));
+        break;
+    case Op::Sqrt:
+        impl_->require_inputs(inputs, 1, "Sqrt");
+        result = ggml_sqrt(impl_->ctx, impl_->at(inputs[0]));
+        break;
+    case Op::Clip: {
+        impl_->require_inputs(inputs, 1, "Clip");
+        if (attrs.size() != 2) {
+            throw std::invalid_argument("Clip expects min and max attributes");
+        }
+        result = ggml_clamp(impl_->ctx, impl_->at(inputs[0]), attrs[0], attrs[1]);
+        break;
+    }
     case Op::MatMul:
         impl_->require_inputs(inputs, 2, "MatMul");
         result = ggml_ops::matmul(impl_->ctx, impl_->at(inputs[0]), impl_->at(inputs[1]));
@@ -226,6 +246,96 @@ int Graph::add_op(Op op, const std::vector<int>& inputs, const std::vector<float
         }
         result = ggml_ops::gather_rows(impl_->ctx, impl_->at(inputs[0]), impl_->at(inputs[1]));
         break;
+    case Op::Reshape: {
+        impl_->require_inputs(inputs, 1, "Reshape");
+        if (attrs.empty() || attrs.size() > 4) {
+            throw std::invalid_argument("Reshape expects 1..4 target dimensions");
+        }
+        int64_t dims[4] = {1, 1, 1, 1};
+        for (size_t i = 0; i < attrs.size(); ++i) {
+            const int64_t dim = static_cast<int64_t>(attrs[i]);
+            if (dim <= 0) {
+                throw std::invalid_argument("Reshape dimensions must be positive");
+            }
+            dims[i] = dim;
+        }
+        struct ggml_tensor* src = impl_->at(inputs[0]);
+        if (!ggml_is_contiguous(src)) {
+            src = ggml_cont(impl_->ctx, src);
+        }
+        result = ggml_reshape_4d(impl_->ctx, src, dims[0], dims[1], dims[2], dims[3]);
+        break;
+    }
+    case Op::Transpose: {
+        impl_->require_inputs(inputs, 1, "Transpose");
+        if (attrs.size() != 4) {
+            throw std::invalid_argument("Transpose expects four axis attributes");
+        }
+        result = ggml_cont(impl_->ctx, ggml_permute(impl_->ctx, impl_->at(inputs[0]), static_cast<int>(attrs[0]),
+                                                    static_cast<int>(attrs[1]), static_cast<int>(attrs[2]),
+                                                    static_cast<int>(attrs[3])));
+        break;
+    }
+    case Op::Concat: {
+        if (inputs.size() < 2) {
+            throw std::invalid_argument("Concat expects at least two inputs");
+        }
+        if (attrs.size() != 1 || attrs[0] < 0 || attrs[0] > 3) {
+            throw std::invalid_argument("Concat expects one axis attribute in 0..3");
+        }
+        result = impl_->at(inputs[0]);
+        const int axis = static_cast<int>(attrs[0]);
+        for (size_t i = 1; i < inputs.size(); ++i) {
+            result = ggml_concat(impl_->ctx, result, impl_->at(inputs[i]), axis);
+        }
+        break;
+    }
+    case Op::Relu:
+        impl_->require_inputs(inputs, 1, "Relu");
+        result = ggml_relu(impl_->ctx, impl_->at(inputs[0]));
+        break;
+    case Op::Sigmoid:
+        impl_->require_inputs(inputs, 1, "Sigmoid");
+        result = ggml_sigmoid(impl_->ctx, impl_->at(inputs[0]));
+        break;
+    case Op::Conv2d:
+    case Op::Conv2dDepthwise: {
+        impl_->require_inputs(inputs, 3, op == Op::Conv2d ? "Conv2d" : "Conv2dDepthwise");
+        if (attrs.size() != 6) {
+            throw std::invalid_argument("Conv2d expects stride/pad/dilation attributes");
+        }
+        struct ggml_tensor* input = impl_->at(inputs[0]);
+        struct ggml_tensor* weight = impl_->at(inputs[1]);
+        struct ggml_tensor* bias = impl_->at(inputs[2]);
+        const int stride_w = static_cast<int>(attrs[0]);
+        const int stride_h = static_cast<int>(attrs[1]);
+        const int pad_w = static_cast<int>(attrs[2]);
+        const int pad_h = static_cast<int>(attrs[3]);
+        const int dilation_w = static_cast<int>(attrs[4]);
+        const int dilation_h = static_cast<int>(attrs[5]);
+        if (op == Op::Conv2dDepthwise) {
+            result = ggml_conv_2d_dw_direct(impl_->ctx, weight, input, stride_w, stride_h, pad_w, pad_h, dilation_w,
+                                            dilation_h);
+        } else {
+            result = ggml_conv_2d(impl_->ctx, weight, input, stride_w, stride_h, pad_w, pad_h, dilation_w, dilation_h);
+        }
+        if (bias->ne[0] != result->ne[2]) {
+            throw std::invalid_argument("Conv2d bias length must match output channels");
+        }
+        struct ggml_tensor* bias_3d = ggml_reshape_3d(impl_->ctx, bias, 1, 1, bias->ne[0]);
+        result = ggml_add(impl_->ctx, result, bias_3d);
+        break;
+    }
+    case Op::MaxPool2d: {
+        impl_->require_inputs(inputs, 1, "MaxPool2d");
+        if (attrs.size() != 6) {
+            throw std::invalid_argument("MaxPool2d expects kernel/stride/pad attributes");
+        }
+        result = ggml_pool_2d(impl_->ctx, impl_->at(inputs[0]), GGML_OP_POOL_MAX, static_cast<int>(attrs[0]),
+                              static_cast<int>(attrs[1]), static_cast<int>(attrs[2]), static_cast<int>(attrs[3]),
+                              attrs[4], attrs[5]);
+        break;
+    }
     case Op::CastI64ToI32: {
         impl_->require_inputs(inputs, 1, "CastI64ToI32");
         if (impl_->dtype_at(inputs[0]) != DType::I64) {

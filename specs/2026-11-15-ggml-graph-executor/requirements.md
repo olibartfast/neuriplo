@@ -16,8 +16,9 @@ changing `GGMLInfer`'s hand-written model paths.
 
 - `backends/ggml/src/GGMLGraph.{hpp,cpp}`:
   - F32/I32/I64 tensors, multiple inputs, multiple marked outputs;
-  - ops: Add, Mul, MatMul, Linear, scaled dot-product attention, Softmax,
-    LayerNorm, GELU, Gather, I64→I32 cast;
+  - ops: Add, Sub, Mul, Div, Sqrt, Clip, MatMul, Linear, scaled dot-product
+    attention, Softmax, LayerNorm, GELU, Gather, I64→I32 cast, Reshape,
+    Transpose, Concat, Relu, Sigmoid, Conv2d, depthwise Conv2d, MaxPool2d;
   - exact-size input validation and loud contract errors.
 - Host-side I64→I32 materialization because this ggml build's `cast`/`dup`
   kernels abort on I64→I32.

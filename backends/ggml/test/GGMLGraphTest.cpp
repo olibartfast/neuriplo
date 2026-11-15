@@ -113,6 +113,24 @@ TEST(GGMLGraphTest, TinyTransformerBlock) {
     expect_near(read_f32(outputs[0]), {1.6826661f, 2.8413231f, 3.6826661f, 4.8413231f}, 1e-5f);
 }
 
+TEST(GGMLGraphTest, ArithmeticAndClipOps) {
+    Graph graph;
+    const int a = graph.add_input("a", DType::F32, {4});
+    const int b = graph.add_input("b", DType::F32, {4});
+    const int two = graph.add_const_f32("two", {1}, {2});
+    const int root = graph.add_op(Op::Sqrt, {a});
+    const int difference = graph.add_op(Op::Sub, {root, b});
+    const int quotient = graph.add_op(Op::Div, {a, two});
+    const int clipped = graph.add_op(Op::Clip, {quotient}, {1, 5});
+    graph.mark_output(difference);
+    graph.mark_output(clipped);
+
+    const auto outputs = graph.compute({f32_blob({1, 4, 9, 16}), f32_blob({1, 2, 3, 4})});
+    ASSERT_EQ(outputs.size(), 2u);
+    expect_near(read_f32(outputs[0]), {0, 0, 0, 0});
+    expect_near(read_f32(outputs[1]), {1, 2, 4.5f, 5});
+}
+
 TEST(GGMLGraphTest, RejectsBadContracts) {
     Graph graph;
     const int a = graph.add_input("a", DType::F32, {2});
@@ -131,4 +149,38 @@ TEST(GGMLGraphTest, RejectsBadContracts) {
     const int data = gather.add_const_f32("data", {2, 2}, {1, 2, 3, 4});
     const int f32_indices = gather.add_input("indices", DType::F32, {2});
     EXPECT_THROW(gather.add_op(Op::Gather, {data, f32_indices}), std::invalid_argument);
+}
+
+TEST(GGMLGraphTest, ShapeAndActivationOps) {
+    Graph graph;
+    const int x = graph.add_input("x", DType::F32, {2, 2});
+    const int flat = graph.add_op(Op::Reshape, {x}, {4});
+    const int transposed_input = graph.add_input("t", DType::F32, {2, 3});
+    const int transposed = graph.add_op(Op::Transpose, {transposed_input}, {1, 0, 2, 3});
+    const int cat_a = graph.add_input("a", DType::F32, {2, 2});
+    const int cat_b = graph.add_input("b", DType::F32, {2, 2});
+    const int cat = graph.add_op(Op::Concat, {cat_a, cat_b}, {0});
+    const int relu = graph.add_op(Op::Relu, {x});
+    const int sigmoid = graph.add_op(Op::Sigmoid, {x});
+    graph.mark_output(flat);
+    graph.mark_output(transposed);
+    graph.mark_output(cat);
+    graph.mark_output(relu);
+    graph.mark_output(sigmoid);
+
+    const auto outputs = graph.compute({
+        f32_blob({1, 2, 3, 4}),       // x
+        f32_blob({1, 2, 3, 4, 5, 6}), // t
+        f32_blob({1, 2, 3, 4}),       // a
+        f32_blob({5, 6, 7, 8}),       // b
+    });
+    ASSERT_EQ(outputs.size(), 5u);
+    EXPECT_EQ(outputs[0].shape, (std::vector<int64_t>{4}));
+    expect_near(read_f32(outputs[0]), {1, 2, 3, 4});
+    EXPECT_EQ(outputs[1].shape, (std::vector<int64_t>{3, 2}));
+    expect_near(read_f32(outputs[1]), {1, 3, 5, 2, 4, 6});
+    EXPECT_EQ(outputs[2].shape, (std::vector<int64_t>{4, 2}));
+    expect_near(read_f32(outputs[2]), {1, 2, 5, 6, 3, 4, 7, 8});
+    expect_near(read_f32(outputs[3]), {1, 2, 3, 4});
+    expect_near(read_f32(outputs[4]), {0.7310586f, 0.8807971f, 0.9525741f, 0.9820138f}, 1e-5f);
 }

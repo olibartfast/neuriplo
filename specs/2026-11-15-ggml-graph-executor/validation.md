@@ -16,11 +16,11 @@ Commands run in `/home/oli/repos/neuriplo` on `feature/ggml-yolo-family`.
 
 | ID | Command/check | Result | Date | Notes |
 |----|---------------|--------|------|-------|
-| V-1 | `GGMLInferTest --gtest_filter='GGMLGraphTest.*'` | pass | 2026-11-15 | 5/5: MultiInputAdd, Int64InputCastAndGather, MultipleOutputs, TinyTransformerBlock, RejectsBadContracts. |
+| V-1 | `GGMLInferTest --gtest_filter='GGMLGraphTest.*'` | pass | 2026-11-15 | 6/6: MultiInputAdd, Int64InputCastAndGather, MultipleOutputs, TinyTransformerBlock, RejectsBadContracts, ShapeAndActivationOps. |
 | V-2 | same run | pass | 2026-11-15 | I64 indices [2,0] → I32 → Gather over `[D=2,N=3]` data returns `[5,6,1,2]`. |
 | V-3 | same run | pass | 2026-11-15 | Add and Mul outputs returned in mark order: `[8,10]` and `[15,24]`. |
 | V-4 | same run | pass | 2026-11-15 | Tiny block output `[1.6826661, 2.8413231, 3.6826661, 4.8413231]` within 1e-5. |
-| V-5 | full `GGMLInferTest` + `ctest --test-dir build-ggml` | pass | 2026-11-15 | 26 tests: 25 pass, 1 intentional mock skip; full ctest **77/77**. |
+| V-5 | full `GGMLInferTest` + `ctest --test-dir build-ggml` | pass | 2026-11-15 | 38 tests: 37 pass, 1 intentional mock skip; full ctest **77/77**. The later ONNX-frontend packet adds 10 of those tests. |
 | V-6 | matrix status | pass | 2026-11-15 | No app cell changed; `rtdetr` remains blocked on the ONNX frontend and deformable/dynamic ops. |
 
 ## Blocker after this packet

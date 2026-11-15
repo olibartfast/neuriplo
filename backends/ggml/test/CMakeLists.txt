@@ -2,6 +2,7 @@ set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/GGMLInferTest.cpp
     ${CMAKE_CURRENT_LIST_DIR}/GGMLOpsParityTest.cpp
     ${CMAKE_CURRENT_LIST_DIR}/GGMLGraphTest.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/GGMLOnnxTest.cpp
 )
 
 find_package(Glog REQUIRED)
@@ -42,6 +43,10 @@ target_include_directories(GGMLInferTest PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${GLOG_INCLUDE_DIRS}
     ${GGML_DIR}/include
+)
+
+target_compile_definitions(GGMLInferTest PRIVATE
+    GGML_TEST_FIXTURE_DIR="${CMAKE_CURRENT_LIST_DIR}/fixtures"
 )
 
 target_link_libraries(GGMLInferTest PRIVATE

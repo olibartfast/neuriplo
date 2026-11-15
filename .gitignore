@@ -70,6 +70,7 @@ ENV/
 *.engine
 *.onnx
 !backends/opencv-dnn/test/fixtures/relu.onnx
+!backends/ggml/test/fixtures/*.onnx
 *.pb
 *.pth
 *.pt

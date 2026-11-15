@@ -16,7 +16,11 @@ enum class DType { F32, I32, I64 };
 
 enum class Op {
     Add,
+    Sub,
     Mul,
+    Div,
+    Sqrt,
+    Clip,
     MatMul,
     Linear,
     ScaledDotProductAttention,
@@ -25,6 +29,14 @@ enum class Op {
     Gelu,
     Gather,
     CastI64ToI32,
+    Reshape,
+    Transpose,
+    Concat,
+    Relu,
+    Sigmoid,
+    Conv2d,
+    Conv2dDepthwise,
+    MaxPool2d,
 };
 
 struct Output {
