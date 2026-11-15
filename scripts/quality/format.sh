@@ -28,7 +28,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 CFMT="$(quality_clang_format)" || {
-    echo "clang-format not found. Install clang-format-18 (Ubuntu: apt install clang-format-18)." >&2
+    echo "clang-format 21 not found. Install clang-format-21 (Ubuntu: apt install clang-format-21)" >&2
+    echo "or run 'pip install clang-format==21.1.8'." >&2
     exit 1
 }
 
