@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Multi-input/multi-output GGML graph executor (`backends/ggml/src/GGMLGraph`):
+  FP32/I32/I64 inputs, Add/Mul/MatMul/Linear/attention/Softmax/LayerNorm/GELU/
+  Gather, and host-side I64→I32 cast for Gather indices. Five graph tests
+  cover multi-input, INT64, multiple outputs, a tiny transformer block and
+  contract rejection. This is the substrate for a future ONNX frontend; full
+  RT-DETR remains blocked on `GridSample`/dynamic-shape ops.
 - Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
   LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
   attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity
