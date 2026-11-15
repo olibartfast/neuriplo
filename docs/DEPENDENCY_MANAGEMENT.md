@@ -15,7 +15,7 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
 | `TENSORRT` | TensorRT | `11.2.1.2` | x86_64 only | yes |
 | `OPENVINO` | OpenVINO | `2026.3.0` | x86_64, ARM64 | no |
-| `GGML` | GGML | `v0.11.0` | x86_64, ARM64 | no |
+| `GGML` | GGML | `v1.0.0` | x86_64, ARM64 | no |
 | `TVM` | Apache TVM | `0.22.0` | x86_64, ARM64 | no |
 | `MIGRAPHX` | MIGraphX | `2.12.0` | x86_64 only | yes |
 | `CACTUS` | Cactus | `v1.14` | ARM64 only | no |
@@ -233,7 +233,7 @@ Per-backend version overrides (default from `versions.env`):
 | `TENSORFLOW_VERSION` | `2.19.0` |
 | `TENSORRT_VERSION` | `11.2.1.2` |
 | `OPENVINO_VERSION` | `2026.3.0` |
-| `GGML_VERSION` | `v0.11.0` |
+| `GGML_VERSION` | `v1.0.0` |
 | `TVM_VERSION` | `0.22.0` |
 | `MIGRAPHX_VERSION` | `2.12.0` |
 | `CACTUS_VERSION` | `v1.14` |
@@ -556,7 +556,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
 | TensorRT | TensorRT engine (.engine) | converted from ONNX at test time |
 | OpenVINO | IR (.xml / .bin) | `backends/openvino/test/generate_model.sh` |
-| GGML | custom NGGL (float32 weights, not GGUF) | `scripts/convert_onnx_to_ggml.py` from `resnet18-v1-7.onnx` (model stage of `docker/Dockerfile.ggml`) |
+| GGML | GGUF (F32) | `scripts/convert_onnx_to_gguf.py` from `resnet18-v1-7.onnx` (model stage of `docker/Dockerfile.ggml`) |
 | Apache TVM | compiled TVM module | `backends/tvm/test/generate_model.sh` |
 | MIGraphX | ONNX only | `backends/migraphx/test/generate_model.sh` |
 | Cactus | GGUF | downloaded by Dockerfile or mock fallback |
@@ -667,11 +667,12 @@ time.
 
 ### Model conversion
 
+The GGML backend loads GGUF only: an artifact whose extension is not `.gguf`
+is rejected before parsing.
+
 | Script | Purpose |
 |---|---|
-| `convert_to_ggml.sh` | Convert a model to GGML format |
-| `convert_onnx_to_ggml.py` | Convert an ONNX model to GGML |
-| `convert_resnet18_to_ggml.py` | Convert ResNet-18 to GGML (test helper) |
+| `convert_onnx_to_gguf.py` | Convert an ONNX model to GGUF (F32 tensors) for the GGML backend |
 
 ## Typed LibTorch input artifacts
 

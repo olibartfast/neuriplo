@@ -6,27 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+- ONNX-subset frontend (`backends/ggml/src/GGMLOnnx.{hpp,cpp}`) and
+  multi-input/multi-output graph executor (`backends/ggml/src/GGMLGraph`)
+  plus their fixtures and tests: strict-GGUF-only decision, the GGML backend
+  loads `.gguf` weights only (written by
+  `scripts/convert_onnx_to_gguf.py`) and rejects any other extension.
+  Native helpers (`GGMLOps`) and their parity tests stay.
+
 ### Added
-- Static-shape ONNX-subset frontend (`backends/ggml/src/GGMLOnnx.{hpp,cpp}`):
-  a dependency-free wire reader plus a builder that emits `GGMLGraph` nodes.
-  It accepts FLOAT/INT32/INT64 inputs, constants, Conv/depthwise Conv,
-  MaxPool, Gemm/MatMul (including batched), attention/Softmax/LayerNorm,
-  Slice/Split/Concat/Reshape/Transpose, ReduceMean/Sum/Max, TopK,
-  GatherElements, Pad, Resize-nearest, Expand/Tile, Pow/Abs/Log/Erf, shape
-  folding and ConstantOfShape, and fails loudly on dynamic shapes or unlisted
-  ops. Twenty-two fixtures cover the supported contract. A fixed-batch
-  `rtdetrv4` probe now imports through the backbone, encoder and most of the
-  decoder, then stops at a rank-5 decoder tensor whose ONNX axis numbering no
-  longer matches the 4-D ggml layout; full RT-DETR parity is not claimed.
-- Multi-input/multi-output GGML graph executor (`backends/ggml/src/GGMLGraph`):
-  FP32/I32/I64 inputs, Add/Sub/Mul/Div/Sqrt/Clip/MatMul/BatchedMatMul/
-  Linear/attention/Softmax/LayerNorm/GELU/Gather/GatherElements,
-  Reshape/Transpose/Concat/Slice/Repeat, Relu/Sigmoid/Abs/Log/Erf/Square,
-  ReduceMean/ReduceSum/ReduceMax/TopK, Pad/Interpolate,
-  Conv/depthwise Conv/MaxPool, and host-side I64→I32 cast for Gather
-  indices. Seven graph tests cover multi-input, INT64, multiple outputs, a
-  tiny transformer block, shape/activation, arithmetic/clip ops and contract
-  rejection.
 - Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
   LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
   attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity
@@ -41,12 +29,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PAN + decoupled head + in-graph DFL from real weights, returning the raw
   `[1,84,8400]` tensor. ORT parity: max-cell agreement on gray/zeros/gradient
   inputs, max-abs-diff ~2e-3 vs adopted 1e-2 tolerance.
-- Real ResNet18 classifier path for the `GGML` backend: `GGMLInfer` parses the
-  NGGL weight file (`scripts/convert_onnx_to_ggml.py`), builds the full
-  stem + 8-block + GAP + FC graph with BatchNorm folded at load, and returns
-  computed logits. ORT parity on identical inputs: top-5 exact, max-abs-diff
-  ~6e-06 (tolerance 1e-3). `use_gpu=true` now fails fast instead of silently
-  running CPU; backend-buffer allocation failure is fatal.
+- Real ResNet18 classifier path for the `GGML` backend: `GGMLInfer` parses a
+  GGUF (F32) weight file produced by `scripts/convert_onnx_to_gguf.py`, builds
+  the full stem + 8-block + GAP + FC graph with BatchNorm folded at load, and
+  returns computed logits. ORT parity on identical inputs: top-5 exact,
+  max-abs-diff ~6e-06 (tolerance 1e-3). `use_gpu=true` now fails fast instead
+  of silently running CPU; backend-buffer allocation failure is fatal.
 - Optional TensorFlow GPU image: `docker/Dockerfile.libtensorflow` accepts
   `TF_BASE_IMAGE` and `TF_GPU=1` to build from a pinned CUDA/cuDNN runtime while
   the CPU image stays the default, and `scripts/setup_tensorflow_pip.sh --gpu`

@@ -1,5 +1,6 @@
 #include "GGMLInfer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -7,6 +8,7 @@
 #include <ggml-alloc.h>
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
+#include <gguf.h>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -14,15 +16,11 @@
 #include <utility>
 #include <vector>
 
-// Real-loader weight layout ("NGGL", Q-1 decision):
-//   magic:      4 bytes "NGGL"
-//   version:    uint32 == 1
-//   num_tensors:uint32
-//   per tensor: uint32 name_len, name bytes, uint32 ndims, uint32 dims[ndims],
-//               uint64 num_elements, float32 data[num_elements]
-// All integers little-endian (= native on the supported x86_64 CPU target);
-// floats are native-endian F32. dims[] are in ONNX order as written by
-// scripts/convert_onnx_to_ggml.py (all float initializers, names verbatim).
+// Real-loader weight layout (GGUF, strict-GGUF-only):
+//   GGUF v3, F32 tensors only, ggml-order dims, per-tensor
+//   neuriplo.rank.<name> KV entries carrying the ONNX rank.
+//   Written by scripts/convert_onnx_to_gguf.py (all float initializers,
+//   names verbatim). No NGGL and no ONNX path at runtime.
 // The topology is built from exact tensor names: the file named
 // resnet18-v1-7.onnx carries resnetv15_* names (basic blocks, 512-d FC),
 // the file named resnet50-v1-12.onnx carries resnetv17_* names (bottleneck
@@ -54,10 +52,6 @@ constexpr int64_t kNumClasses = 1000;
 // resnet50-v1-12.onnx (all 53 nodes; file value 9.9999997e-06, the float32
 // spelling of 1e-5).
 constexpr double kBatchNormEps = 1e-5;
-constexpr uint32_t kFileVersion = 1;
-// ResNet-50 carries 299 float initializers; headroom for larger variants.
-constexpr uint32_t kMaxTensors = 512;
-constexpr uint32_t kMaxNameLen = 256;
 
 struct LoadedTensor {
     std::vector<uint32_t> dims;
@@ -66,11 +60,6 @@ struct LoadedTensor {
 
 [[noreturn]] void fail_model(const std::string& model_path, const std::string& reason) {
     throw std::runtime_error("Invalid GGML model file '" + model_path + "': " + reason);
-}
-
-template <typename T> bool read_pod(std::ifstream& f, T& out) {
-    f.read(reinterpret_cast<char*>(&out), sizeof(T));
-    return static_cast<size_t>(f.gcount()) == sizeof(T);
 }
 
 // Folded conv constant pair: weight in ggml conv layout [KW,KH,IC,OC],
@@ -256,6 +245,91 @@ inline struct ggml_tensor* concat_ch(struct ggml_context* ctx, const std::vector
     return ggml_cont(ctx, out);
 }
 
+void load_gguf_tensors(const std::string& model_path, std::map<std::string, LoadedTensor>& tensors) {
+    // GGUF weights container written by scripts/convert_onnx_to_gguf.py:
+    // F32 tensors only, ggml-order dims, per-tensor neuriplo.rank.<name>
+    // KV entries carrying the ONNX rank (the C API exposes no n_dims).
+    std::ifstream blob(model_path, std::ios::binary);
+    if (!blob) {
+        throw std::runtime_error("Cannot open model file: " + model_path);
+    }
+    blob.seekg(0, std::ios::end);
+    const auto file_size = static_cast<size_t>(blob.tellg());
+    blob.seekg(0, std::ios::beg);
+    std::vector<uint8_t> bytes(file_size);
+    blob.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(file_size));
+    if (static_cast<size_t>(blob.gcount()) != file_size) {
+        fail_model(model_path, "cannot read GGUF file");
+    }
+
+    gguf_init_params gguf_params;
+    gguf_params.no_alloc = true;
+    gguf_params.ctx = nullptr;
+    struct gguf_context* ctx = gguf_init_from_buffer(bytes.data(), bytes.size(), gguf_params);
+    if (ctx == nullptr) {
+        fail_model(model_path, "cannot parse GGUF header");
+    }
+    struct GgufFree {
+        struct gguf_context* ctx;
+        ~GgufFree() {
+            if (ctx != nullptr) {
+                gguf_free(ctx);
+            }
+        }
+    } guard{ctx};
+
+    const int64_t n_tensors = gguf_get_n_tensors(ctx);
+    if (n_tensors <= 0) {
+        fail_model(model_path, "GGUF file has no tensors");
+    }
+    const size_t data_base = gguf_get_data_offset(ctx);
+    const uint32_t ggml_f32 = static_cast<uint32_t>(GGML_TYPE_F32);
+    for (int64_t i = 0; i < n_tensors; ++i) {
+        const char* raw_name = gguf_get_tensor_name(ctx, i);
+        if (raw_name == nullptr || raw_name[0] == '\0') {
+            fail_model(model_path, "GGUF tensor has no name");
+        }
+        const std::string name(raw_name);
+        if (gguf_get_tensor_type(ctx, i) != static_cast<ggml_type>(ggml_f32)) {
+            fail_model(model_path, "tensor '" + name + "' is not F32");
+        }
+        const std::string rank_key = "neuriplo.rank." + name;
+        const int64_t rank_id = gguf_find_key(ctx, rank_key.c_str());
+        if (rank_id < 0) {
+            fail_model(model_path, "tensor '" + name + "' has no '" + rank_key + "' entry");
+        }
+        const int32_t rank = gguf_get_val_i32(ctx, rank_id);
+        if (rank < 1 || rank > 4) {
+            fail_model(model_path, "tensor '" + name + "' has invalid rank " + std::to_string(rank));
+        }
+        const int64_t* ne = gguf_get_tensor_ne(ctx, i);
+        std::vector<uint32_t> dims;
+        dims.reserve(static_cast<size_t>(rank));
+        uint64_t num_elements = 1;
+        for (int32_t d = rank - 1; d >= 0; --d) {
+            if (ne[d] < 0 || ne[d] > (1 << 24)) {
+                fail_model(model_path, "tensor '" + name + "' has invalid dim");
+            }
+            dims.push_back(static_cast<uint32_t>(ne[d]));
+            num_elements *= static_cast<uint64_t>(ne[d]);
+        }
+        const size_t byte_size = num_elements * sizeof(float);
+        if (byte_size != gguf_get_tensor_size(ctx, i)) {
+            fail_model(model_path, "tensor '" + name + "' size mismatch");
+        }
+        const size_t offset = data_base + gguf_get_tensor_offset(ctx, i);
+        if (offset + byte_size > bytes.size()) {
+            fail_model(model_path, "tensor '" + name + "' extends past end of file");
+        }
+        std::vector<float> data(num_elements);
+        std::memcpy(data.data(), bytes.data() + offset, byte_size);
+        if (tensors.count(name) != 0) {
+            fail_model(model_path, "duplicate tensor '" + name + "'");
+        }
+        tensors.emplace(name, LoadedTensor{std::move(dims), std::move(data)});
+    }
+}
+
 } // namespace
 
 GGMLInfer::GGMLInfer(const std::string& model_path, bool use_gpu, size_t batch_size,
@@ -338,118 +412,18 @@ void GGMLInfer::load_model(const std::string& model_path) {
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open model file: " + model_path);
     }
+    std::string extension = model_path.size() >= 5 ? model_path.substr(model_path.size() - 5) : std::string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    if (extension != ".gguf") {
+        fail_model(model_path, "only .gguf weights are supported; convert first: "
+                               "python3 scripts/convert_onnx_to_gguf.py --input <model.onnx> --output <model.gguf>");
+    }
 
     LOG(INFO) << "Loading GGML model from: " << model_path;
 
-    // --- header ---
-    char magic[4] = {0, 0, 0, 0};
-    file.read(magic, 4);
-    if (static_cast<size_t>(file.gcount()) != 4) {
-        fail_model(model_path, "truncated file header (expected magic 'NGGL')");
-    }
-    if (std::memcmp(magic, "NGGL", 4) != 0) {
-        fail_model(model_path, std::string("bad magic '") + std::string(magic, 4) + "', expected 'NGGL'");
-    }
-    uint32_t version = 0;
-    if (!read_pod(file, version)) {
-        fail_model(model_path, "truncated file header (missing version)");
-    }
-    if (version != kFileVersion) {
-        fail_model(model_path, "unsupported version " + std::to_string(version) + ", expected 1");
-    }
-    uint32_t num_tensors = 0;
-    if (!read_pod(file, num_tensors)) {
-        fail_model(model_path, "truncated file header (missing tensor count)");
-    }
-    if (num_tensors < 2 || num_tensors > kMaxTensors) {
-        fail_model(model_path, "implausible tensor count " + std::to_string(num_tensors));
-    }
-
-    // --- tensors ---
     std::map<std::string, LoadedTensor> tensors;
-    for (uint32_t t = 0; t < num_tensors; ++t) {
-        uint32_t name_len = 0;
-        if (!read_pod(file, name_len)) {
-            fail_model(model_path, "truncated tensor entry " + std::to_string(t) + " (missing name length)");
-        }
-        if (name_len == 0 || name_len > kMaxNameLen) {
-            fail_model(model_path, "tensor entry " + std::to_string(t) + " has invalid name length");
-        }
-        std::string name(name_len, '\0');
-        file.read(name.data(), name_len);
-        if (static_cast<size_t>(file.gcount()) != name_len) {
-            fail_model(model_path, "truncated name of tensor entry " + std::to_string(t));
-        }
-        uint32_t ndims = 0;
-        if (!read_pod(file, ndims)) {
-            fail_model(model_path, "truncated dims of tensor '" + name + "'");
-        }
-        if (ndims < 1 || ndims > 4) {
-            fail_model(model_path, "tensor '" + name + "' has invalid ndims " + std::to_string(ndims));
-        }
-        std::vector<uint32_t> dims(ndims);
-        uint64_t dim_product = 1;
-        for (uint32_t d = 0; d < ndims; ++d) {
-            if (!read_pod(file, dims[d])) {
-                fail_model(model_path, "truncated dims of tensor '" + name + "'");
-            }
-            if (dims[d] == 0) {
-                // Zero-sized dims are legal (e.g. an empty Resize roi);
-                // the product below becomes 0 and num_elements must be 0.
-                dim_product = 0;
-                // Still consume the dim value check below; skip the rest.
-                for (++d; d < ndims; ++d) {
-                    if (!read_pod(file, dims[d])) {
-                        fail_model(model_path, "truncated dims of tensor '" + name + "'");
-                    }
-                }
-                break;
-            }
-            if (dim_product > (uint64_t(1) << 32) / dims[d]) {
-                fail_model(model_path, "tensor '" + name + "' dims overflow");
-            }
-            dim_product *= dims[d];
-        }
-        uint64_t num_elements = 0;
-        if (!read_pod(file, num_elements)) {
-            fail_model(model_path, "truncated element count of tensor '" + name + "'");
-        }
-        if (num_elements != dim_product) {
-            fail_model(model_path, "tensor '" + name + "' declares " + std::to_string(num_elements) +
-                                       " elements but dims product is " + std::to_string(dim_product));
-        }
-        // Bound the allocation by the bytes actually left in the file, so a
-        // corrupt count fails with the path in the message instead of OOM.
-        const std::streampos data_pos = file.tellg();
-        file.seekg(0, std::ios::end);
-        const std::streampos file_end = file.tellg();
-        file.seekg(data_pos);
-        if (data_pos == std::streampos(-1) || file_end == std::streampos(-1)) {
-            fail_model(model_path, "cannot determine size of tensor '" + name + "'");
-        }
-        const uint64_t remaining = static_cast<uint64_t>(file_end - data_pos);
-        if (num_elements > remaining / sizeof(float)) {
-            fail_model(model_path, "tensor '" + name + "' claims " + std::to_string(num_elements) +
-                                       " elements but only " + std::to_string(remaining) + " bytes remain");
-        }
-        std::vector<float> data;
-        data.resize(static_cast<size_t>(num_elements));
-        file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(num_elements * sizeof(float)));
-        if (static_cast<size_t>(file.gcount()) != num_elements * sizeof(float)) {
-            fail_model(model_path, "truncated data of tensor '" + name + "' (expected " +
-                                       std::to_string(num_elements * sizeof(float)) + " bytes)");
-        }
-        if (tensors.count(name) != 0) {
-            fail_model(model_path, "duplicate tensor '" + name + "'");
-        }
-        tensors.emplace(name, LoadedTensor{std::move(dims), std::move(data)});
-    }
-    // No trailing garbage: byte counts must be exact.
-    char extra = 0;
-    file.read(&extra, 1);
-    if (static_cast<size_t>(file.gcount()) != 0) {
-        fail_model(model_path, "trailing bytes after tensor data");
-    }
+    load_gguf_tensors(model_path, tensors);
 
     // --- ResNet topology from exact tensor names (D-6) ---
     // Dispatch ResNet-18 vs ResNet-50 by FC input dim (512 vs 2048) plus

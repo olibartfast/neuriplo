@@ -476,10 +476,11 @@ TEST_F(GGMLInferTest, ParityVsOrt) {
 // match — decoding identical maxima means identical detections downstream)
 // and max-abs-diff within tolerance. SKIPs without artifact or refs.
 TEST_F(GGMLInferTest, ParityVsYolo) {
-    const fs::path model_path = "/tmp/yolov8n.ggml";
+    const fs::path model_path = "/tmp/yolov8n.gguf";
     if (!fs::exists(model_path)) {
-        GTEST_SKIP() << "Skipping yolo parity test - no model artifact (/tmp/yolov8n.ggml missing; "
-                        "convert: python3 scripts/convert_onnx_to_ggml.py --input /tmp/yolov8n.onnx)";
+        GTEST_SKIP()
+            << "Skipping yolo parity test - no model artifact (/tmp/yolov8n.gguf missing; "
+               "convert: python3 scripts/convert_onnx_to_gguf.py --input /tmp/yolov8n.onnx --output /tmp/yolov8n.gguf)";
     }
     const std::vector<fs::path> ref_paths = {"/tmp/ort_yolo_gray.npy", "/tmp/ort_yolo_zeros.npy",
                                              "/tmp/ort_yolo_gradient.npy"};
@@ -527,10 +528,11 @@ TEST_F(GGMLInferTest, ParityVsYolo) {
 // ORT by max cell and max-abs-diff; output1 [1,32,160,160] must match
 // elementwise. SKIPs without the artifact or reference files.
 TEST_F(GGMLInferTest, ParityVsYoloSeg) {
-    const fs::path model_path = "/tmp/yolov8n-seg.ggml";
+    const fs::path model_path = "/tmp/yolov8n-seg.gguf";
     if (!fs::exists(model_path)) {
-        GTEST_SKIP() << "Skipping yolo-seg parity test - no model artifact (/tmp/yolov8n-seg.ggml missing; "
-                        "convert: python3 scripts/convert_onnx_to_ggml.py --input <yolov8n-seg.onnx>)";
+        GTEST_SKIP() << "Skipping yolo-seg parity test - no model artifact (/tmp/yolov8n-seg.gguf missing; "
+                        "convert: python3 scripts/convert_onnx_to_gguf.py --input <yolov8n-seg.onnx> --output "
+                        "<yolov8n-seg.gguf>)";
     }
     const std::vector<fs::path> ref_paths = {
         "/tmp/ort_yoloseg_gray_out0.npy",  "/tmp/ort_yoloseg_gray_out1.npy",     "/tmp/ort_yoloseg_zeros_out0.npy",
@@ -599,13 +601,14 @@ TEST_F(GGMLInferTest, ParityVsYoloSeg) {
 }
 
 // T-17b (R-3): ResNet-50 ORT parity golden. Same bar as ParityVsOrt, own
-// artifact (/tmp/resnet50.ggml) and own references (/tmp/ort50_ref_*.npy);
+// artifact (/tmp/resnet50.gguf) and own references (/tmp/ort50_ref_*.npy);
 // SKIPs without either. Proves the bottleneck topology, not just dispatch.
 TEST_F(GGMLInferTest, ParityVsOrt50) {
-    const fs::path model_path = "/tmp/resnet50.ggml";
+    const fs::path model_path = "/tmp/resnet50.gguf";
     if (!fs::exists(model_path)) {
-        GTEST_SKIP() << "Skipping resnet50 parity test - no model artifact (/tmp/resnet50.ggml missing; "
-                        "convert: python3 scripts/convert_onnx_to_ggml.py --input <resnet50.onnx>)";
+        GTEST_SKIP()
+            << "Skipping resnet50 parity test - no model artifact (/tmp/resnet50.gguf missing; "
+               "convert: python3 scripts/convert_onnx_to_gguf.py --input <resnet50.onnx> --output <resnet50.gguf>)";
     }
     const std::vector<fs::path> ref_paths = {
         "/tmp/ort50_ref_gray.npy",
@@ -636,9 +639,51 @@ TEST_F(GGMLInferTest, ParityVsOrt50) {
     }
 }
 
-// (2) Missing file: constructor throws and the message names the path.
+// Strict-GGUF-only: any non-.gguf extension is rejected at the gate with
+// the path and the .gguf converter command. Legacy .ggml/.nggl and .onnx
+// never reach the tensor parser.
+TEST_F(GGMLInferTest, StrictGgufRejectsNonGguf) {
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 224, 224}};
+    for (const std::string& name : {"probe_model.ggml", "probe_model.nggl", "probe_model.onnx"}) {
+        const fs::path probe = fs::temp_directory_path() / name;
+        ScopedRemove guard(probe);
+        {
+            std::ofstream out(probe, std::ios::binary | std::ios::trunc);
+            out << "dummy";
+        }
+        try {
+            GGMLInfer infer(probe.string(), false, 1, input_sizes);
+            FAIL() << "expected strict-GGUF rejection: " << probe;
+        } catch (const std::exception& e) {
+            const std::string msg = e.what();
+            EXPECT_NE(msg.find(probe.string()), std::string::npos) << "error must name the path; got: " << msg;
+            EXPECT_NE(msg.find(".gguf"), std::string::npos) << "error must point to .gguf; got: " << msg;
+        }
+    }
+}
+
+// GGUF rejects files it cannot interpret, naming the path.
+TEST_F(GGMLInferTest, GgufRejectsGarbage) {
+    const fs::path garbage = fs::temp_directory_path() / "ggml_garbage_test.gguf";
+    ScopedRemove guard(garbage);
+    {
+        std::ofstream out(garbage, std::ios::binary | std::ios::trunc);
+        out << "GGUF";
+        const uint32_t rest[8] = {0};
+        out.write(reinterpret_cast<const char*>(rest), sizeof(rest));
+    }
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
+    try {
+        GGMLInfer infer(garbage.string(), false, 1, input_sizes);
+        FAIL() << "expected load of garbage .gguf to throw: " << garbage;
+    } catch (const std::exception& e) {
+        EXPECT_NE(std::string(e.what()).find(garbage.string()), std::string::npos)
+            << "gguf error must name the path; got: " << e.what();
+    }
+}
+
 TEST_F(GGMLInferTest, MissingFileThrowsWithPath) {
-    const fs::path missing = fs::temp_directory_path() / "ggml_missing_model_test.ggml";
+    const fs::path missing = fs::temp_directory_path() / "ggml_missing_model_test.gguf";
     ScopedRemove guard(missing);
     {
         std::error_code ec;
@@ -656,7 +701,7 @@ TEST_F(GGMLInferTest, MissingFileThrowsWithPath) {
 
 // (3) Truncated/corrupt file: loader must reject it, not accept near-empty bytes.
 TEST_F(GGMLInferTest, TruncatedCorruptFileThrows) {
-    const fs::path corrupt = fs::temp_directory_path() / "ggml_corrupt_model_test.ggml";
+    const fs::path corrupt = fs::temp_directory_path() / "ggml_corrupt_model_test.gguf";
     ScopedRemove guard(corrupt);
     {
         std::ofstream out(corrupt, std::ios::binary | std::ios::trunc);
@@ -711,7 +756,7 @@ TEST_F(GGMLInferTest, MultiInputThrows) {
 // setup_backend throws before the model file is opened, so no artifact needed.
 TEST_F(GGMLInferTest, UseGpuThrowsNamingRequest) {
     const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
-    const std::string probe_path = has_real_model ? model_path : "nonexistent-probe.ggml";
+    const std::string probe_path = has_real_model ? model_path : "nonexistent-probe.gguf";
     try {
         GGMLInfer infer(probe_path, true, 1, input_sizes);
         FAIL() << "use_gpu=true must fail fast, not silently run CPU";

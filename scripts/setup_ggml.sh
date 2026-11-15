@@ -41,7 +41,7 @@ cd "$BUILD_DIR"
 # Clone GGML repository if not exists
 if [ ! -d "ggml" ]; then
     echo "Cloning GGML repository..."
-    git clone https://github.com/ggerganov/ggml.git
+    git clone https://github.com/ggml-org/ggml.git
 fi
 
 cd ggml

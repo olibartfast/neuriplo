@@ -5,6 +5,9 @@
 #include <ggml.h>
 
 // Adapter: exposes the GGML runtime through the common InferenceInterface contract.
+// Strict-GGUF-only: weights come from scripts/convert_onnx_to_gguf.py
+// (.gguf F32, ggml-order dims + neuriplo.rank.* KVs). No ONNX and no
+// legacy NGGL path at runtime.
 class GGMLInfer : public InferenceInterface {
   private:
     struct ggml_context* ctx_;
