@@ -16,14 +16,20 @@ changing `GGMLInfer`'s hand-written model paths.
 
 - `backends/ggml/src/GGMLGraph.{hpp,cpp}`:
   - F32/I32/I64 tensors, multiple inputs, multiple marked outputs;
-  - ops: Add, Sub, Mul, Div, Sqrt, Clip, MatMul, Linear, scaled dot-product
-    attention, Softmax, LayerNorm, GELU, Gather, I64→I32 cast, Reshape,
-    Transpose, Concat, Relu, Sigmoid, Conv2d, depthwise Conv2d, MaxPool2d;
+  - ops: Add, Sub, Mul, Div, Sqrt, Clip, MatMul, BatchedMatMul,
+    BatchedMatMulTransposed, Linear, scaled dot-product attention, Softmax,
+    LayerNorm, GELU, Gather, GatherElements, I64→I32 cast, Reshape,
+    Transpose, Concat, Slice, Split, Relu, Sigmoid, Abs, Log, Erf, Square,
+    ReduceMean, ReduceSum, ReduceMax, TopK, Pad, Interpolate, Repeat, Conv2d,
+    depthwise Conv2d, MaxPool2d;
   - exact-size input validation and loud contract errors.
 - Host-side I64→I32 materialization because this ggml build's `cast`/`dup`
   kernels abort on I64→I32.
+- Host callbacks for `Erf` and `GatherElements` where ggml has no matching
+  kernel.
 - `backends/ggml/test/GGMLGraphTest.cpp`: multi-input Add, INT64
-  cast+gather, multiple outputs, tiny transformer block, bad contracts.
+  cast+gather, multiple outputs, tiny transformer block, shape/activation,
+  arithmetic/clip ops, bad contracts.
 - CMake wiring into `libneuriplo.so` and the GGML test binary.
 
 ## Out of Scope

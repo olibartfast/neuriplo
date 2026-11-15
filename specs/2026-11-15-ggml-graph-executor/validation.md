@@ -20,7 +20,7 @@ Commands run in `/home/oli/repos/neuriplo` on `feature/ggml-yolo-family`.
 | V-2 | same run | pass | 2026-11-15 | I64 indices [2,0] → I32 → Gather over `[D=2,N=3]` data returns `[5,6,1,2]`. |
 | V-3 | same run | pass | 2026-11-15 | Add and Mul outputs returned in mark order: `[8,10]` and `[15,24]`. |
 | V-4 | same run | pass | 2026-11-15 | Tiny block output `[1.6826661, 2.8413231, 3.6826661, 4.8413231]` within 1e-5. |
-| V-5 | full `GGMLInferTest` + `ctest --test-dir build-ggml` | pass | 2026-11-15 | 38 tests: 37 pass, 1 intentional mock skip; full ctest **77/77**. The later ONNX-frontend packet adds 10 of those tests. |
+| V-5 | full `GGMLInferTest` + `ctest --test-dir build-ggml` | pass | 2026-11-15 | 50 tests: 49 pass, 1 intentional mock skip; full ctest **77/77**. The later ONNX-frontend packet adds 22 of those tests. |
 | V-6 | matrix status | pass | 2026-11-15 | No app cell changed; `rtdetr` remains blocked on the ONNX frontend and deformable/dynamic ops. |
 
 ## Blocker after this packet

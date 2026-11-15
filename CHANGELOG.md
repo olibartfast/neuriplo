@@ -10,19 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Static-shape ONNX-subset frontend (`backends/ggml/src/GGMLOnnx.{hpp,cpp}`):
   a dependency-free wire reader plus a builder that emits `GGMLGraph` nodes.
   It accepts FLOAT/INT32/INT64 inputs, constants, Conv/depthwise Conv,
-  MaxPool, Gemm/MatMul, attention/Softmax/LayerNorm, shape ops and
-  ConstantOfShape, and fails loudly on dynamic shapes or unlisted ops. Ten
-  fixtures cover multi-input Add, INT64 Gather, an attention block,
-  shape/activation ops, Conv+MaxPool, depthwise Conv, ConstantOfShape,
-  scaled Gemm, unsupported ops and dynamic shapes. A fixed-batch `rtdetrv4` probe now gets
-  past Conv and stops at `Slice`; full RT-DETR parity is not claimed.
+  MaxPool, Gemm/MatMul (including batched), attention/Softmax/LayerNorm,
+  Slice/Split/Concat/Reshape/Transpose, ReduceMean/Sum/Max, TopK,
+  GatherElements, Pad, Resize-nearest, Expand/Tile, Pow/Abs/Log/Erf, shape
+  folding and ConstantOfShape, and fails loudly on dynamic shapes or unlisted
+  ops. Twenty-two fixtures cover the supported contract. A fixed-batch
+  `rtdetrv4` probe now imports through the backbone, encoder and most of the
+  decoder, then stops at a rank-5 decoder tensor whose ONNX axis numbering no
+  longer matches the 4-D ggml layout; full RT-DETR parity is not claimed.
 - Multi-input/multi-output GGML graph executor (`backends/ggml/src/GGMLGraph`):
-  FP32/I32/I64 inputs, Add/Sub/Mul/Div/Sqrt/Clip/MatMul/Linear/attention/
-  Softmax/LayerNorm/GELU/Gather, Reshape/Transpose/Concat,
-  Relu/Sigmoid, Conv/depthwise Conv/MaxPool, and host-side I64→I32
-  cast for Gather indices. Seven graph tests cover multi-input, INT64, multiple
-  outputs, a tiny transformer block, shape/activation, arithmetic/clip ops
-  and contract rejection.
+  FP32/I32/I64 inputs, Add/Sub/Mul/Div/Sqrt/Clip/MatMul/BatchedMatMul/
+  Linear/attention/Softmax/LayerNorm/GELU/Gather/GatherElements,
+  Reshape/Transpose/Concat/Slice/Repeat, Relu/Sigmoid/Abs/Log/Erf/Square,
+  ReduceMean/ReduceSum/ReduceMax/TopK, Pad/Interpolate,
+  Conv/depthwise Conv/MaxPool, and host-side I64→I32 cast for Gather
+  indices. Seven graph tests cover multi-input, INT64, multiple outputs, a
+  tiny transformer block, shape/activation, arithmetic/clip ops and contract
+  rejection.
 - Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
   LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
   attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity

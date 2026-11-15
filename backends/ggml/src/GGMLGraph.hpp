@@ -19,9 +19,12 @@ enum class Op {
     Sub,
     Mul,
     Div,
+    IntegerBinary,
     Sqrt,
     Clip,
     MatMul,
+    BatchedMatMul,
+    BatchedMatMulTransposed,
     Linear,
     ScaledDotProductAttention,
     Softmax,
@@ -29,11 +32,27 @@ enum class Op {
     Gelu,
     Gather,
     CastI64ToI32,
+    CastI32ToF32,
     Reshape,
     Transpose,
     Concat,
+    Slice,
     Relu,
     Sigmoid,
+    Abs,
+    Log,
+    Erf,
+    Square,
+    ReduceMean,
+    ReduceSum,
+    ReduceMax,
+    TopKIndices,
+    TopKValues,
+    GatherElements,
+    GridSample,
+    Pad,
+    Interpolate,
+    Repeat,
     Conv2d,
     Conv2dDepthwise,
     MaxPool2d,
@@ -64,6 +83,10 @@ class Graph {
     // `input_blobs` must match the inputs added, in order, with exact byte
     // sizes for their dtype. Returns every marked output in mark order.
     std::vector<Output> compute(const std::vector<std::vector<uint8_t>>& input_blobs);
+
+    // Actual dtype of a tensor id. Useful for importers that preserve dtype
+    // through reshape/transpose/concat/slice.
+    DType dtype(int tensor_id) const;
 
   private:
     struct Impl;
