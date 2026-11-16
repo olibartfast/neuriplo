@@ -12,6 +12,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <string>
@@ -637,6 +638,231 @@ TEST_F(GGMLInferTest, ParityVsOrt50) {
         RecordProperty(("ort50_max_abs_diff_" + r.label).c_str(), r.diff);
         RecordProperty(("ort50_top5_agree_" + r.label).c_str(), r.top5_agree ? 1 : 0);
     }
+}
+
+// RF-DETR S-1: backbone+projector parity vs ORT prefix refs. Intermediate
+// contract: the loader exposes the projector map [1,256,40,40]. The bar is
+// measurement-derived per validation.md (projector chained drift 2.07e-03):
+// assert max-cell agreement plus max_abs <= 5e-3, recording the actuals.
+// SKIPs without /tmp/rfdetr.gguf, the fixed input blob, or the ORT ref.
+TEST_F(GGMLInferTest, GgufRfdetrBackboneProjectorParity) {
+    const fs::path model_path = "/tmp/rfdetr.gguf";
+    const fs::path input_path = "/tmp/opencode/rfdetr_bb_input.npy";
+    const fs::path ref_path = "/tmp/opencode/ref__backbone_backbone.0_projector_stages.0_stages.0.1_Add_1_output_0.npy";
+    for (const auto& p : {model_path, input_path, ref_path}) {
+        if (!fs::exists(p)) {
+            GTEST_SKIP() << "Skipping RF-DETR backbone parity - missing " << p;
+        }
+    }
+    // Whole-array F32 .npy loader (any C-order shape; flat compare is valid:
+    // NCHW row-major bytes equal ggml flat order for these tensors).
+    auto load_npy_flat = [](const fs::path& path, std::vector<float>& out) {
+        std::ifstream f(path, std::ios::binary);
+        if (!f) {
+            return false;
+        }
+        char magic[8];
+        f.read(magic, 8);
+        if (!f || std::memcmp(magic, "\x93NUMPY", 6) != 0) {
+            return false;
+        }
+        uint16_t hlen = 0;
+        f.read(reinterpret_cast<char*>(&hlen), 2);
+        if (!f) {
+            return false;
+        }
+        f.seekg(hlen, std::ios::cur);
+        const auto start = f.tellg();
+        f.seekg(0, std::ios::end);
+        const size_t bytes = static_cast<size_t>(f.tellg() - start);
+        if (bytes % sizeof(float) != 0) {
+            return false;
+        }
+        f.seekg(start);
+        out.resize(bytes / sizeof(float));
+        f.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(bytes));
+        return static_cast<bool>(f);
+    };
+    std::vector<float> input_f32;
+    std::vector<float> expected;
+    ASSERT_TRUE(load_npy_flat(input_path, input_f32)) << "cannot read " << input_path;
+    ASSERT_TRUE(load_npy_flat(ref_path, expected)) << "cannot read " << ref_path;
+    ASSERT_EQ(input_f32.size(), static_cast<size_t>(1 * 3 * 560 * 560));
+    ASSERT_EQ(expected.size(), static_cast<size_t>(256 * 40 * 40));
+
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 560, 560}};
+    GGMLInfer infer(model_path.string(), false, 1, input_sizes);
+    std::vector<uint8_t> raw(input_f32.size() * sizeof(float));
+    std::memcpy(raw.data(), input_f32.data(), raw.size());
+    const auto [outputs, shapes] = infer.get_infer_results({std::move(raw)});
+    ASSERT_EQ(shapes.size(), 1u);
+    EXPECT_EQ(shapes[0], (std::vector<int64_t>{1, 256, 40, 40}));
+    ASSERT_EQ(outputs.size(), 1u);
+    ASSERT_EQ(outputs[0].size(), expected.size());
+    const std::vector<float> got = tensor_to_floats(outputs[0]);
+    size_t got_argmax = 0;
+    size_t ref_argmax = 0;
+    double max_diff = 0.0;
+    double sum = 0.0;
+    for (size_t i = 0; i < got.size(); ++i) {
+        const double d = std::fabs(static_cast<double>(got[i]) - expected[i]);
+        max_diff = std::max(max_diff, d);
+        sum += d;
+        if (got[i] > got[got_argmax]) {
+            got_argmax = i;
+        }
+        if (expected[i] > expected[ref_argmax]) {
+            ref_argmax = i;
+        }
+    }
+    RecordProperty("max_abs_diff", max_diff);
+    RecordProperty("mean_abs_diff", sum / static_cast<double>(got.size()));
+    std::cout << "[rfdetr-bb] max_abs_diff=" << max_diff << " mean=" << sum / static_cast<double>(got.size())
+              << std::endl;
+    EXPECT_EQ(got_argmax, ref_argmax) << "max-cell mismatch";
+    // Measurement-derived budget (validation.md S-1: probe projector drift
+    // 2.07e-03; 5e-3 is ~2.4x measured, not the 1e-5 chained-op bar).
+    EXPECT_LE(max_diff, 5e-3) << "max_abs_diff " << max_diff << " exceeds measured budget";
+}
+
+namespace {
+
+// Minimal GGUF v3 writer for parser regression fixtures. It mirrors the
+// production converter: string/int32 KVs, F32 tensors, 32-byte data base.
+struct GgufTestTensor {
+    std::string name;
+    std::vector<uint64_t> ne; // ggml order
+    uint64_t offset = 0;
+    std::vector<uint8_t> data;
+};
+
+void append_u32(std::vector<uint8_t>& out, uint32_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    out.insert(out.end(), bytes, bytes + sizeof(value));
+}
+
+void append_u64(std::vector<uint8_t>& out, uint64_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    out.insert(out.end(), bytes, bytes + sizeof(value));
+}
+
+void append_string(std::vector<uint8_t>& out, const std::string& value) {
+    append_u64(out, value.size());
+    out.insert(out.end(), value.begin(), value.end());
+}
+
+void write_test_gguf(const fs::path& path, const std::vector<GgufTestTensor>& tensors, bool duplicate_rank = false) {
+    std::vector<std::pair<std::string, int32_t>> ranks;
+    ranks.reserve(tensors.size() + (duplicate_rank ? 1 : 0));
+    for (const auto& t : tensors) {
+        ranks.emplace_back("neuriplo.rank." + t.name, static_cast<int32_t>(t.ne.size()));
+    }
+    if (duplicate_rank && !ranks.empty()) {
+        ranks.push_back(ranks.front());
+    }
+
+    std::vector<uint8_t> out = {'G', 'G', 'U', 'F'};
+    append_u32(out, 3);
+    append_u64(out, tensors.size());
+    append_u64(out, ranks.size() + 1); // architecture + rank entries
+    append_string(out, "general.architecture");
+    append_u32(out, 8); // string
+    append_string(out, "neuriplo-vision");
+    for (const auto& [key, rank] : ranks) {
+        append_string(out, key);
+        append_u32(out, 5); // int32
+        append_u32(out, static_cast<uint32_t>(rank));
+    }
+    for (const auto& t : tensors) {
+        append_string(out, t.name);
+        append_u32(out, static_cast<uint32_t>(t.ne.size()));
+        for (uint64_t d : t.ne) {
+            append_u64(out, d);
+        }
+        append_u32(out, 0); // GGML_TYPE_F32
+        append_u64(out, t.offset);
+    }
+    while (out.size() % 32 != 0) {
+        out.push_back(0);
+    }
+    const size_t data_base = out.size();
+    for (const auto& t : tensors) {
+        if (t.data.empty()) {
+            continue;
+        }
+        const size_t start = data_base + static_cast<size_t>(t.offset);
+        const size_t end = start + t.data.size();
+        if (out.size() < end) {
+            out.resize(end, 0);
+        }
+        std::memcpy(out.data() + start, t.data.data(), t.data.size());
+    }
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
+}
+
+std::string load_test_gguf_error(const fs::path& path) {
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 224, 224, 3}};
+    try {
+        GGMLInfer infer(path.string(), false, 1, input_sizes);
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    return {};
+}
+
+} // namespace
+
+TEST_F(GGMLInferTest, GgufRejectsOverflowingTensorOffset) {
+    const fs::path path = fs::temp_directory_path() / "ggml_overflow_offset_test.gguf";
+    ScopedRemove guard(path);
+    write_test_gguf(path, {{"overflow_offset", {1}, std::numeric_limits<uint64_t>::max() - 8, {}}});
+    const std::string error = load_test_gguf_error(path);
+    ASSERT_FALSE(error.empty()) << "malformed tensor offset must be rejected";
+    EXPECT_NE(error.find("extends past end of file"), std::string::npos) << error;
+}
+
+TEST_F(GGMLInferTest, GgufRejectsOverflowingTensorDimensions) {
+    const fs::path path = fs::temp_directory_path() / "ggml_overflow_dims_test.gguf";
+    ScopedRemove guard(path);
+    write_test_gguf(path, {{"overflow_dims", {1u << 24, 1u << 24, 1u << 24, 2}, 0, {}}});
+    const std::string error = load_test_gguf_error(path);
+    ASSERT_FALSE(error.empty()) << "overflowing tensor dimensions must be rejected";
+    EXPECT_NE(error.find("element count too large"), std::string::npos) << error;
+}
+
+TEST_F(GGMLInferTest, GgufAcceptsZeroSizedTensorDimension) {
+    const fs::path path = fs::temp_directory_path() / "ggml_zero_dim_test.gguf";
+    ScopedRemove guard(path);
+    write_test_gguf(path, {{"zero_dim", {0, 1}, 0, {}}});
+    const std::string error = load_test_gguf_error(path);
+    ASSERT_FALSE(error.empty()) << "fixture should fail topology dispatch, not parsing";
+    EXPECT_NE(error.find("zero_dim"), std::string::npos) << error;
+    EXPECT_EQ(error.find("invalid dim"), std::string::npos) << error;
+}
+
+TEST_F(GGMLInferTest, GgufRejectsDuplicateRankEntry) {
+    const fs::path path = fs::temp_directory_path() / "ggml_duplicate_rank_test.gguf";
+    ScopedRemove guard(path);
+    write_test_gguf(path, {{"duplicate_rank", {1}, 0, {}}}, /*duplicate_rank=*/true);
+    const std::string error = load_test_gguf_error(path);
+    ASSERT_FALSE(error.empty()) << "duplicate rank metadata must be rejected";
+    EXPECT_NE(error.find("duplicate rank entry"), std::string::npos) << error;
+}
+
+// The old gguf C API truncated/misread tensor names beyond 64 chars; RF-DETR
+// relies on names longer than that. A long name must reach topology dispatch.
+TEST_F(GGMLInferTest, GgufAcceptsLongTensorName) {
+    const fs::path path = fs::temp_directory_path() / "ggml_long_name_test.gguf";
+    ScopedRemove guard(path);
+    const std::string long_name = "encoder.blocks.0." + std::string(80, 'x') + ".weight";
+    ASSERT_GT(long_name.size(), 64u);
+    const uint8_t payload[4] = {0, 0, 0, 0};
+    write_test_gguf(path, {{long_name, {1}, 0, std::vector<uint8_t>(payload, payload + sizeof(payload))}});
+    const std::string error = load_test_gguf_error(path);
+    ASSERT_FALSE(error.empty()) << "minimal fixture should fail topology dispatch, not parsing";
+    EXPECT_NE(error.find(long_name), std::string::npos) << error;
+    EXPECT_EQ(error.find("truncated"), std::string::npos) << error;
 }
 
 // Strict-GGUF-only: any non-.gguf extension is rejected at the gate with

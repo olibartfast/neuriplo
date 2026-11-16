@@ -1,5 +1,7 @@
 #include "GGMLInfer.hpp"
 
+#include "GGMLOps.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -8,7 +10,7 @@
 #include <ggml-alloc.h>
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
-#include <gguf.h>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -43,6 +45,35 @@
 namespace {
 
 constexpr size_t kInputChannels = 3;
+
+// RF-DETR backbone per-block MatMul weight names (DINOv2-S, 11 blocks),
+// transcribed from rfdetr.onnx (see /tmp/opencode/rfdetr_tables.inc).
+// File dims are ONNX row-major [K,N]; the loader transposes the bytes into
+// ggml ne=[K,N] (same coincidence the probe uses).
+constexpr const char* kRfdetrWQ[11] = {"onnx::MatMul_3712", "onnx::MatMul_3737", "onnx::MatMul_3766",
+                                       "onnx::MatMul_3795", "onnx::MatMul_3820", "onnx::MatMul_3849",
+                                       "onnx::MatMul_3878", "onnx::MatMul_3903", "onnx::MatMul_3932",
+                                       "onnx::MatMul_3961", "onnx::MatMul_3986"};
+constexpr const char* kRfdetrWK[11] = {"onnx::MatMul_3713", "onnx::MatMul_3738", "onnx::MatMul_3767",
+                                       "onnx::MatMul_3796", "onnx::MatMul_3821", "onnx::MatMul_3850",
+                                       "onnx::MatMul_3879", "onnx::MatMul_3904", "onnx::MatMul_3933",
+                                       "onnx::MatMul_3962", "onnx::MatMul_3987"};
+constexpr const char* kRfdetrWV[11] = {"onnx::MatMul_3719", "onnx::MatMul_3744", "onnx::MatMul_3773",
+                                       "onnx::MatMul_3802", "onnx::MatMul_3827", "onnx::MatMul_3856",
+                                       "onnx::MatMul_3885", "onnx::MatMul_3910", "onnx::MatMul_3939",
+                                       "onnx::MatMul_3968", "onnx::MatMul_3993"};
+constexpr const char* kRfdetrWO[11] = {"onnx::MatMul_3734", "onnx::MatMul_3759", "onnx::MatMul_3788",
+                                       "onnx::MatMul_3817", "onnx::MatMul_3842", "onnx::MatMul_3871",
+                                       "onnx::MatMul_3900", "onnx::MatMul_3925", "onnx::MatMul_3954",
+                                       "onnx::MatMul_3983", "onnx::MatMul_4008"};
+constexpr const char* kRfdetrWF1[11] = {"onnx::MatMul_3735", "onnx::MatMul_3760", "onnx::MatMul_3793",
+                                        "onnx::MatMul_3818", "onnx::MatMul_3843", "onnx::MatMul_3876",
+                                        "onnx::MatMul_3901", "onnx::MatMul_3926", "onnx::MatMul_3959",
+                                        "onnx::MatMul_3984", "onnx::MatMul_4009"};
+constexpr const char* kRfdetrWF2[11] = {"onnx::MatMul_3736", "onnx::MatMul_3761", "onnx::MatMul_3794",
+                                        "onnx::MatMul_3819", "onnx::MatMul_3844", "onnx::MatMul_3877",
+                                        "onnx::MatMul_3902", "onnx::MatMul_3927", "onnx::MatMul_3960",
+                                        "onnx::MatMul_3985", "onnx::MatMul_4010"};
 constexpr size_t kInputHeight = 224;
 constexpr size_t kInputWidth = 224;
 constexpr int64_t kInputElements = 150528; // 3*224*224
@@ -248,7 +279,9 @@ inline struct ggml_tensor* concat_ch(struct ggml_context* ctx, const std::vector
 void load_gguf_tensors(const std::string& model_path, std::map<std::string, LoadedTensor>& tensors) {
     // GGUF weights container written by scripts/convert_onnx_to_gguf.py:
     // F32 tensors only, ggml-order dims, per-tensor neuriplo.rank.<name>
-    // KV entries carrying the ONNX rank (the C API exposes no n_dims).
+    // KV entries carrying the ONNX rank. Parsed directly (not via the gguf
+    // C API) because tensor names can exceed that API's 64-char limit
+    // (e.g. RF-DETR's nested encoder names).
     std::ifstream blob(model_path, std::ios::binary);
     if (!blob) {
         throw std::runtime_error("Cannot open model file: " + model_path);
@@ -261,72 +294,172 @@ void load_gguf_tensors(const std::string& model_path, std::map<std::string, Load
     if (static_cast<size_t>(blob.gcount()) != file_size) {
         fail_model(model_path, "cannot read GGUF file");
     }
-
-    gguf_init_params gguf_params;
-    gguf_params.no_alloc = true;
-    gguf_params.ctx = nullptr;
-    struct gguf_context* ctx = gguf_init_from_buffer(bytes.data(), bytes.size(), gguf_params);
-    if (ctx == nullptr) {
-        fail_model(model_path, "cannot parse GGUF header");
-    }
-    struct GgufFree {
-        struct gguf_context* ctx;
-        ~GgufFree() {
-            if (ctx != nullptr) {
-                gguf_free(ctx);
-            }
+    const auto u32_at = [&](size_t off, uint32_t& out) {
+        if (off > bytes.size() || bytes.size() - off < 4) {
+            fail_model(model_path, "truncated GGUF header");
         }
-    } guard{ctx};
-
-    const int64_t n_tensors = gguf_get_n_tensors(ctx);
-    if (n_tensors <= 0) {
-        fail_model(model_path, "GGUF file has no tensors");
+        std::memcpy(&out, bytes.data() + off, 4);
+    };
+    const auto u64_at = [&](size_t off, uint64_t& out) {
+        if (off > bytes.size() || bytes.size() - off < 8) {
+            fail_model(model_path, "truncated GGUF header");
+        }
+        std::memcpy(&out, bytes.data() + off, 8);
+    };
+    const auto str_at = [&](size_t& off) {
+        uint64_t len = 0;
+        u64_at(off, len);
+        off += 8;
+        if (len > (1 << 20) || off > bytes.size() || len > bytes.size() - off) {
+            fail_model(model_path, "truncated GGUF string");
+        }
+        std::string s(reinterpret_cast<const char*>(bytes.data() + off), static_cast<size_t>(len));
+        off += static_cast<size_t>(len);
+        return s;
+    };
+    if (bytes.size() < 24 || std::memcmp(bytes.data(), "GGUF", 4) != 0) {
+        fail_model(model_path, "bad GGUF magic");
     }
-    const size_t data_base = gguf_get_data_offset(ctx);
-    const uint32_t ggml_f32 = static_cast<uint32_t>(GGML_TYPE_F32);
-    for (int64_t i = 0; i < n_tensors; ++i) {
-        const char* raw_name = gguf_get_tensor_name(ctx, i);
-        if (raw_name == nullptr || raw_name[0] == '\0') {
+    uint32_t version = 0;
+    u32_at(4, version);
+    if (version != 3) {
+        fail_model(model_path, "unsupported GGUF version " + std::to_string(version) + ", expected 3");
+    }
+    uint64_t n_tensors = 0, n_kv = 0;
+    u64_at(8, n_tensors);
+    u64_at(16, n_kv);
+    if (n_tensors == 0 || n_tensors > 100000) {
+        fail_model(model_path, "implausible GGUF tensor count " + std::to_string(n_tensors));
+    }
+    // Each KV consumes at least a 12-byte key length/type prefix; reject
+    // counts that cannot fit before entering the metadata loop.
+    if (n_kv > bytes.size() / 12) {
+        fail_model(model_path, "implausible GGUF KV count " + std::to_string(n_kv));
+    }
+    size_t off = 24;
+    std::map<std::string, int32_t> ranks;
+    for (uint64_t i = 0; i < n_kv; ++i) {
+        const std::string key = str_at(off);
+        uint32_t vtype = 0;
+        u32_at(off, vtype);
+        off += 4;
+        if (vtype == 8) { // string
+            (void)str_at(off);
+        } else if (vtype == 5) { // int32
+            uint32_t raw = 0;
+            u32_at(off, raw);
+            off += 4;
+            constexpr char kRankPrefix[] = "neuriplo.rank.";
+            if (key.compare(0, sizeof(kRankPrefix) - 1, kRankPrefix) == 0) {
+                int32_t rank = 0;
+                std::memcpy(&rank, &raw, 4);
+                const std::string rank_name = key.substr(sizeof(kRankPrefix) - 1);
+                if (rank_name.empty()) {
+                    fail_model(model_path, "empty tensor name in rank entry");
+                }
+                if (!ranks.emplace(rank_name, rank).second) {
+                    fail_model(model_path, "duplicate rank entry for tensor '" + rank_name + "'");
+                }
+            }
+        } else {
+            fail_model(model_path, "unsupported GGUF KV type for key '" + key + "'");
+        }
+    }
+    struct Info {
+        std::string name;
+        int32_t rank = 0;
+        std::vector<uint64_t> ne;
+        uint64_t offset = 0;
+    };
+    std::vector<Info> infos;
+    infos.reserve(static_cast<size_t>(n_tensors));
+    for (uint64_t i = 0; i < n_tensors; ++i) {
+        Info in;
+        in.name = str_at(off);
+        if (in.name.empty()) {
             fail_model(model_path, "GGUF tensor has no name");
         }
-        const std::string name(raw_name);
-        if (gguf_get_tensor_type(ctx, i) != static_cast<ggml_type>(ggml_f32)) {
-            fail_model(model_path, "tensor '" + name + "' is not F32");
+        uint32_t nd = 0, ttype = 0;
+        u32_at(off, nd);
+        off += 4;
+        if (nd < 1 || nd > 4) {
+            fail_model(model_path, "tensor '" + in.name + "' has invalid ndims");
         }
-        const std::string rank_key = "neuriplo.rank." + name;
-        const int64_t rank_id = gguf_find_key(ctx, rank_key.c_str());
-        if (rank_id < 0) {
-            fail_model(model_path, "tensor '" + name + "' has no '" + rank_key + "' entry");
-        }
-        const int32_t rank = gguf_get_val_i32(ctx, rank_id);
-        if (rank < 1 || rank > 4) {
-            fail_model(model_path, "tensor '" + name + "' has invalid rank " + std::to_string(rank));
-        }
-        const int64_t* ne = gguf_get_tensor_ne(ctx, i);
-        std::vector<uint32_t> dims;
-        dims.reserve(static_cast<size_t>(rank));
-        uint64_t num_elements = 1;
-        for (int32_t d = rank - 1; d >= 0; --d) {
-            if (ne[d] < 0 || ne[d] > (1 << 24)) {
-                fail_model(model_path, "tensor '" + name + "' has invalid dim");
+        in.ne.resize(nd);
+        for (uint32_t d = 0; d < nd; ++d) {
+            u64_at(off, in.ne[d]);
+            off += 8;
+            // Zero-size initializers are legal in ONNX and are carried by the
+            // converter as empty tensors; the topology ignores them.
+            if (in.ne[d] > (1 << 24)) {
+                fail_model(model_path, "tensor '" + in.name + "' has invalid dim");
             }
-            dims.push_back(static_cast<uint32_t>(ne[d]));
-            num_elements *= static_cast<uint64_t>(ne[d]);
         }
-        const size_t byte_size = num_elements * sizeof(float);
-        if (byte_size != gguf_get_tensor_size(ctx, i)) {
-            fail_model(model_path, "tensor '" + name + "' size mismatch");
+        u32_at(off, ttype);
+        off += 4;
+        if (ttype != static_cast<uint32_t>(GGML_TYPE_F32)) {
+            fail_model(model_path, "tensor '" + in.name + "' is not F32");
         }
-        const size_t offset = data_base + gguf_get_tensor_offset(ctx, i);
-        if (offset + byte_size > bytes.size()) {
-            fail_model(model_path, "tensor '" + name + "' extends past end of file");
+        uint64_t toffset = 0;
+        u64_at(off, toffset);
+        off += 8;
+        const auto rank_it = ranks.find(in.name);
+        if (rank_it == ranks.end()) {
+            fail_model(model_path, "tensor '" + in.name + "' has no 'neuriplo.rank." + in.name + "' entry");
         }
-        std::vector<float> data(num_elements);
-        std::memcpy(data.data(), bytes.data() + offset, byte_size);
-        if (tensors.count(name) != 0) {
-            fail_model(model_path, "duplicate tensor '" + name + "'");
+        in.rank = rank_it->second;
+        if (in.rank < 1 || in.rank > 4 || static_cast<uint32_t>(in.rank) != nd) {
+            fail_model(model_path, "tensor '" + in.name + "' has invalid rank " + std::to_string(in.rank));
         }
-        tensors.emplace(name, LoadedTensor{std::move(dims), std::move(data)});
+        in.offset = toffset;
+        infos.push_back(std::move(in));
+    }
+    if (off > std::numeric_limits<size_t>::max() - 31) {
+        fail_model(model_path, "GGUF metadata offset overflow");
+    }
+    const size_t data_base = (off + 31) / 32 * 32;
+    if (data_base > bytes.size()) {
+        fail_model(model_path, "tensor data section starts past end of file");
+    }
+    // Every tensor consumes at least one float per element; a larger element
+    // count cannot be backed by this file and must not drive an allocation.
+    const size_t max_elements = bytes.size() / sizeof(float);
+    for (const auto& in : infos) {
+        // ne[] is ggml order; dims[] is ONNX order (reversed).
+        std::vector<uint32_t> dims;
+        dims.reserve(static_cast<size_t>(in.rank));
+        uint64_t num_elements = 1;
+        for (int32_t d = in.rank - 1; d >= 0; --d) {
+            dims.push_back(static_cast<uint32_t>(in.ne[d]));
+            if (in.ne[d] == 0) {
+                num_elements = 0;
+            } else if (num_elements != 0) {
+                if (num_elements > static_cast<uint64_t>(max_elements) / in.ne[d]) {
+                    fail_model(model_path, "tensor '" + in.name + "' element count too large");
+                }
+                num_elements *= in.ne[d];
+            }
+        }
+        if (num_elements > max_elements) {
+            fail_model(model_path, "tensor '" + in.name + "' element count too large");
+        }
+        const size_t element_count = static_cast<size_t>(num_elements);
+        const size_t byte_size = element_count * sizeof(float);
+        if (in.offset > bytes.size() - data_base) {
+            fail_model(model_path, "tensor '" + in.name + "' extends past end of file");
+        }
+        const size_t start = data_base + static_cast<size_t>(in.offset);
+        if (byte_size > bytes.size() - start) {
+            fail_model(model_path, "tensor '" + in.name + "' extends past end of file");
+        }
+        std::vector<float> data(element_count);
+        if (byte_size != 0) {
+            std::memcpy(data.data(), bytes.data() + start, byte_size);
+        }
+        if (tensors.count(in.name) != 0) {
+            fail_model(model_path, "duplicate tensor '" + in.name + "'");
+        }
+        tensors.emplace(in.name, LoadedTensor{std::move(dims), std::move(data)});
     }
 }
 
@@ -458,12 +591,42 @@ void GGMLInfer::load_model(const std::string& model_path) {
         }
     }
 
+    // RF-DETR family (detection first, seg later): hand-written GGUF
+    // topology, no importer. Dispatch on the 91-class head: class_embed.bias
+    // [91] plus a 2D [256,91] classifier weight (encoder or head rule, both
+    // RF-DETR-only). S-1 intermediate contract: the loader exposes the
+    // backbone+projector map [1,256,40,40]; the full detection graph lands in
+    // a later slice and moves this sentinel.
+    bool is_rfdetr = false;
+    {
+        const auto head = tensors.find("class_embed.bias");
+        if (head != tensors.end() && head->second.dims == std::vector<uint32_t>{91}) {
+            for (const auto& kv : tensors) {
+                if (kv.second.dims == std::vector<uint32_t>{256, 91}) {
+                    is_rfdetr = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (is_rfdetr) {
+        if (is_yolo) {
+            fail_model(model_path, "model has both YOLOv8n stem and RF-DETR head; tensors:" + shapes_seen);
+        }
+        input_height_ = 560;
+        input_width_ = 560;
+        output_shapes_ = {{1, 256, 40, 40}};
+        if (batch_size_ != 1) {
+            fail_model(model_path, "GGML RF-DETR path is fixed batch-1 (window packing is single-batch)");
+        }
+    }
+
     std::string prefix;
     std::string fc_w_name;
     std::string fc_b_name;
     uint32_t fc_in_dim = 0;
     bool is_bottleneck = false;
-    if (!is_yolo) {
+    if (!is_yolo && !is_rfdetr) {
         struct VariantSpec {
             const char* prefix;
             const char* fc_weight;
@@ -549,6 +712,13 @@ void GGMLInfer::load_model(const std::string& model_path) {
         std::vector<ggml_fp16_t> data;
     };
     std::vector<PendingFillF16> pending_f16;
+    // Static I32 index vectors (RF-DETR window packing for get_rows) staged
+    // the same way: storage is only valid after the backend buffer exists.
+    struct PendingFillI32 {
+        struct ggml_tensor* tensor = nullptr;
+        std::vector<int32_t> data;
+    };
+    std::vector<PendingFillI32> pending_i32;
     auto new_const_4d = [&](int64_t n0, int64_t n1, int64_t n2, int64_t n3,
                             std::vector<float> data) -> struct ggml_tensor* {
         struct ggml_tensor* t = ggml_new_tensor_4d(ctx_, GGML_TYPE_F32, n0, n1, n2, n3);
@@ -584,7 +754,7 @@ void GGMLInfer::load_model(const std::string& model_path) {
     struct ggml_tensor* logits = nullptr;
     struct ggml_tensor* seg_proto = nullptr;
 
-    if (!is_yolo) {
+    if (!is_yolo && !is_rfdetr) {
 
         // Stem: conv7x7/s2/p3 64ch -> folded bias -> relu -> maxpool k3/s2/p1.
         // 224 -> conv -> 112 -> pool -> 56. Shared by both variants.
@@ -696,7 +866,7 @@ void GGMLInfer::load_model(const std::string& model_path) {
         struct ggml_tensor* feat = ggml_reshape_2d(ctx_, gap, fc_in_dim, N);
         struct ggml_tensor* mm = ggml_mul_mat(ctx_, fc_w, feat);
         logits = ggml_add(ctx_, mm, ggml_repeat(ctx_, fc_b, mm));
-    } else {
+    } else if (is_yolo) {
         // ---- YOLOv8n: fixed 1x3x640x640 in, [1,84,8400] raw out ----
         // Helpers share new_const_4d/pending above. Conventions: NCHW blobs map
         // to ggml [W,H,C,N] (reversed axes, coincident storage); kernels
@@ -899,10 +1069,284 @@ void GGMLInfer::load_model(const std::string& model_path) {
             seg_proto = yact(proto, ykernel("model.22.proto.cv3.conv", 32, 64, 1, 1),
                              ybias("model.22.proto.cv3.conv", 32), 1, 0); // [160,160,32,1]
         }
+    } else {
+        // ---- RF-DETR S-1: backbone (DINOv2-S ViT) + projector ----
+        // Intermediate contract: the loader exposes the projector map
+        // [1,256,40,40] (ggml [40,40,256,1]); the full detection graph lands
+        // in a later slice and moves this sentinel. Layout coincidence (D-8):
+        // NCHW row-major bytes equal ggml [W,H,C,N] flat order, so 4D consts
+        // copy verbatim; 2D ONNX MatMul weights [K,N] are transposed into
+        // ggml ne=[K,N] (same recipe the S-1 probe uses).
+        auto rweight_2d = [&](const std::string& name, uint32_t rows, uint32_t cols) -> struct ggml_tensor* {
+            const LoadedTensor& w = require_tensor(tensors, name, model_path, shapes_seen);
+            require_dims(w, name, model_path, {rows, cols}, shapes_seen);
+            std::vector<float> tw(static_cast<size_t>(rows) * cols);
+            for (uint32_t r = 0; r < rows; ++r) {
+                for (uint32_t c = 0; c < cols; ++c) {
+                    tw[static_cast<size_t>(c) * rows + r] = w.data[static_cast<size_t>(r) * cols + c];
+                }
+            }
+            return new_const_4d(rows, cols, 1, 1, std::move(tw));
+        };
+        auto rlinear = [&](struct ggml_tensor* xx, const std::string& wname,
+                           const std::string& bname) -> struct ggml_tensor* {
+            const LoadedTensor& w = require_tensor(tensors, wname, model_path, shapes_seen);
+            if (w.dims.size() != 2 || w.dims[0] != static_cast<uint32_t>(xx->ne[0])) {
+                fail_model(model_path, "RF-DETR linear weight '" + wname +
+                                           "' needs [K,N] with K==input ne[0]; tensors:" + shapes_seen);
+            }
+            struct ggml_tensor* y = ggml_mul_mat(ctx_, rweight_2d(wname, w.dims[0], w.dims[1]), xx);
+            const LoadedTensor& b = require_tensor(tensors, bname, model_path, shapes_seen);
+            require_dims(b, bname, model_path, {w.dims[1]}, shapes_seen);
+            struct ggml_tensor* bb = new_const_4d(w.dims[1], 1, 1, 1, b.data);
+            return ggml_add(ctx_, y, ggml_repeat(ctx_, bb, y));
+        };
+        auto rln = [&](struct ggml_tensor* xx, const std::string& pre, float eps) -> struct ggml_tensor* {
+            const int64_t d = xx->ne[0];
+            struct ggml_tensor* n = ggml_norm(ctx_, xx, eps);
+            const LoadedTensor& gw = require_tensor(tensors, pre + ".weight", model_path, shapes_seen);
+            require_dims(gw, pre + ".weight", model_path, {static_cast<uint32_t>(d)}, shapes_seen);
+            const LoadedTensor& gb = require_tensor(tensors, pre + ".bias", model_path, shapes_seen);
+            require_dims(gb, pre + ".bias", model_path, {static_cast<uint32_t>(d)}, shapes_seen);
+            struct ggml_tensor* w = new_const_4d(d, 1, 1, 1, gw.data);
+            struct ggml_tensor* b = new_const_4d(d, 1, 1, 1, gb.data);
+            return ggml_add(ctx_, ggml_mul(ctx_, n, ggml_repeat(ctx_, w, n)), ggml_repeat(ctx_, b, n));
+        };
+        // LayerNorm over the channel dim of a conv map [W,H,C,N].
+        auto rchan_ln = [&](struct ggml_tensor* xx, const std::string& mul, const std::string& add,
+                            float eps) -> struct ggml_tensor* {
+            const int64_t c = xx->ne[2];
+            struct ggml_tensor* p = ggml_cont(ctx_, ggml_permute(ctx_, xx, 1, 2, 0, 3));
+            struct ggml_tensor* n = ggml_norm(ctx_, p, eps);
+            const LoadedTensor& gm = require_tensor(tensors, mul, model_path, shapes_seen);
+            require_dims(gm, mul, model_path, {static_cast<uint32_t>(c), 1, 1}, shapes_seen);
+            const LoadedTensor& ga = require_tensor(tensors, add, model_path, shapes_seen);
+            require_dims(ga, add, model_path, {static_cast<uint32_t>(c), 1, 1}, shapes_seen);
+            struct ggml_tensor* w = new_const_4d(c, 1, 1, 1, gm.data);
+            struct ggml_tensor* b = new_const_4d(c, 1, 1, 1, ga.data);
+            struct ggml_tensor* y = ggml_add(ctx_, ggml_mul(ctx_, n, ggml_repeat(ctx_, w, n)), ggml_repeat(ctx_, b, n));
+            return ggml_cont(ctx_, ggml_permute(ctx_, y, 2, 0, 1, 3));
+        };
+        auto rconv = [&](struct ggml_tensor* xx, const std::string& wname, uint32_t O, uint32_t I, int K, int s,
+                         int p) -> struct ggml_tensor* {
+            const LoadedTensor& w = require_tensor(tensors, wname, model_path, shapes_seen);
+            require_dims(w, wname, model_path, {O, I, static_cast<uint32_t>(K), static_cast<uint32_t>(K)}, shapes_seen);
+            struct ggml_tensor* k = new_const_4d(K, K, I, O, w.data);
+            return ggml_conv_2d(ctx_, k, xx, s, s, p, p, 1, 1);
+        };
+        auto rsilu = [&](struct ggml_tensor* xx) -> struct ggml_tensor* {
+            return ggml_mul(ctx_, xx, ggml_sigmoid(ctx_, xx));
+        };
+        // Projector convs carry no bias (their "bn" is the channel LayerNorm
+        // below); the stem bias is added by the caller.
+        auto rbn_conv = [&](struct ggml_tensor* xx, const std::string& wname, const std::string& mul,
+                            const std::string& add, uint32_t O, uint32_t I, int K, int s,
+                            int p) -> struct ggml_tensor* {
+            struct ggml_tensor* h = rconv(xx, wname, O, I, K, s, p);
+            h = rchan_ln(h, mul, add, 1e-6f);
+            return rsilu(h);
+        };
+        // [384,101,16] windowed tokens -> [40,40,384,1] spatial map (drop cls).
+        auto rblock_to_map = [&](struct ggml_tensor* t) -> struct ggml_tensor* {
+            std::vector<struct ggml_tensor*> rows;
+            for (int yw = 0; yw < 4; ++yw) {
+                std::vector<struct ggml_tensor*> cols;
+                for (int xw = 0; xw < 4; ++xw) {
+                    const int w = yw * 4 + xw;
+                    const size_t off = (static_cast<size_t>(384) * 101 * w + 384) * sizeof(float);
+                    struct ggml_tensor* tok = ggml_view_2d(ctx_, t, 384, 100, 384 * sizeof(float), off);
+                    tok = ggml_cont(ctx_, tok);
+                    struct ggml_tensor* map = ggml_reshape_3d(ctx_, tok, 384, 10, 10);
+                    map = ggml_cont(ctx_, ggml_permute(ctx_, map, 2, 0, 1, 3));
+                    cols.push_back(map);
+                }
+                struct ggml_tensor* row = ggml_concat(ctx_, ggml_concat(ctx_, cols[0], cols[1], 0), cols[2], 0);
+                row = ggml_concat(ctx_, row, cols[3], 0);
+                rows.push_back(ggml_cont(ctx_, row));
+            }
+            struct ggml_tensor* out = ggml_concat(ctx_, ggml_concat(ctx_, rows[0], rows[1], 1), rows[2], 1);
+            return ggml_cont(ctx_, ggml_concat(ctx_, out, rows[3], 1));
+        };
+        // Identity matrix for the V^T eye trick (avoids transpose+cont,
+        // broken for non-square in this ggml version).
+        std::vector<float> eye(384 * 384, 0.0f);
+        for (int i = 0; i < 384; ++i) {
+            eye[static_cast<size_t>(i) * 384 + i] = 1.0f;
+        }
+        struct ggml_tensor* eye384 = new_const_4d(384, 384, 1, 1, std::move(eye));
+        auto rattn = [&](struct ggml_tensor* xx, int b) -> struct ggml_tensor* {
+            constexpr int D = 384, T = 101, W = 16, H = 6, Dh = 64;
+            const std::string P = "backbone.0.encoder.encoder.encoder.layer." + std::to_string(b) + ".";
+            struct ggml_tensor* h = rln(xx, P + "norm1", 1e-6f);
+            struct ggml_tensor* q = rlinear(h, kRfdetrWQ[b], P + "attention.attention.query.bias");
+            struct ggml_tensor* k = rlinear(h, kRfdetrWK[b], P + "attention.attention.key.bias");
+            struct ggml_tensor* v = rlinear(h, kRfdetrWV[b], P + "attention.attention.value.bias");
+            const bool global_attn = (b == 2 || b == 5 || b == 8);
+            struct ggml_tensor* actx = nullptr;
+            if (global_attn) {
+                constexpr int TG = T * W;
+                struct ggml_tensor* qf = ggml_reshape_3d(ctx_, q, D, TG, 1);
+                struct ggml_tensor* kf = ggml_reshape_3d(ctx_, k, D, TG, 1);
+                struct ggml_tensor* vf = ggml_reshape_3d(ctx_, v, D, TG, 1);
+                struct ggml_tensor* vflat = ggml_reshape_2d(ctx_, vf, D, TG);
+                struct ggml_tensor* vt = ggml_mul_mat(ctx_, vflat, eye384); // [TG,D]
+                std::vector<struct ggml_tensor*> heads;
+                for (int hh = 0; hh < H; ++hh) {
+                    struct ggml_tensor* qh =
+                        ggml_view_2d(ctx_, qf, Dh, TG, D * sizeof(float), static_cast<size_t>(hh) * Dh * sizeof(float));
+                    struct ggml_tensor* kh =
+                        ggml_view_2d(ctx_, kf, Dh, TG, D * sizeof(float), static_cast<size_t>(hh) * Dh * sizeof(float));
+                    struct ggml_tensor* s = ggml_scale(ctx_, ggml_mul_mat(ctx_, kh, qh), 0.125f);
+                    struct ggml_tensor* pr = ggml_soft_max(ctx_, s);
+                    struct ggml_tensor* vht = ggml_view_2d(ctx_, vt, TG, Dh, static_cast<size_t>(TG) * sizeof(float),
+                                                           static_cast<size_t>(hh) * Dh * TG * sizeof(float));
+                    heads.push_back(ggml_mul_mat(ctx_, vht, pr));
+                }
+                struct ggml_tensor* c = heads[0];
+                for (int hh = 1; hh < H; ++hh) {
+                    c = ggml_concat(ctx_, c, heads[hh], 0);
+                }
+                c = ggml_cont(ctx_, c);
+                actx = ggml_reshape_3d(ctx_, c, D, T, W);
+            } else {
+                struct ggml_tensor* vflat = ggml_reshape_2d(ctx_, v, 384, 101 * 16);
+                struct ggml_tensor* vt = ggml_mul_mat(ctx_, vflat, eye384);
+                std::vector<struct ggml_tensor*> win_out;
+                for (int w = 0; w < W; ++w) {
+                    std::vector<struct ggml_tensor*> heads;
+                    for (int hh = 0; hh < H; ++hh) {
+                        const size_t off =
+                            (static_cast<size_t>(w) * D * T + static_cast<size_t>(hh) * Dh) * sizeof(float);
+                        struct ggml_tensor* qh = ggml_view_2d(ctx_, q, Dh, T, D * sizeof(float), off);
+                        struct ggml_tensor* kh = ggml_view_2d(ctx_, k, Dh, T, D * sizeof(float), off);
+                        struct ggml_tensor* s = ggml_scale(ctx_, ggml_mul_mat(ctx_, kh, qh), 0.125f);
+                        struct ggml_tensor* pr = ggml_soft_max(ctx_, s);
+                        const size_t off2 =
+                            (static_cast<size_t>(w) * T + static_cast<size_t>(hh) * Dh * (T * W)) * sizeof(float);
+                        struct ggml_tensor* vht =
+                            ggml_view_2d(ctx_, vt, T, Dh, static_cast<size_t>(T * W) * sizeof(float), off2);
+                        struct ggml_tensor* ct = ggml_mul_mat(ctx_, vht, pr);
+                        heads.push_back(ct);
+                    }
+                    struct ggml_tensor* c = heads[0];
+                    for (int hh = 1; hh < H; ++hh) {
+                        c = ggml_concat(ctx_, c, heads[hh], 0);
+                    }
+                    c = ggml_cont(ctx_, c);
+                    win_out.push_back(ggml_reshape_4d(ctx_, c, D, T, 1, 1));
+                }
+                actx = win_out[0];
+                for (int w = 1; w < W; ++w) {
+                    actx = ggml_concat(ctx_, actx, win_out[w], 2);
+                }
+                actx = ggml_cont(ctx_, actx);
+            }
+            struct ggml_tensor* o = rlinear(actx, kRfdetrWO[b], P + "attention.output.dense.bias");
+            const LoadedTensor& gl1t = require_tensor(tensors, P + "layer_scale1.lambda1", model_path, shapes_seen);
+            require_dims(gl1t, P + "layer_scale1.lambda1", model_path, {384}, shapes_seen);
+            struct ggml_tensor* gl1 = new_const_4d(D, 1, 1, 1, gl1t.data);
+            o = ggml_add(ctx_, xx, ggml_mul(ctx_, o, ggml_repeat(ctx_, gl1, o)));
+            struct ggml_tensor* h2 = rln(o, P + "norm2", 1e-6f);
+            struct ggml_tensor* f1 = rlinear(h2, kRfdetrWF1[b], P + "mlp.fc1.bias");
+            f1 = ggml_gelu_erf(ctx_, f1);
+            struct ggml_tensor* f2 = rlinear(f1, kRfdetrWF2[b], P + "mlp.fc2.bias");
+            const LoadedTensor& gl2t = require_tensor(tensors, P + "layer_scale2.lambda1", model_path, shapes_seen);
+            require_dims(gl2t, P + "layer_scale2.lambda1", model_path, {384}, shapes_seen);
+            struct ggml_tensor* gl2 = new_const_4d(D, 1, 1, 1, gl2t.data);
+            return ggml_add(ctx_, o, ggml_mul(ctx_, f2, ggml_repeat(ctx_, gl2, f2)));
+        };
+        auto rprojector = [&](struct ggml_tensor* f1, struct ggml_tensor* f4, struct ggml_tensor* f7,
+                              struct ggml_tensor* f10) -> struct ggml_tensor* {
+            const std::string P = "backbone.0.projector.stages.0.0.";
+            struct ggml_tensor* cat = ggml_concat(ctx_, f1, f4, 2);
+            cat = ggml_concat(ctx_, cat, f7, 2);
+            cat = ggml_cont(ctx_, ggml_concat(ctx_, cat, f10, 2));
+            struct ggml_tensor* h =
+                rbn_conv(cat, P + "cv1.conv.weight", "onnx::Mul_4092", "onnx::Add_4094", 256, 1536, 1, 1, 0);
+            h = ggml_cont(ctx_, h);
+            const size_t bnb1 = 40 * sizeof(float);
+            const size_t bnb2 = bnb1 * 40;
+            const size_t bnb3 = bnb2 * 256;
+            struct ggml_tensor* a = ggml_cont(ctx_, ggml_view_4d(ctx_, h, 40, 40, 128, 1, bnb1, bnb2, bnb3, 0));
+            struct ggml_tensor* b =
+                ggml_cont(ctx_, ggml_view_4d(ctx_, h, 40, 40, 128, 1, bnb1, bnb2, bnb3, bnb2 * 128));
+            static const char* muls[] = {"onnx::Mul_4096", "onnx::Mul_4104", "onnx::Mul_4112"};
+            static const char* adds[] = {"onnx::Add_4098", "onnx::Add_4106", "onnx::Add_4114"};
+            static const char* muls2[] = {"onnx::Mul_4100", "onnx::Mul_4108", "onnx::Mul_4116"};
+            static const char* adds2[] = {"onnx::Add_4102", "onnx::Add_4110", "onnx::Add_4118"};
+            std::vector<struct ggml_tensor*> parts = {a, b};
+            struct ggml_tensor* cur = b;
+            for (int i = 0; i < 3; ++i) {
+                const std::string M = P + "m." + std::to_string(i) + ".";
+                cur = rbn_conv(cur, M + "cv1.conv.weight", muls[i], adds[i], 128, 128, 3, 1, 1);
+                cur = rbn_conv(cur, M + "cv2.conv.weight", muls2[i], adds2[i], 128, 128, 3, 1, 1);
+                parts.push_back(cur);
+            }
+            struct ggml_tensor* merged = parts[0];
+            for (size_t i = 1; i < parts.size(); ++i) {
+                merged = ggml_concat(ctx_, merged, parts[i], 2);
+            }
+            merged = ggml_cont(ctx_, merged);
+            struct ggml_tensor* out =
+                rbn_conv(merged, P + "cv2.conv.weight", "onnx::Mul_4120", "onnx::Add_4122", 256, 640, 1, 1, 0);
+            return rchan_ln(out, "onnx::Mul_4124", "onnx::Add_4126", 1e-6f);
+        };
+        // Stem: 14x14/s14 conv + bias (no activation; cls/pos join below).
+        const LoadedTensor& stem_wt =
+            require_tensor(tensors, "backbone.0.encoder.encoder.embeddings.patch_embeddings.projection.weight",
+                           model_path, shapes_seen);
+        require_dims(stem_wt, "patch projection weight", model_path, {384, 3, 14, 14}, shapes_seen);
+        struct ggml_tensor* stem =
+            ggml_conv_2d(ctx_, new_const_4d(14, 14, 3, 384, stem_wt.data), x, 14, 14, 0, 0, 1, 1);
+        const LoadedTensor& stem_bt = require_tensor(
+            tensors, "backbone.0.encoder.encoder.embeddings.patch_embeddings.projection.bias", model_path, shapes_seen);
+        require_dims(stem_bt, "patch projection bias", model_path, {384}, shapes_seen);
+        struct ggml_tensor* stem_b = new_const_4d(1, 1, 384, 1, stem_bt.data);
+        stem = ggml_add(ctx_, stem, ggml_repeat(ctx_, stem_b, stem));
+        // Tokens [cls; 1600 patches] + position embeddings, packed into 16
+        // windows of 101 via a static index vector (get_rows on dim 0).
+        struct ggml_tensor* stem_t = ggml_reshape_4d(ctx_, stem, 1600, 384, 1, 1);
+        const LoadedTensor& cls_t =
+            require_tensor(tensors, "backbone.0.encoder.encoder.embeddings.cls_token", model_path, shapes_seen);
+        require_dims(cls_t, "cls_token", model_path, {1, 1, 384}, shapes_seen);
+        struct ggml_tensor* cls = new_const_4d(1, 384, 1, 1, cls_t.data);
+        struct ggml_tensor* tok = ggml_concat(ctx_, cls, stem_t, 0);                      // [1601,384]
+        struct ggml_tensor* tok_t = ggml_cont(ctx_, ggml_permute(ctx_, tok, 1, 0, 2, 3)); // [384,1601]
+        const LoadedTensor& pos_t = require_tensor(tensors, "backbone.0.encoder.encoder.embeddings.position_embeddings",
+                                                   model_path, shapes_seen);
+        require_dims(pos_t, "position_embeddings", model_path, {1, 1601, 384}, shapes_seen);
+        struct ggml_tensor* pos = new_const_4d(384, 1601, 1, 1, pos_t.data);
+        struct ggml_tensor* toks = ggml_add(ctx_, tok_t, pos); // [384,1601]
+        std::vector<int32_t> widx(static_cast<size_t>(16) * 101);
+        for (int w = 0; w < 16; ++w) {
+            const int wx = w % 4, wy = w / 4;
+            widx[static_cast<size_t>(w) * 101] = 0;
+            for (int p = 1; p <= 100; ++p) {
+                const int dx = (p - 1) % 10, dy = (p - 1) / 10;
+                widx[static_cast<size_t>(w) * 101 + p] = 1 + (wy * 10 + dy) * 40 + (wx * 10 + dx);
+            }
+        }
+        struct ggml_tensor* widx_t = ggml_new_tensor_1d(ctx_, GGML_TYPE_I32, 1616);
+        pending_i32.push_back(PendingFillI32{widx_t, std::move(widx)});
+        // get_rows gathers dim-1 rows: out[c,e] = toks[c, widx[e]].
+        struct ggml_tensor* gathered = ggml_get_rows(ctx_, toks, widx_t); // [384,1616]
+        struct ggml_tensor* xt = ggml_reshape_4d(ctx_, gathered, 384, 101, 16, 1);
+        struct ggml_tensor* b0 = xt;
+        std::vector<struct ggml_tensor*> feats(11, nullptr);
+        for (int b = 0; b < 11; ++b) {
+            b0 = rattn(b0, b);
+            feats[static_cast<size_t>(b)] = b0;
+        }
+        const std::string rln_pre = "backbone.0.encoder.encoder.layernorm";
+        auto rfeat_map = [&](int b) -> struct ggml_tensor* {
+            return rblock_to_map(rln(feats[static_cast<size_t>(b)], rln_pre, 1e-6f));
+        };
+        logits = rprojector(rfeat_map(1), rfeat_map(4), rfeat_map(7), rfeat_map(10));
     }
 
-    graph_ = ggml_new_graph(ctx_);
+    graph_ = is_rfdetr ? ggml_new_graph_custom(ctx_, 32768, false) : ggml_new_graph(ctx_);
     ggml_build_forward_expand(graph_, logits);
+
     if (seg_proto != nullptr) {
         ggml_build_forward_expand(graph_, seg_proto);
         output_tensors_ = {logits, seg_proto};
@@ -924,15 +1368,21 @@ void GGMLInfer::load_model(const std::string& model_path) {
     for (const auto& fill : pending_f16) {
         std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(ggml_fp16_t));
     }
+    for (const auto& fill : pending_i32) {
+        std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(int32_t));
+    }
 
     LOG(INFO) << "GGML model loaded: full "
               << (is_yolo_seg_
                       ? "YOLOv8n-seg (CSP stem + C2f + SPPF + PAN + decoupled head + DFL + mask/proto, "
                         "real weights)"
                       : (is_yolo ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
-                                 : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + FC 1000, real "
-                                                    "weights)"
-                                                  : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, real weights)")));
+                                 : (is_rfdetr ? "RF-DETR S-1 intermediate (DINOv2-S backbone + projector, "
+                                                "[1,256,40,40])"
+                                              : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + GAP + "
+                                                                 "FC 1000, real weights)"
+                                                               : "ResNet18 (stem + 8 basic blocks + GAP + FC 1000, "
+                                                                 "real weights)"))));
 }
 
 void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes) {
@@ -957,6 +1407,15 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
         if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == 640 &&
               in0[3] == 640)) {
             throw std::runtime_error("GGML YOLOv8n path requires exactly {N,3,640,640} input");
+        }
+    }
+    if (!is_yolo_ && input_height_ == 560 && input_width_ == 560) {
+        // RF-DETR S-1 intermediate contract (no is_rfdetr_ member: the header
+        // is shared, so the 560 geometry set at dispatch identifies the path).
+        const std::vector<int64_t>& in0 = input_sizes[0];
+        if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == 560 &&
+              in0[3] == 560)) {
+            throw std::runtime_error("GGML RF-DETR path requires exactly {N,3,560,560} input");
         }
     }
 
