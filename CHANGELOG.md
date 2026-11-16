@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Validated
+- RF-DETR decoder layer-0 scratch probe (`/tmp/opencode/rfdetr_dec0.cpp`,
+  loader untouched): full layer-0 forward vs ORT refs agrees max-cell
+  everywhere with isolated-op F32 noise ~1e-6 relative (worst chained cell
+  `grid_sample` 1.33e-05 relative; kernel itself 4.77e-07 fed ORT inputs).
+  Query order uses `ggml_ops::top_k_indices`; per-op table and drift log
+  are in `specs/2026-11-16-rfdetr-gguf/validation.md` (S-2). No backend
+  code change yet; the port stays batched behind this probe.
+
 ### Removed
 - ONNX-subset frontend (`backends/ggml/src/GGMLOnnx.{hpp,cpp}`) and
   multi-input/multi-output graph executor (`backends/ggml/src/GGMLGraph`)
@@ -15,6 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Native helpers (`GGMLOps`) and their parity tests stay.
 
 ### Added
+- `scripts/convert_onnx_to_gguf.py` carries FLOAT graph-Constant tensors as
+  well as initializers, and recognizes the RF-DETR 91-class head contract
+  (`class_embed.bias` plus a 2D `[256,91]` class weight). This prepares RF-DETR
+  GGUF export; the backend topology is still in progress.
 - Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
   LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
   attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity
@@ -44,6 +57,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   path is added; no live GPU run is claimed.
 
 ### Fixed
+- Harden the GGUF loader against malformed tensor metadata: reject wrapping
+  tensor offsets/end ranges, overflowed element counts, zero-length names and
+  duplicate rank entries before allocating or reading tensor data. Regression
+  fixtures cover malformed offsets/dimensions, duplicate ranks, zero-sized
+  initializers and tensor names longer than 64 characters.
 - Support data-dependent TensorRT outputs with bounded buffers, concrete runtime shapes, truthful dynamic metadata, empty tensors and safe context reloads.
 
 - Bind OpenCV 5 graph inputs by their real names, shapes and dtypes; preserve

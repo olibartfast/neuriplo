@@ -64,12 +64,25 @@ FC_BIAS_SHAPE = (1000,)
 
 
 def _read_float_initializers(onnx_path):
-    # Float tensors widened to F32.
+    # Float tensors widened to F32. Constant-node float values are carried
+    # too: RF-DETR's projector normalizations are exported as graph
+    # Constants (`onnx::Mul_*` / `onnx::Add_*`), not initializers, and the
+    # hand-written topology needs those exact names.
     import onnx
     from onnx import numpy_helper
 
     model = onnx.load(onnx_path)
     tensors = []
+    seen = set()
+
+    def append(name, arr):
+        if arr.ndim == 0 or arr.ndim > 4:
+            return
+        if name in seen:
+            return
+        seen.add(name)
+        tensors.append((name, tuple(int(d) for d in arr.shape), arr.astype("float32")))
+
     for init in model.graph.initializer:
         if init.data_type in (onnx.TensorProto.FLOAT,):
             arr = numpy_helper.to_array(init).astype("float32")
@@ -86,19 +99,44 @@ def _read_float_initializers(onnx_path):
         if arr.ndim == 0 or arr.ndim > 4:
             print(f"note: skipping '{init.name}': rank {arr.ndim} not in 1..4")
             continue
-        tensors.append((init.name, tuple(int(d) for d in init.dims), arr))
+        append(init.name, arr)
+
+    for node in model.graph.node:
+        if node.op_type != "Constant" or not node.output:
+            continue
+        for attr in node.attribute:
+            if attr.name != "value":
+                continue
+            tensor = attr.t
+            if tensor.data_type not in (onnx.TensorProto.FLOAT,
+                                        onnx.TensorProto.DOUBLE,
+                                        onnx.TensorProto.FLOAT16):
+                continue
+            try:
+                arr = numpy_helper.to_array(tensor).astype("float32")
+            except (TypeError, ValueError):
+                continue
+            append(node.output[0], arr)
     return tensors
 
 
 def _check_fc_pair(tensors):
     # Minimum loadable-head contract: YOLO files need the fixed DFL conv
     # weight; classifier files need one 2D [1000,512]/[1000,2048] weight
-    # plus the [1000] bias.
+    # plus the [1000] bias; RF-DETR files need the 91-class head
+    # (`class_embed.bias` [91] plus a 2D `[256,91]` class weight).
     names = {name for name, _, _ in tensors}
     if any(n.startswith("model.") for n in names):
         if "model.22.dfl.conv.weight" not in names:
             print("error: YOLO file missing fixed DFL conv weight "
                   "'model.22.dfl.conv.weight'", file=sys.stderr)
+            return False
+        return True
+    by_name = {name: dims for name, dims, _ in tensors}
+    if by_name.get("class_embed.bias") == (91,):
+        if not any(dims == (256, 91) for dims in by_name.values()):
+            print("error: RF-DETR file missing 2D [256,91] class weight",
+                  file=sys.stderr)
             return False
         return True
     shapes = {tuple(dims) for _, dims, _ in tensors}

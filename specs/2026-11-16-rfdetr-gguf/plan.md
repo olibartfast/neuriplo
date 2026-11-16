@@ -1,0 +1,68 @@
+# Implementation Plan — RF-DETR GGUF support (detection + seg)
+
+Branch: `feature/ggml-rfdetr`. Requirements:
+`specs/2026-11-16-rfdetr-gguf/requirements.md`. Source facts below measured
+2026-11-16 against `/home/oli/.cache/neuriplo-op-inventory/op18/rfdetr.onnx`
+(1,974 nodes, 336 inits, `1x3x560x560` → `dets[·,300,4]` + `labels[·,300,91]`).
+
+## Architecture (measured)
+
+- Backbone = DINOv2-S ViT: patch-embed Conv `[384,3,14,14]` (560/14 = 40x40
+  = 1600 tokens), ~12 transformer blocks (26 LayerNorms), embed 384.
+- Neck encoder, nodes 856..1061 (1 LayerNorm).
+- Query selection: TopK @1017 → GatherElements @1025 (encoder top queries,
+  same pattern as the RT-DETR chain).
+- Decoder: 3 deformable layers (GridSample @1413/@1653/@1892 in cross-attn),
+  10 LayerNorms total.
+- Box decode: anchor/offset split with Exp on wh (DINO form). Class head:
+  decoder norm @ `onnx::MatMul_4447 [256,91]` + `class_embed.bias [91]`.
+  Anonymous `onnx::` initializer names must survive export verbatim.
+- 26.9M params → ~102 MB fp32 GGUF.
+
+## Slices (each lands only with its exit bar)
+
+- S-0 discovery (this packet): section boundaries, dims, GridSample sites,
+  head wiring — done above. Open: exact per-block tensor names for the
+  backbone builder (enumerate in S-1).
+- S-1 backbone ViT → GGUF: patch-embed + 11 blocks (QKV MatMul, Softmax,
+  LayerNorm, GELU; blocks 2/5/8 use global attention, the rest windowed) +
+  projector C2f + exporter shape rule for `onnx::` names. Status 2026-11-16:
+  scratch probe parity green (layer 1/4/7/10 max-abs 3.65e-05 / 8.82e-05 /
+  4.32e-04 / 5.98e-03; projector 2.07e-03, max-cell agree everywhere).
+  Backend port is batched with S-2 so the loader never exposes a partial
+  RF-DETR graph.
+- S-2 neck + deformable decoder: native GridSample + GatherElements/TopK
+  query selection; encoder-output then decoder-output parity. Highest
+  numeric risk (sampling + Exp decode); isolate drift per layer. Status
+  2026-11-16: encoder linear/LN, class/box heads, default boxes and query
+  selection are probe-green (max 1.7e-3; selected-set match 9.4e-4). TopK
+  order has 82 near-tie swaps out of 300 and needs an ONNX-compatible
+  tie-break before S-3. Deformable GridSample remains.
+- S-3 head + exporter contract: `model.22`-style rule does not apply —
+  extend `_check_fc_pair` with the RF-DETR rule (91-bias + `[256,91]`
+  weight presence, exact-name dispatch in the loader). Exit: full-model
+  raw parity vs ORT (label agreement + box L1, same bar as the RT-DETR
+  probe: 300/300 match target, drift budget from measured v1.0.0 conv
+  drift).
+- S-4 seg slice: mask head, only after S-3 green. Same exit bar on
+  `rfdetr_seg.onnx`.
+- S-5 app gate + matrix: `neuriplo-infer` gates per slice, cell moves only
+  on recorded runs.
+
+## Risks and mitigations
+
+- Hand-written ~2k-node-equivalent topology (decoder unrolled 3x): keep one
+  parametrized block builder, parity after each block.
+- Deformable GridSample numerics: unit-parity the native op vs ORT first
+  (same A/B harness as the RT-DETR GridSample probe, which was bit-exact).
+- v1.0.0 conv drift amplified through Exp/box decode: per-layer drift log
+  (S-2 exit), tolerance from measurement, never aspiration.
+- 91-class postprocess + task routing (`rfdetr` type) lives in
+  neuriplo-tasks / neuriplo-infer: gate will expose gaps; fix there, not in
+  the loader.
+
+## Validation
+
+Per-slice exit bars above; `validation.md` written before S-1 code, updated
+per slice. No matrix promotion without a recorded gate. No commits/pushes
+without an explicit ask.
