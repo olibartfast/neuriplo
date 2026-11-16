@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <ggml.h>
 
 // Small, reusable GGML op helpers for transformer-style graphs.

@@ -878,7 +878,7 @@ TEST_F(GGMLInferTest, GgufAcceptsLongTensorName) {
 // never reach the tensor parser.
 TEST_F(GGMLInferTest, StrictGgufRejectsNonGguf) {
     const std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 224, 224}};
-    for (const std::string& name : {"probe_model.ggml", "probe_model.nggl", "probe_model.onnx"}) {
+    for (const char* name : {"probe_model.ggml", "probe_model.nggl", "probe_model.onnx"}) {
         const fs::path probe = fs::temp_directory_path() / name;
         ScopedRemove guard(probe);
         {
