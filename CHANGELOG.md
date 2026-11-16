@@ -7,13 +7,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Validated
-- RF-DETR decoder layer-0 scratch probe (`/tmp/opencode/rfdetr_dec0.cpp`,
-  loader untouched): full layer-0 forward vs ORT refs agrees max-cell
-  everywhere with isolated-op F32 noise ~1e-6 relative (worst chained cell
-  `grid_sample` 1.33e-05 relative; kernel itself 4.77e-07 fed ORT inputs).
-  Query order uses `ggml_ops::top_k_indices`; per-op table and drift log
-  are in `specs/2026-11-16-rfdetr-gguf/validation.md` (S-2). No backend
-  code change yet; the port stays batched behind this probe.
+- Full RF-DETR detection loader in the GGML backend (`GGMLInfer.cpp`
+  RF-DETR dispatch, fixed batch-1 560px): DINOv2-S backbone (global
+  attention in blocks 2/5/8) + C2f projector + neck encoder tower +
+  top-300 selection + 3-layer deformable decoder + head, exposed
+  app-facing as `dets [1,300,4]` + `labels [1,300,91]` (intermediates
+  follow for parity tests). `GgufRfdetrDecoderLayer12Parity` green
+  (L1/L2 norm3 max `3.91e-02`/`2.57e-02`, budget `1e-1`);
+  `GgufRfdetrHeadParity` green (dets max `2.10e-02`, labels top-1
+  **300/300**). App gate in neuriplo-infer (`--type=rfdetr`,
+  `data/dog.jpg`): exit 0, detections identical to ORT. Numbers in
+  `specs/2026-11-16-rfdetr-gguf/validation.md` (S-1–S-3, S-5).
+- Full RF-DETR-seg loader in the GGML backend (seg dispatch on
+  `segmentation_head.bias`, fixed batch-1 432px): 12-block DINOv2-S
+  backbone (global attention in blocks 3/6/9) + C2f projector + neck +
+  top-200 selection + 4-layer deformable decoder + head + mask branch
+  (bilinear Resize 36→108, 4x depthwise blocks, spatial 1x1 proj,
+  query MLP, Einsum + bias → masks `[1,200,108,108]`), exposed
+  app-facing as `dets` + `masks` + `labels`. `GgufRfdetrSegHeadParity`
+  green (dets max `1.19e-02`, labels top-1 **200/200**, masks max
+  `4.47e-01` / mean `2.59e-02`). Native exact `depthwise_conv3x3` op
+  (`GGMLOpsParity.DepthwiseConv3x3Seg` max `2.38e-07`; ggml_conv_2d is
+  ~1e-3 off here and the mask branch amplifies it coherently). App
+  gate in neuriplo-infer (`--type=rfdetrseg`, `data/dog.jpg`): exit 0,
+  mask IoU 1.0 vs ORT on every kept instance. Numbers in
+  `specs/2026-11-16-rfdetr-gguf/validation.md` (S-4, S-5).
 
 ### Removed
 - ONNX-subset frontend (`backends/ggml/src/GGMLOnnx.{hpp,cpp}`) and
@@ -26,8 +44,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - `scripts/convert_onnx_to_gguf.py` carries FLOAT graph-Constant tensors as
   well as initializers, and recognizes the RF-DETR 91-class head contract
-  (`class_embed.bias` plus a 2D `[256,91]` class weight). This prepares RF-DETR
-  GGUF export; the backend topology is still in progress.
+  (`class_embed.bias` plus a 2D `[256,91]` class weight). The backend
+  topology is landed (see Validated above); app-facing outputs lead with
+  `dets`/`labels` so the stock `RfDetrPostprocessor` applies.
 - Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
   LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
   attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity

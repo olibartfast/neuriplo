@@ -29,25 +29,31 @@ Branch: `feature/ggml-rfdetr`. Requirements:
   projector C2f + exporter shape rule for `onnx::` names. Status 2026-11-16:
   scratch probe parity green (layer 1/4/7/10 max-abs 3.65e-05 / 8.82e-05 /
   4.32e-04 / 5.98e-03; projector 2.07e-03, max-cell agree everywhere).
-  Backend port is batched with S-2 so the loader never exposes a partial
-  RF-DETR graph.
+  Backend port is landed in `GGMLInfer.cpp` behind the RF-DETR dispatch
+  (app-facing outputs lead with `dets`/`labels`).
 - S-2 neck + deformable decoder: native GridSample + GatherElements/TopK
-  query selection; encoder-output then decoder-output parity. Highest
-  numeric risk (sampling + Exp decode); isolate drift per layer. Status
-  2026-11-16: encoder linear/LN, class/box heads, default boxes and query
-  selection are probe-green (max 1.7e-3; selected-set match 9.4e-4). TopK
-  order has 82 near-tie swaps out of 300 and needs an ONNX-compatible
-  tie-break before S-3. Deformable GridSample remains.
-- S-3 head + exporter contract: `model.22`-style rule does not apply —
-  extend `_check_fc_pair` with the RF-DETR rule (91-bias + `[256,91]`
-  weight presence, exact-name dispatch in the loader). Exit: full-model
-  raw parity vs ORT (label agreement + box L1, same bar as the RT-DETR
-  probe: 300/300 match target, drift budget from measured v1.0.0 conv
-  drift).
-- S-4 seg slice: mask head, only after S-3 green. Same exit bar on
-  `rfdetr_seg.onnx`.
-- S-5 app gate + matrix: `neuriplo-infer` gates per slice, cell moves only
-  on recorded runs.
+  query selection; encoder-output then decoder-output parity. Status
+  2026-11-16: all loader-green — encoder selection set match `1.43e-03`,
+  GridSample L0/1/2 ≤ `4.77e-07`, layer-0 norm3 `1.48e-02` (TopK order
+  pinned; natural order agrees 218-232/300 with drift-driven near-tie
+  swaps, documented, order-sensitive slots).
+- S-3 head + full parity: decoder layers 1-2 share one parametrized
+  builder with layer 0 (MatMul 43xx/44xx tables); head is decoder-norm →
+  bbox MLP + class linear with anchor-mirroring box decode. Exit met
+  2026-11-16: L1/L2 norm3 `3.91e-02`/`2.57e-02`, dets `2.10e-02`,
+  labels top-1 **300/300** (`GgufRfdetrDecoderLayer12Parity`,
+  `GgufRfdetrHeadParity` green; full suite 29/8/0).
+- S-4 seg slice: seg dispatch + 12-block/200-query/4-layer parametrization +
+  mask branch (bilinear Resize, exact dwconv3x3, spatial proj + bias,
+  query MLP, Einsum + bias). Exit met 2026-11-16: decoder L0-L3
+  `1.91e-02`/`4.52e-02`/`7.51e-02`/`5.32e-02`, dets `1.19e-02`, labels
+  top-1 **200/200**, masks `4.47e-01`/`2.59e-02` (`GgufRfdetrSeg*Parity`
+  green; full suite 35/8/0).
+- S-5 app gate + matrix: `neuriplo-infer --type=rfdetr` gate green
+  2026-11-16 (V-21: exit 0, detections identical to ORT) and the GGML
+  `rfdetr` cell moves `U` → `P`; `--type=rfdetrseg` gate green
+  2026-11-16 (V-23: exit 0, mask IoU 1.0 vs ORT on every kept instance)
+  and the GGML `rfdetrseg` cell moves `U` → `P` (V-24).
 
 ## Risks and mitigations
 

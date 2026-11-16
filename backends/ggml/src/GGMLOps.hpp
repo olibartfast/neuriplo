@@ -69,4 +69,27 @@ struct ggml_tensor* top_k_indices(struct ggml_context* ctx, struct ggml_tensor* 
 // src[1]=grid; the backend is CPU-only.
 struct ggml_tensor* grid_sample(struct ggml_context* ctx, struct ggml_tensor* input, struct ggml_tensor* grid);
 
+// Bilinear Resize with half-pixel centers and clamp-to-edge (matches the
+// RF-DETR-seg mask-branch Resize: linear mode, half_pixel). Input
+// [W,H,C,N] -> [oW,oH,C,N]; F32, contiguous.
+struct ggml_tensor* bilinear_resize(struct ggml_context* ctx, struct ggml_tensor* x, int64_t out_w, int64_t out_h);
+
+// Depthwise 3x3 stride-1 pad-1 convolution with zeros padding (matches the
+// RF-DETR-seg mask-branch dwconv: groups=C). Exact direct kernel (see .cpp
+// for why ggml_conv_2d is not used here). Input [W,H,C,N] -> [W,H,C,N];
+// weight [9,C,1,1] with k[c*9+ky*3+kx]; bias [C]; all F32, contiguous.
+struct ggml_tensor* depthwise_conv3x3(struct ggml_context* ctx, struct ggml_tensor* x, struct ggml_tensor* weight,
+                                      struct ggml_tensor* bias);
+
+// RF-DETR decoder sine position embedding (custom CPU kernel).
+//
+// Input: refined anchor boxes [4,300,1,1] (xywh, ggml ne0=4, F32
+// contiguous). Output: [512,300,1,1], quarters in ONNX coord order
+// [1,0,2,3]; within a quarter the (64,2) reshape interleaves sin/cos pairs:
+// out[2i] = sin(c*2pi/scale[2i]), out[2i+1] = cos(c*2pi/scale[2i+1]) with
+// scale[2j] = scale[2j+1] = 10000^(j/64). This folds the decoder's
+// Div/Unsqueeze/Slice/Sin/Cos/Concat_8 subgraph (which normalizes the same
+// way) into one kernel; parity is measured against the Concat_8 ORT dump.
+struct ggml_tensor* rfdetr_sine_embed(struct ggml_context* ctx, struct ggml_tensor* coords);
+
 } // namespace ggml_ops

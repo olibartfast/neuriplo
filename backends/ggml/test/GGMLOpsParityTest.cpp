@@ -351,6 +351,8 @@ struct SoftmaxParityResult {
     double rel = 0.0;
     size_t got_argmax = 0;
     size_t expected_argmax = 0;
+    std::vector<float> got;
+    std::vector<float> expected;
 };
 
 SoftmaxParityResult run_softmax_parity(const std::vector<int64_t>& ggml_dims, const std::string& input_path,
@@ -409,12 +411,27 @@ SoftmaxParityResult run_softmax_parity(const std::vector<int64_t>& ggml_dims, co
     result.rel = max_abs_expected > 0.0 ? max_diff / max_abs_expected : max_diff;
     result.got_argmax = got_argmax;
     result.expected_argmax = expected_argmax;
+    result.got = std::move(got);
+    result.expected = std::move(expected);
     return result;
 }
 
 void check_softmax_parity(const std::string& tag, const SoftmaxParityResult& result) {
+    const std::vector<float>& got = result.got;
+    const std::vector<float>& expected = result.expected;
     ASSERT_TRUE(result.ok) << tag << " " << result.error;
-    EXPECT_EQ(result.got_argmax, result.expected_argmax) << tag << " max-cell mismatch";
+    // Tie-aware max-cell agreement: peaked attention rows contain exact 1.0
+    // ties, so a global argmax is ill-defined. Accept a different peak only
+    // when both peaks agree within the diff budget on both sides.
+    if (result.got_argmax != result.expected_argmax) {
+        const double cross_tol = std::max(result.max_diff, 1e-5);
+        const double got_at_expected = std::fabs(static_cast<double>(got[result.expected_argmax]) -
+                                                 static_cast<double>(expected[result.expected_argmax]));
+        const double expected_at_got =
+            std::fabs(static_cast<double>(expected[result.got_argmax]) - static_cast<double>(got[result.got_argmax]));
+        EXPECT_LE(got_at_expected, cross_tol) << tag << " max-cell mismatch (got peak not a peak in ORT)";
+        EXPECT_LE(expected_at_got, cross_tol) << tag << " max-cell mismatch (ORT peak not a peak in ggml)";
+    }
     EXPECT_TRUE(result.max_diff <= 1e-5 || result.rel <= 2e-5)
         << tag << " max_abs_diff " << result.max_diff << " rel " << result.rel << " mean_abs_diff " << result.mean_diff;
 }
@@ -448,4 +465,121 @@ TEST(GGMLOpsParity, SoftmaxRowsRfdetr) {
         note << entry.second.rel;
         RecordProperty(entry.first + "_rel_diff", note.str());
     }
+}
+
+// RF-DETR decoder sine position embedding vs ORT Concat_8: input is the
+// refined-anchor slice (1,300,4) -> ggml [4,300,1,1], output [512,300,1,1]
+// compared flat against (1,300,512).
+TEST(GGMLOpsParity, BilinearResizeSeg) {
+    const std::string base = "/tmp/opencode/";
+    std::vector<float> input_data;
+    std::vector<float> expected;
+    if (!load_npy_f32(base + "seg_resize_in.npy", input_data) || !load_npy_f32(base + "seg_resize_ref.npy", expected)) {
+        GTEST_SKIP() << "seg resize refs not found under " << base << "; regenerate rfdetr_seg refs";
+    }
+    ASSERT_EQ(input_data.size(), static_cast<size_t>(256 * 36 * 36));
+    ASSERT_EQ(expected.size(), static_cast<size_t>(256 * 108 * 108));
+
+    GgmlFixture f;
+    struct ggml_tensor* input = f.f32({36, 36, 256, 1}, input_data);
+    struct ggml_tensor* out = ggml_ops::bilinear_resize(f.ctx, input, 108, 108);
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ(out->ne[0], 108);
+    EXPECT_EQ(out->ne[1], 108);
+    f.compute(out);
+
+    const std::vector<float> got = read_f32(out);
+    ASSERT_EQ(got.size(), expected.size());
+    double max_diff = 0.0;
+    double sum_diff = 0.0;
+    for (size_t i = 0; i < got.size(); ++i) {
+        const double diff = std::fabs(static_cast<double>(got[i]) - expected[i]);
+        max_diff = std::max(max_diff, diff);
+        sum_diff += diff;
+    }
+    RecordProperty("max_abs_diff", max_diff);
+    RecordProperty("mean_abs_diff", sum_diff / static_cast<double>(got.size()));
+    EXPECT_LE(max_diff, 1e-5) << "max_abs_diff " << max_diff << " exceeds tolerance";
+}
+
+// RF-DETR-seg mask-branch depthwise 3x3 vs ORT dwconv0: input is the Resize
+// output (1,256,108,108) -> ggml [108,108,256,1]; weight [256,1,3,3] is
+// already k[c*9+ky*3+kx] = ggml [9,256] flat order, so it is passed verbatim.
+TEST(GGMLOpsParity, DepthwiseConv3x3Seg) {
+    const std::string base = "/tmp/opencode/";
+    std::vector<float> input_data;
+    std::vector<float> weight_data;
+    std::vector<float> bias_data;
+    std::vector<float> expected;
+    if (!load_npy_f32(base + "seg_resize_ref.npy", input_data) || !load_npy_f32(base + "dw0_W.npy", weight_data) ||
+        !load_npy_f32(base + "dw0_B.npy", bias_data) || !load_npy_f32(base + "segmask/ref__dwconv0.npy", expected)) {
+        GTEST_SKIP() << "seg dwconv refs not found under " << base << "; regenerate rfdetr_seg refs";
+    }
+    ASSERT_EQ(input_data.size(), static_cast<size_t>(256 * 108 * 108));
+    ASSERT_EQ(weight_data.size(), static_cast<size_t>(256 * 9));
+    ASSERT_EQ(bias_data.size(), static_cast<size_t>(256));
+    ASSERT_EQ(expected.size(), static_cast<size_t>(256 * 108 * 108));
+
+    GgmlFixture f;
+    struct ggml_tensor* input = f.f32({108, 108, 256, 1}, input_data);
+    struct ggml_tensor* weight = f.f32({9, 256, 1, 1}, weight_data);
+    struct ggml_tensor* bias = f.f32({256, 1, 1, 1}, bias_data);
+    struct ggml_tensor* out = ggml_ops::depthwise_conv3x3(f.ctx, input, weight, bias);
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ(out->ne[0], 108);
+    EXPECT_EQ(out->ne[1], 108);
+    f.compute(out);
+
+    const std::vector<float> got = read_f32(out);
+    ASSERT_EQ(got.size(), expected.size());
+    double max_diff = 0.0;
+    double sum_diff = 0.0;
+    for (size_t i = 0; i < got.size(); ++i) {
+        const double diff = std::fabs(static_cast<double>(got[i]) - expected[i]);
+        max_diff = std::max(max_diff, diff);
+        sum_diff += diff;
+    }
+    RecordProperty("max_abs_diff", max_diff);
+    RecordProperty("mean_abs_diff", sum_diff / static_cast<double>(got.size()));
+    EXPECT_LE(max_diff, 1e-5) << "max_abs_diff " << max_diff << " exceeds tolerance";
+}
+
+TEST(GGMLOpsParity, RfdetrSineEmbed) {
+    const std::string base = "/tmp/opencode/dec0/";
+    std::vector<float> input_data;
+    std::vector<float> expected;
+    if (!load_npy_f32(base + "ref__Slice_output_0.npy", input_data) ||
+        !load_npy_f32(base + "ref__Concat_8_output_0.npy", expected)) {
+        GTEST_SKIP() << "sine refs not found under " << base << "; regenerate layer-0 dec0 dumps";
+    }
+    ASSERT_EQ(input_data.size(), static_cast<size_t>(4 * 300));
+    ASSERT_EQ(expected.size(), static_cast<size_t>(512 * 300));
+
+    GgmlFixture f;
+    struct ggml_tensor* input = f.f32({4, 300, 1, 1}, input_data);
+    struct ggml_tensor* out = ggml_ops::rfdetr_sine_embed(f.ctx, input);
+    ASSERT_NE(out, nullptr);
+    f.compute(out);
+
+    const std::vector<float> got = read_f32(out);
+    ASSERT_EQ(got.size(), expected.size());
+    double max_diff = 0.0;
+    double sum_diff = 0.0;
+    size_t got_argmax = 0;
+    size_t expected_argmax = 0;
+    for (size_t i = 0; i < got.size(); ++i) {
+        const double diff = std::fabs(static_cast<double>(got[i]) - expected[i]);
+        max_diff = std::max(max_diff, diff);
+        sum_diff += diff;
+        if (got[i] > got[got_argmax]) {
+            got_argmax = i;
+        }
+        if (expected[i] > expected[expected_argmax]) {
+            expected_argmax = i;
+        }
+    }
+    RecordProperty("max_abs_diff", max_diff);
+    RecordProperty("mean_abs_diff", sum_diff / static_cast<double>(got.size()));
+    EXPECT_EQ(got_argmax, expected_argmax) << "max-cell mismatch";
+    EXPECT_LE(max_diff, 1e-5) << "max_abs_diff " << max_diff << " exceeds tolerance";
 }

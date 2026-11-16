@@ -314,4 +314,201 @@ struct ggml_tensor* grid_sample(struct ggml_context* ctx, struct ggml_tensor* in
     return ggml_custom_4d(ctx, GGML_TYPE_F32, Wout, Hout, C, N, args, 2, grid_sample_custom, /*n_tasks=*/1, nullptr);
 }
 
+// Bilinear Resize with half-pixel centers and clamp-to-edge (matches the
+// RF-DETR-seg mask-branch Resize: linear mode, half_pixel, 36->108;
+// verified against ORT: clamped matches to 6.6e-07, zeros does not).
+// input [W,H,C,N] -> [oW,oH,C,N]; F32, contiguous.
+void bilinear_resize_custom(struct ggml_tensor* dst, int ith, int nth, void* /*userdata*/) {
+    const auto* src = dst->src[0];
+    const int64_t W = src->ne[0];
+    const int64_t H = src->ne[1];
+    const int64_t C = src->ne[2];
+    const int64_t N = src->ne[3];
+    const int64_t oW = dst->ne[0];
+    const int64_t oH = dst->ne[1];
+    const double sx = static_cast<double>(W) / static_cast<double>(oW);
+    const double sy = static_cast<double>(H) / static_cast<double>(oH);
+    const int64_t rows = C * N;
+    const int64_t dr = (rows + nth - 1) / nth;
+    const int64_t row_begin = dr * ith;
+    const int64_t row_end = std::min(row_begin + dr, rows);
+    for (int64_t row = row_begin; row < row_end; ++row) {
+        const int64_t c = row % C;
+        const int64_t n = row / C;
+        const float* in = reinterpret_cast<const float*>(reinterpret_cast<const char*>(src->data) +
+                                                         (c * H + n * C * H) * W * sizeof(float));
+        float* out =
+            reinterpret_cast<float*>(reinterpret_cast<char*>(dst->data) + (c * oH + n * C * oH) * oW * sizeof(float));
+        for (int64_t y = 0; y < oH; ++y) {
+            const double iy = (static_cast<double>(y) + 0.5) * sy - 0.5;
+            const int64_t y0 = static_cast<int64_t>(std::floor(iy));
+            const double fy = iy - static_cast<double>(y0);
+            for (int64_t x = 0; x < oW; ++x) {
+                const double ix = (static_cast<double>(x) + 0.5) * sx - 0.5;
+                const int64_t x0 = static_cast<int64_t>(std::floor(ix));
+                const double fx = ix - static_cast<double>(x0);
+                double acc = 0.0;
+                for (int ky = 0; ky < 2; ++ky) {
+                    int64_t yy = y0 + ky;
+                    yy = yy < 0 ? 0 : (yy >= H ? H - 1 : yy);
+                    const double wy = ky == 0 ? 1.0 - fy : fy;
+                    for (int kx = 0; kx < 2; ++kx) {
+                        int64_t xx = x0 + kx;
+                        xx = xx < 0 ? 0 : (xx >= W ? W - 1 : xx);
+                        const double wx = kx == 0 ? 1.0 - fx : fx;
+                        acc += static_cast<double>(in[yy * W + xx]) * wx * wy;
+                    }
+                }
+                out[y * oW + x] = static_cast<float>(acc);
+            }
+        }
+    }
+}
+
+// RF-DETR decoder sine position embedding (see header for the layout
+// contract). One thread over queries is enough: 300x512 sin/cos pairs.
+void rfdetr_sine_embed_custom(struct ggml_tensor* dst, int ith, int nth, void* /*userdata*/) {
+    const auto* src = dst->src[0];
+    constexpr int kCoords = 4;
+    constexpr int kQuarters = 4;
+    constexpr int kPairs = 64;
+    constexpr int kOut = 512;
+    constexpr int kOrder[4] = {1, 0, 2, 3};
+    constexpr double kPi2 = 6.2831854820251465;
+    const int64_t nq = src->ne[1];
+    const float* in = reinterpret_cast<const float*>(src->data);
+    float* out = reinterpret_cast<float*>(dst->data);
+    const int64_t dq = (nq + nth - 1) / nth;
+    const int64_t q_begin = dq * ith;
+    const int64_t q_end = std::min(q_begin + dq, nq);
+    for (int64_t q = q_begin; q < q_end; ++q) {
+        for (int qp = 0; qp < kQuarters; ++qp) {
+            const double c = static_cast<double>(in[q * kCoords + kOrder[qp]]);
+            for (int i = 0; i < kPairs; ++i) {
+                const double scale = std::pow(10000.0, i / 64.0);
+                out[q * kOut + qp * 128 + 2 * i] = static_cast<float>(std::sin(c * kPi2 / scale));
+                out[q * kOut + qp * 128 + 2 * i + 1] = static_cast<float>(std::cos(c * kPi2 / scale));
+            }
+        }
+    }
+}
+
+struct ggml_tensor* rfdetr_sine_embed(struct ggml_context* ctx, struct ggml_tensor* coords) {
+    if (coords == nullptr) {
+        throw std::invalid_argument("rfdetr_sine_embed requires an input tensor");
+    }
+    if (coords->type != GGML_TYPE_F32 || !ggml_is_contiguous(coords)) {
+        throw std::invalid_argument("rfdetr_sine_embed requires a contiguous F32 input");
+    }
+    if (coords->ne[0] != 4 || coords->ne[1] <= 0 || coords->ne[2] != 1 || coords->ne[3] != 1) {
+        throw std::invalid_argument("rfdetr_sine_embed requires [4,Q,1,1] coords");
+    }
+    struct ggml_tensor* args[1] = {coords};
+    return ggml_custom_4d(ctx, GGML_TYPE_F32, 512, coords->ne[1], 1, 1, args, 1, rfdetr_sine_embed_custom,
+                          /*n_tasks=*/1, nullptr);
+}
+
+struct ggml_tensor* bilinear_resize(struct ggml_context* ctx, struct ggml_tensor* x, int64_t out_w, int64_t out_h) {
+    if (x == nullptr) {
+        throw std::invalid_argument("bilinear_resize requires an input tensor");
+    }
+    if (x->type != GGML_TYPE_F32 || !ggml_is_contiguous(x)) {
+        throw std::invalid_argument("bilinear_resize requires a contiguous F32 input");
+    }
+    if (x->ne[0] <= 0 || x->ne[1] <= 0 || out_w <= 0 || out_h <= 0) {
+        throw std::invalid_argument("bilinear_resize requires positive extents");
+    }
+    int64_t input_count = 0;
+    int64_t output_count = 0;
+    if (!checked_mul(x->ne[0], x->ne[1], input_count) || !checked_mul(input_count, x->ne[2], input_count) ||
+        !checked_mul(input_count, x->ne[3], input_count) || !checked_mul(out_w, out_h, output_count) ||
+        !checked_mul(output_count, x->ne[2], output_count) || !checked_mul(output_count, x->ne[3], output_count)) {
+        throw std::invalid_argument("bilinear_resize tensor sizes overflow int64");
+    }
+    struct ggml_tensor* args[1] = {x};
+    return ggml_custom_4d(ctx, GGML_TYPE_F32, out_w, out_h, x->ne[2], x->ne[3], args, 1, bilinear_resize_custom,
+                          /*n_tasks=*/1, nullptr);
+}
+
+// Depthwise 3x3 stride-1 pad-1 convolution (matches the RF-DETR-seg mask
+// branch dwconv: groups=C, ONNX pads [1,1,1,1] zeros). ggml_conv_2d uses a
+// fast algorithm with ~1e-3 absolute error at this signal magnitude, which the
+// mask branch amplifies coherently through the 1x1 and Einsum 256-sums, so a
+// direct exact kernel is used instead: F32 accumulation in fixed ky,kx order.
+// input [W,H,C,N] -> [W,H,C,N]; weight [9,C,1,1] with k[c*9+ky*3+kx];
+// bias [C]; all F32, contiguous.
+void depthwise_conv3x3_custom(struct ggml_tensor* dst, int ith, int nth, void* /*userdata*/) {
+    const auto* src = dst->src[0];
+    const auto* wt = dst->src[1];
+    const auto* bs = dst->src[2];
+    const int64_t W = src->ne[0];
+    const int64_t H = src->ne[1];
+    const int64_t C = src->ne[2];
+    const int64_t N = src->ne[3];
+    const int64_t rows = C * N;
+    const int64_t dr = (rows + nth - 1) / nth;
+    const int64_t row_begin = dr * ith;
+    const int64_t row_end = std::min(row_begin + dr, rows);
+    for (int64_t row = row_begin; row < row_end; ++row) {
+        const int64_t c = row % C;
+        const int64_t n = row / C;
+        const float* in = reinterpret_cast<const float*>(reinterpret_cast<const char*>(src->data) +
+                                                         (c * H + n * C * H) * W * sizeof(float));
+        const float* k =
+            reinterpret_cast<const float*>(reinterpret_cast<const char*>(wt->data) + c * 9 * sizeof(float));
+        const float b = reinterpret_cast<const float*>(bs->data)[c];
+        float* out =
+            reinterpret_cast<float*>(reinterpret_cast<char*>(dst->data) + (c * H + n * C * H) * W * sizeof(float));
+        for (int64_t y = 0; y < H; ++y) {
+            for (int64_t x = 0; x < W; ++x) {
+                double acc = b;
+                for (int64_t ky = 0; ky < 3; ++ky) {
+                    const int64_t yy = y + ky - 1;
+                    if (yy < 0 || yy >= H) {
+                        continue;
+                    }
+                    for (int64_t kx = 0; kx < 3; ++kx) {
+                        const int64_t xx = x + kx - 1;
+                        if (xx < 0 || xx >= W) {
+                            continue;
+                        }
+                        acc += static_cast<double>(in[yy * W + xx]) * static_cast<double>(k[ky * 3 + kx]);
+                    }
+                }
+                out[y * W + x] = static_cast<float>(acc);
+            }
+        }
+    }
+}
+
+struct ggml_tensor* depthwise_conv3x3(struct ggml_context* ctx, struct ggml_tensor* x, struct ggml_tensor* weight,
+                                      struct ggml_tensor* bias) {
+    if (x == nullptr || weight == nullptr || bias == nullptr) {
+        throw std::invalid_argument("depthwise_conv3x3 requires input, weight and bias tensors");
+    }
+    if (x->type != GGML_TYPE_F32 || weight->type != GGML_TYPE_F32 || bias->type != GGML_TYPE_F32) {
+        throw std::invalid_argument("depthwise_conv3x3 requires F32 tensors");
+    }
+    if (!ggml_is_contiguous(x) || !ggml_is_contiguous(weight) || !ggml_is_contiguous(bias)) {
+        throw std::invalid_argument("depthwise_conv3x3 requires contiguous tensors");
+    }
+    if (x->ne[0] <= 0 || x->ne[1] <= 0 || x->ne[2] <= 0 || x->ne[3] <= 0) {
+        throw std::invalid_argument("depthwise_conv3x3 requires positive input extents");
+    }
+    if (weight->ne[0] != 9 || weight->ne[1] != x->ne[2] || weight->ne[2] != 1 || weight->ne[3] != 1) {
+        throw std::invalid_argument("depthwise_conv3x3 requires weight [9,C,1,1] matching input channels");
+    }
+    if (bias->ne[0] != x->ne[2] || bias->ne[1] != 1 || bias->ne[2] != 1 || bias->ne[3] != 1) {
+        throw std::invalid_argument("depthwise_conv3x3 requires bias [C,1,1,1]");
+    }
+    int64_t count = 0;
+    if (!checked_mul(x->ne[0], x->ne[1], count) || !checked_mul(count, x->ne[2], count) ||
+        !checked_mul(count, x->ne[3], count)) {
+        throw std::invalid_argument("depthwise_conv3x3 tensor sizes overflow int64");
+    }
+    struct ggml_tensor* args[3] = {x, weight, bias};
+    return ggml_custom_4d(ctx, GGML_TYPE_F32, x->ne[0], x->ne[1], x->ne[2], x->ne[3], args, 3, depthwise_conv3x3_custom,
+                          /*n_tasks=*/1, nullptr);
+}
+
 } // namespace ggml_ops
