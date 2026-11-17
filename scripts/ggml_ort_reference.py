@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""ORT reference logits for the GGML parity golden (T-16, evidence only).
+"""ORT reference logits for the GGML parity goldens (evidence only).
 
-Runs resnet18-v1-7.onnx under stock onnxruntime on the three fixed inputs the
-C++ parity test feeds the GGML loader:
+Runs an ONNX model under stock onnxruntime on the fixed inputs the C++
+parity tests feed the GGML loader (--img-size selects geometry):
 
   gray  - NCHW float32 blob with every element == 128/255, byte-exact with
-          neuriplo::testing::constant_blob_tensors(kGray128Normalized)
-          (TestBlob.hpp fills an NCHW F32 array with 128.0F/255.0F; the blob
-          is uniform so channel/row layout is irrelevant, but the array is
-          still built as (1,3,224,224) NCHW like blobFromImage produced).
+          neuriplo::testing::constant_blob_tensors(kGray128Normalized).
   zeros - NCHW float32 all-zeros, byte-exact with zero_blob_tensors().
   gradient - deterministic spatially-nonuniform NCHW pattern, byte-exact
           with gradient_blob_tensors() in GGMLInferTest.cpp:
@@ -24,6 +21,7 @@ Run: /tmp/ortenv/bin/python scripts/ggml_ort_reference.py
 import argparse
 import struct
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -45,9 +43,15 @@ def main() -> int:
     ap.add_argument("--gray-out", default="/tmp/ort_ref_gray.npy")
     ap.add_argument("--zeros-out", default="/tmp/ort_ref_zeros.npy")
     ap.add_argument("--gradient-out", default="/tmp/ort_ref_gradient.npy")
+    ap.add_argument("--img-size", type=int, default=224,
+                    help="square spatial size (224 resnet, 640 yolo)")
+    ap.add_argument("--all-outputs", action="store_true",
+                    help="save every session output as <stem>_out<i>.npy (default: first output only)")
     args = ap.parse_args()
 
     import onnxruntime as ort
+
+    h = w = args.img_size
 
     gray_value = gray128_normalized_float32()
     # Byte-exactness check vs the host double-rounding path: both must agree.
@@ -56,34 +60,48 @@ def main() -> int:
           f"double-rounded-agrees={gray_value == straight}")
     assert gray_value == straight, "float32 division differs from double rounding; investigate before trusting parity"
 
-    gray = np.full((1, 3, 224, 224), gray_value, dtype=np.float32)
-    zeros = np.zeros((1, 3, 224, 224), dtype=np.float32)
-    assert gray.nbytes == 1 * 3 * 224 * 224 * 4 == zeros.nbytes == 602112
+    gray = np.full((1, 3, h, w), gray_value, dtype=np.float32)
+    zeros = np.zeros((1, 3, h, w), dtype=np.float32)
+    assert gray.nbytes == 1 * 3 * h * w * 4 == zeros.nbytes
 
     # Gradient pattern: integer math, then float32 division — mirrors the C++
-    # helper exactly (int v, then (float)v/255.0F). NCHW (1,3,224,224).
-    x = np.arange(224, dtype=np.int64)[None, None, :]
-    y = np.arange(224, dtype=np.int64)[None, :, None]
+    # helper exactly (int v, then (float)v/255.0F). NCHW (1,3,H,W).
+    x = np.arange(w, dtype=np.int64)[None, None, :]
+    y = np.arange(h, dtype=np.int64)[None, :, None]
     c = np.arange(3, dtype=np.int64)[:, None, None]
     vint = (x * 13 + y * 17 + c * 19) % 256
     gradient = (vint.astype(np.float32) / np.float32(255.0))[None]
-    assert gradient.shape == (1, 3, 224, 224) and gradient.dtype == np.float32
+    assert gradient.shape == (1, 3, h, w) and gradient.dtype == np.float32
 
     sess = ort.InferenceSession(args.model, providers=["CPUExecutionProvider"])
     input_name = sess.get_inputs()[0].name
-    output_name = sess.get_outputs()[0].name
-    print(f"model={args.model} input={input_name} output={output_name} "
+    output_names = [output.name for output in sess.get_outputs()]
+    print(f"model={args.model} input={input_name} outputs={output_names} "
           f"ort={ort.__version__} numpy={np.__version__}")
+
+    def output_path(base, index):
+        if not args.all_outputs:
+            return base
+        path = Path(base)
+        return path.with_name(f"{path.stem}_out{index}{path.suffix}")
 
     for label, blob, out_path in (("gray", gray, args.gray_out), ("zeros", zeros, args.zeros_out),
                                    ("gradient", gradient, args.gradient_out)):
-        logits = np.asarray(sess.run([output_name], {input_name: blob})[0], dtype=np.float32)
-        assert logits.shape == (1, 1000), f"unexpected output shape {logits.shape}"
-        flat = logits.reshape(-1)
-        np.save(out_path, flat)
-        print(f"{label}: saved {out_path} shape={flat.shape} dtype={flat.dtype}")
-        for rank, (cls, score) in enumerate(top5(flat), start=1):
-            print(f"  top{rank}: class={cls} logit={score:.6f}")
+        raw_outputs = sess.run(output_names, {input_name: blob})
+        for index, raw_output in enumerate(raw_outputs):
+            logits = np.asarray(raw_output, dtype=np.float32)
+            flat = logits.reshape(-1)
+            target = output_path(out_path, index)
+            np.save(target, flat)
+            print(f"{label}[{index}]: saved {target} shape={logits.shape} dtype={flat.dtype}")
+            if flat.size == 1000:
+                for rank, (cls, score) in enumerate(top5(flat), start=1):
+                    print(f"  top{rank}: class={cls} logit={score:.6f}")
+            else:
+                amax = int(np.argmax(flat))
+                print(f"  max_cell={amax} value={float(flat[amax]):.6f}")
+            if not args.all_outputs:
+                break
 
     return 0
 
