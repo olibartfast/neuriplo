@@ -1062,17 +1062,12 @@ void GGMLInfer::load_model(const std::string& model_path) {
 
         if (is_yolo11_) {
             // ---- YOLO11n: fixed 1x3x640x640 in, [1,84,8400] raw out ----
-            auto c3k2_simple = [&](struct ggml_tensor* xx, const std::string& pre,
-                                   struct ggml_tensor** dbg_cv1 = nullptr, struct ggml_tensor** dbg_m0_cv1 = nullptr,
-                                   struct ggml_tensor** dbg_m0_cv2 = nullptr, struct ggml_tensor** dbg_m0_add = nullptr,
-                                   struct ggml_tensor** dbg_cv2 = nullptr) -> struct ggml_tensor* {
+            auto c3k2_simple = [&](struct ggml_tensor* xx, const std::string& pre) -> struct ggml_tensor* {
                 const LoadedTensor& cv1w = require_tensor(tensors, pre + ".cv1.conv.weight", model_path, shapes_seen);
                 const uint32_t cv1_out = cv1w.dims[0];
                 const uint32_t Cin = cv1w.dims[1];
                 struct ggml_tensor* h =
                     yact(xx, ykernel(pre + ".cv1.conv", cv1_out, Cin, 1, 1), ybias(pre + ".cv1.conv", cv1_out), 1, 0);
-                if (dbg_cv1)
-                    *dbg_cv1 = h;
                 h = ggml_cont(ctx_, h);
                 auto halves = split_half(ctx_, h);
                 // hid = cv1_out / 4 for all YOLO11 C3k2_simple blocks (32->8, 64->16, 128->32)
@@ -1084,22 +1079,13 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 const uint32_t bout = b2w.dims[0];
                 struct ggml_tensor* b = yact(halves.second, ykernel(pre + ".m.0.cv1.conv", hid, cv1_out / 2, 3, 3),
                                              ybias(pre + ".m.0.cv1.conv", hid), 1, 1);
-                if (dbg_m0_cv1)
-                    *dbg_m0_cv1 = b;
                 b = yact(b, ykernel(pre + ".m.0.cv2.conv", bout, hid, 3, 3), ybias(pre + ".m.0.cv2.conv", bout), 1, 1);
-                if (dbg_m0_cv2)
-                    *dbg_m0_cv2 = b;
                 b = ggml_add(ctx_, halves.second, b);
-                if (dbg_m0_add)
-                    *dbg_m0_add = b;
                 struct ggml_tensor* cat = concat_ch(ctx_, {halves.first, halves.second, b});
                 const LoadedTensor& cv2w = require_tensor(tensors, pre + ".cv2.conv.weight", model_path, shapes_seen);
                 const uint32_t cv2_out = cv2w.dims[0];
-                struct ggml_tensor* out = yact(cat, ykernel(pre + ".cv2.conv", cv2_out, cv1_out + bout, 1, 1),
-                                               ybias(pre + ".cv2.conv", cv2_out), 1, 0);
-                if (dbg_cv2)
-                    *dbg_cv2 = out;
-                return out;
+                return yact(cat, ykernel(pre + ".cv2.conv", cv2_out, cv1_out + bout, 1, 1),
+                            ybias(pre + ".cv2.conv", cv2_out), 1, 0);
             };
             auto c3k2_c3k = [&](struct ggml_tensor* xx, const std::string& pre) -> struct ggml_tensor* {
                 const LoadedTensor& cv1w = require_tensor(tensors, pre + ".cv1.conv.weight", model_path, shapes_seen);
@@ -1155,20 +1141,11 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 return ggml_mul(ctx_, h, ggml_sigmoid(ctx_, h));
             };
             struct ggml_tensor* y11 = yact(x, ykernel("model.0.conv", 16, 3, 3, 3), ybias("model.0.conv", 16), 2, 1);
-            if (is_yolo11_)
-                debug_m0_ = y11;
             y11 = yact(y11, ykernel("model.1.conv", 32, 16, 3, 3), ybias("model.1.conv", 32), 2, 1);
-            if (is_yolo11_)
-                debug_m1_ = y11;
             y11 = c3k2_simple(y11, "model.2");
-            if (is_yolo11_)
-                debug_m2_ = y11;
 
             y11 = yact(y11, ykernel("model.3.conv", 64, 64, 3, 3), ybias("model.3.conv", 64), 2, 1);
-            if (is_yolo11_)
-                debug_m3_ = y11;
-            struct ggml_tensor* m4 = c3k2_simple(y11, "model.4", &debug_m4_cv1_, &debug_m4_m0_cv1_, &debug_m4_m0_cv2_,
-                                                 &debug_m4_m0_add_, &debug_m4_cv2_);
+            struct ggml_tensor* m4 = c3k2_simple(y11, "model.4");
 
             y11 = yact(m4, ykernel("model.5.conv", 128, 128, 3, 3), ybias("model.5.conv", 128), 2, 1);
             struct ggml_tensor* m6 = c3k2_c3k(y11, "model.6");
@@ -1240,38 +1217,19 @@ void GGMLInfer::load_model(const std::string& model_path) {
                            ybias("model.10.cv2.conv", 256), 1, 0);
             }
             struct ggml_tensor* p5 = y11;
-            if (is_yolo11_)
-                debug_p5_ = p5;
             struct ggml_tensor* up1 = ggml_upscale(ctx_, p5, 2, GGML_SCALE_MODE_NEAREST);
-            if (is_yolo11_)
-                debug_up1_ = up1;
             struct ggml_tensor* n13 = c3k2_simple(concat_ch(ctx_, {up1, m6}), "model.13");
-            if (is_yolo11_)
-                debug_n13_ = n13;
             struct ggml_tensor* up2 = ggml_upscale(ctx_, n13, 2, GGML_SCALE_MODE_NEAREST);
-            if (is_yolo11_)
-                debug_up2_ = up2;
             struct ggml_tensor* p3f = c3k2_simple(concat_ch(ctx_, {up2, m4}), "model.16");
             struct ggml_tensor* d5 =
                 yact(p3f, ykernel("model.17.conv", 64, 64, 3, 3), ybias("model.17.conv", 64), 2, 1);
-            if (is_yolo11_)
-                debug_d5_ = d5;
             struct ggml_tensor* p4f = c3k2_simple(concat_ch(ctx_, {d5, n13}), "model.19");
             struct ggml_tensor* d6 =
                 yact(p4f, ykernel("model.20.conv", 128, 128, 3, 3), ybias("model.20.conv", 128), 2, 1);
-            if (is_yolo11_)
-                debug_d6_ = d6;
             struct ggml_tensor* p5f = c3k2_c3k(concat_ch(ctx_, {d6, p5}), "model.22");
             struct ggml_tensor* box_parts[3];
             struct ggml_tensor* cls_parts[3];
             struct ggml_tensor* feats[3] = {p3f, p4f, p5f};
-            if (is_yolo11_) {
-                debug_feat_[0] = p3f;
-                debug_feat_[1] = p4f;
-                debug_feat_[2] = p5f;
-                debug_m4_ = m4;
-                debug_m6_ = m6;
-            }
             for (int s = 0; s < 3; ++s) {
                 const std::string pre = "model.23.cv2." + std::to_string(s);
                 struct ggml_tensor* hb = yact(feats[s], ykernel(pre + ".0.conv", 64, feats[s]->ne[2], 3, 3),
@@ -1290,7 +1248,6 @@ void GGMLInfer::load_model(const std::string& model_path) {
             }
             struct ggml_tensor* reg =
                 ggml_concat(ctx_, ggml_concat(ctx_, box_parts[0], box_parts[1], 0), box_parts[2], 0);
-            debug_reg_ = reg;
             struct ggml_tensor* clsc =
                 ggml_concat(ctx_, ggml_concat(ctx_, cls_parts[0], cls_parts[1], 0), cls_parts[2], 0);
             struct ggml_tensor* dfl_rs = ggml_reshape_4d(ctx_, reg, 8400, 1, 16, 4);
@@ -1301,31 +1258,30 @@ void GGMLInfer::load_model(const std::string& model_path) {
             require_dims(dw, "model.23.dfl.conv.weight", model_path, {1, 16, 1, 1}, shapes_seen);
             struct ggml_tensor* dwq = new_const_4d(16, 1, 1, 1, dw.data);
             struct ggml_tensor* dm = ggml_mul_mat(ctx_, dwq, dflat);
-            debug_dm_ = dm;
             struct ggml_tensor* d4 = ggml_reshape_4d(ctx_, dm, 8400, 1, 4, 1);
-            debug_d4_ = d4;
             const size_t row4 = static_cast<size_t>(8400) * sizeof(float);
             struct ggml_tensor* xy = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 0);
             struct ggml_tensor* wh = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 2 * row4);
-            // Converter provides Constant_12 (A), Constant_10 (B). Stride (Constant_15) missing - construct it.
-            // Stride per anchor: 6400 anchors at stride 8 (P3), 1600 at stride 16 (P4), 400 at stride 32 (P5)
-            struct ggml_tensor* Avec_flat = yconst("/model.23/Constant_12_output_0", {1, 8400});
-            struct ggml_tensor* Avec = ggml_concat(ctx_, Avec_flat, Avec_flat, 2); // [8400,1,2,1]
-            struct ggml_tensor* Bvec = yconst("/model.23/Constant_10_output_0", {1, 2, 8400});
-            struct ggml_tensor* Bvec_reshaped = ggml_reshape_4d(ctx_, Bvec, 8400, 1, 2, 1);
+            // Box-decode constants differ between det and seg exports (same
+            // pattern as the YOLOv8 path below): det uses 9/10/12, seg uses
+            // 12/13/15. Select by presence. The seg Constant_9 is an int
+            // scalar skipped by the converter, so it is absent from seg GGUF.
+            const bool has_det_consts11 = tensors.count("/model.23/Constant_9_output_0") != 0;
+            const std::string a_name11 =
+                has_det_consts11 ? "/model.23/Constant_9_output_0" : "/model.23/Constant_12_output_0";
+            const std::string b_name11 =
+                has_det_consts11 ? "/model.23/Constant_10_output_0" : "/model.23/Constant_13_output_0";
+            const std::string stride_name11 =
+                has_det_consts11 ? "/model.23/Constant_12_output_0" : "/model.23/Constant_15_output_0";
+            struct ggml_tensor* Avec = yconst(a_name11, {1, 2, 8400});
+            struct ggml_tensor* Bvec = yconst(b_name11, {1, 2, 8400});
             struct ggml_tensor* sub0 = ggml_sub(ctx_, Avec, xy);
-            struct ggml_tensor* add1 = ggml_add(ctx_, Bvec_reshaped, wh);
+            struct ggml_tensor* add1 = ggml_add(ctx_, Bvec, wh);
             struct ggml_tensor* add2 = ggml_add(ctx_, sub0, add1);
             struct ggml_tensor* sub1 = ggml_sub(ctx_, add1, sub0);
             struct ggml_tensor* div1 = ggml_scale(ctx_, add2, 0.5f);
             struct ggml_tensor* cat2 = ggml_concat(ctx_, div1, sub1, 2);
-            // Hardcode stride tensor: 6400x8, 1600x16, 400x32
-            std::vector<float> stride_data(8400);
-            std::fill(stride_data.begin(), stride_data.begin() + 6400, 8.0f);
-            std::fill(stride_data.begin() + 6400, stride_data.begin() + 8000, 16.0f);
-            std::fill(stride_data.begin() + 8000, stride_data.end(), 32.0f);
-            struct ggml_tensor* stride_tensor = new_const_4d(8400, 1, 1, 1, stride_data);
-            struct ggml_tensor* mul2 = ggml_mul(ctx_, cat2, ggml_repeat(ctx_, stride_tensor, cat2));
+            struct ggml_tensor* mul2 = ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst(stride_name11, {1, 8400}), cat2));
             struct ggml_tensor* ones = new_const_4d(8400, 1, 80, 1, std::vector<float>(8400 * 80, 1.0f));
             struct ggml_tensor* sig = ggml_div(ctx_, ones, ggml_add(ctx_, ones, ggml_exp(ctx_, ggml_neg(ctx_, clsc))));
             logits = ggml_concat(ctx_, mul2, sig, 2);
@@ -1440,15 +1396,26 @@ void GGMLInfer::load_model(const std::string& model_path) {
             struct ggml_tensor* dm = ggml_mul_mat(ctx_, dwq, dflat); // [1,33600]
             struct ggml_tensor* d4 = ggml_reshape_4d(ctx_, dm, 8400, 1, 4, 1);
             // Box decode: xy = A - slice0, wh = B + slice1, center/corner combine,
-            // /2, concat, *strides. The seg export numbers the same constants
-            // differently from the detection export, so select by presence.
+            // /2, concat, *strides. Ultralytics renumbered the decode constants
+            // across exports: old det used 12/13/15 and old seg 15/16/18, while
+            // current exports (v8 and YOLO11) use det 9/10/12 and seg
+            // 12/13/15. The new-det float anchor Constant_9 is the discriminator
+            // (old int slice indices of the same name are skipped by the
+            // converter, so it is absent from old-export GGUF files).
+            const auto is_new_det = [&]() {
+                const auto it = tensors.find("/model.22/Constant_9_output_0");
+                return it != tensors.end() && it->second.dims == std::vector<uint32_t>{1, 2, 8400};
+            };
             const bool has_det_consts = tensors.count("/model.22/Constant_12_output_0") != 0;
-            const std::string a_name =
-                has_det_consts ? "/model.22/Constant_12_output_0" : "/model.22/Constant_15_output_0";
-            const std::string b_name =
-                has_det_consts ? "/model.22/Constant_13_output_0" : "/model.22/Constant_16_output_0";
-            const std::string stride_name =
-                has_det_consts ? "/model.22/Constant_15_output_0" : "/model.22/Constant_18_output_0";
+            const std::string a_name = is_new_det()     ? "/model.22/Constant_9_output_0"
+                                       : has_det_consts ? "/model.22/Constant_12_output_0"
+                                                        : "/model.22/Constant_15_output_0";
+            const std::string b_name = is_new_det()     ? "/model.22/Constant_10_output_0"
+                                       : has_det_consts ? "/model.22/Constant_13_output_0"
+                                                        : "/model.22/Constant_16_output_0";
+            const std::string stride_name = is_new_det()     ? "/model.22/Constant_12_output_0"
+                                            : has_det_consts ? "/model.22/Constant_15_output_0"
+                                                             : "/model.22/Constant_18_output_0";
             const size_t row4 = static_cast<size_t>(8400) * sizeof(float);
             struct ggml_tensor* xy = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 0);
             struct ggml_tensor* wh = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 2 * row4);
@@ -2346,62 +2313,6 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
         } else {
             throw std::runtime_error("GGML backend unavailable during inference");
         }
-        // DEBUG: dump intermediate tensors after graph computation (YOLO11 only)
-        if (is_yolo11_) {
-            if (debug_reg_) {
-                std::vector<float> reg_data(ggml_nelements(debug_reg_));
-                ggml_backend_tensor_get(debug_reg_, reg_data.data(), 0, reg_data.size() * sizeof(float));
-                std::ofstream reg_out("/tmp/debug_reg.bin", std::ios::binary);
-                reg_out.write(reinterpret_cast<char*>(reg_data.data()), reg_data.size() * sizeof(float));
-            }
-            if (debug_dm_) {
-                std::vector<float> dm_data(ggml_nelements(debug_dm_));
-                ggml_backend_tensor_get(debug_dm_, dm_data.data(), 0, dm_data.size() * sizeof(float));
-                std::ofstream dm_out("/tmp/debug_dm.bin", std::ios::binary);
-                dm_out.write(reinterpret_cast<char*>(dm_data.data()), dm_data.size() * sizeof(float));
-            }
-            if (debug_d4_) {
-                std::vector<float> d4_data(ggml_nelements(debug_d4_));
-                ggml_backend_tensor_get(debug_d4_, d4_data.data(), 0, d4_data.size() * sizeof(float));
-                std::ofstream d4_out("/tmp/debug_d4.bin", std::ios::binary);
-                d4_out.write(reinterpret_cast<char*>(d4_data.data()), d4_data.size() * sizeof(float));
-            }
-            for (int s = 0; s < 3; ++s) {
-                if (debug_feat_[s]) {
-                    std::vector<float> feat_data(ggml_nelements(debug_feat_[s]));
-                    ggml_backend_tensor_get(debug_feat_[s], feat_data.data(), 0, feat_data.size() * sizeof(float));
-                    std::ofstream feat_out("/tmp/debug_feat" + std::to_string(s) + ".bin", std::ios::binary);
-                    feat_out.write(reinterpret_cast<char*>(feat_data.data()), feat_data.size() * sizeof(float));
-                }
-            }
-            // Backbone/neck debug tensors
-            auto dump_tensor = [&](struct ggml_tensor* t, const char* name) {
-                if (t) {
-                    std::vector<float> data(ggml_nelements(t));
-                    ggml_backend_tensor_get(t, data.data(), 0, data.size() * sizeof(float));
-                    std::ofstream out(std::string("/tmp/debug_") + name + ".bin", std::ios::binary);
-                    out.write(reinterpret_cast<char*>(data.data()), data.size() * sizeof(float));
-                }
-            };
-            dump_tensor(debug_m4_, "m4");
-            dump_tensor(debug_m6_, "m6");
-            dump_tensor(debug_p5_, "p5");
-            dump_tensor(debug_up1_, "up1");
-            dump_tensor(debug_n13_, "n13");
-            dump_tensor(debug_up2_, "up2");
-            dump_tensor(debug_d5_, "d5");
-            dump_tensor(debug_d6_, "d6");
-            dump_tensor(debug_m3_, "m3");
-            dump_tensor(debug_m4_cv1_, "m4_cv1");
-            dump_tensor(debug_m4_m0_cv1_, "m4_m0_cv1");
-            dump_tensor(debug_m4_m0_cv2_, "m4_m0_cv2");
-            dump_tensor(debug_m4_m0_add_, "m4_m0_add");
-            dump_tensor(debug_m4_cv2_, "m4_cv2");
-            dump_tensor(debug_m2_, "m2");
-            dump_tensor(debug_m1_, "m1");
-            dump_tensor(debug_m0_, "m0");
-        }
-
         // Real outputs: read every tensor the graph exposes, flat in
         // NCHW-coincident order. ResNet keeps its per-batch {N,1000} layout;
         // YOLO detection returns {1,84,8400}; segmentation returns
