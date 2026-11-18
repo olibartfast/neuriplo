@@ -14,6 +14,7 @@ RUN apt-get update && apt-get upgrade -y && \
     build-essential \
     pkg-config \
     wget \
+    unzip \
     git \
     libgoogle-glog-dev \
     libgtest-dev \
@@ -33,13 +34,39 @@ FROM base AS ort_install
 
 ENV ONNX_RUNTIME_DIR=/opt/onnxruntime
 
+# The upstream GitHub repo is currently private (security investigation),
+# so release assets 404. Fall back to the official Microsoft NuGet package
+# of the exact pinned version (CPU; CI runners have no GPU anyway). The
+# nupkg layout differs from the release tgz, so headers and native libs are
+# mapped into the same include/lib tree cmake validates.
 RUN . /tmp/versions.env && \
-    wget --tries=3 --retry-connrefused \
-    https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_RUNTIME_VERSION}/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}.tgz \
-    -O /tmp/onnxruntime.tgz && \
     mkdir -p ${ONNX_RUNTIME_DIR} && \
-    tar -xzf /tmp/onnxruntime.tgz -C ${ONNX_RUNTIME_DIR} --strip-components=1 && \
-    rm /tmp/onnxruntime.tgz
+    (wget --tries=3 --retry-connrefused \
+        https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_RUNTIME_VERSION}/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}.tgz \
+        -O /tmp/onnxruntime.tgz && \
+     tar -xzf /tmp/onnxruntime.tgz -C ${ONNX_RUNTIME_DIR} --strip-components=1 && \
+     rm /tmp/onnxruntime.tgz && \
+     echo "ONNX Runtime from GitHub release") || \
+    (echo "GitHub release unavailable; falling back to NuGet Microsoft.ML.OnnxRuntime ${ONNX_RUNTIME_VERSION} ..." && \
+     wget https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${ONNX_RUNTIME_VERSION}/microsoft.ml.onnxruntime.${ONNX_RUNTIME_VERSION}.nupkg \
+        -O /tmp/ort.nupkg && \
+     rm -rf /tmp/ort-nuget && mkdir -p /tmp/ort-nuget && \
+     unzip -q /tmp/ort.nupkg -d /tmp/ort-nuget && \
+     INC_DIR=$(find /tmp/ort-nuget -type f -name onnxruntime_cxx_api.h | head -n 1 | xargs dirname) && \
+     LIB_DIR=$(find /tmp/ort-nuget -type f -path "*linux-x64*" -name "libonnxruntime.so*" | head -n 1 | xargs dirname) && \
+     [ -n "$INC_DIR" ] && [ -n "$LIB_DIR" ] || { echo "NuGet package layout unexpected (missing include/lib)"; exit 1; } && \
+     mkdir -p ${ONNX_RUNTIME_DIR}/include ${ONNX_RUNTIME_DIR}/lib && \
+     cp -r "$INC_DIR/." ${ONNX_RUNTIME_DIR}/include/ && \
+     cp "$LIB_DIR/"* ${ONNX_RUNTIME_DIR}/lib/ && \
+     # The NuGet native lib carries SONAME libonnxruntime.so.1 but ships no
+     # versioned file (the release tgz has the .so.1 chain). Without it every
+     # dependent link fails with "libonnxruntime.so.1 not found" / undefined
+     # OrtGetApiBase. Recreate the chain.
+     if [ -f ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so ] && [ ! -e ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so.1 ]; then \
+       ln -s libonnxruntime.so ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so.1; \
+     fi && \
+     echo "${ONNX_RUNTIME_VERSION}" > ${ONNX_RUNTIME_DIR}/VERSION_NUMBER && \
+     rm -rf /tmp/ort.nupkg /tmp/ort-nuget)
 
 # Stage 3: Build application
 FROM ort_install AS builder
