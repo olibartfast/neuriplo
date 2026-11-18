@@ -301,15 +301,61 @@ jobs:
               Write-Host "  not published: $name"
             }
           }
-          if (-not $downloaded) { throw "No ONNX Runtime $ver build found for CUDA $cudaMajor" }
-          Write-Host "Extracting..."
-          Expand-Archive -Path "$staging\onnxruntime.zip" -DestinationPath $staging -Force
-          $extracted = Get-ChildItem -Path $staging -Directory | Select-Object -First 1
-          if (-not $extracted) { throw "ONNX Runtime archive had no top-level directory" }
-          $target = "$dest\onnxruntime-win-x64-gpu-$ver"
-          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
-          Move-Item -Path $extracted.FullName -Destination $target
-          Remove-Item -Recurse -Force $staging
+          if (-not $downloaded) {
+            # The upstream GitHub repo is currently unreachable (taken
+            # private during a security investigation), so none of the
+            # release archives download. Fall back to the official
+            # Microsoft NuGet packages of the exact pinned version: GPU
+            # first, then CPU. Runners have no GPU, so the CUDA EP is
+            # unusable in CI anyway, and both packages carry an include/
+            # dir plus an onnxruntime import lib that the cmake validation
+            # accepts. The assembled directory keeps the gpu-<ver> name
+            # cmake expects.
+            Write-Host "GitHub release assets unavailable; trying official NuGet packages for ORT $ver..."
+            $nugetBase = "https://api.nuget.org/v3-flatcontainer"
+            foreach ($pkg in @("microsoft.ml.onnxruntime.gpu.windows", "microsoft.ml.onnxruntime")) {
+              try {
+                $url = "$nugetBase/$pkg/$ver/$pkg.$ver.nupkg"
+                Write-Host "Downloading $url ..."
+                Invoke-WebRequest -Uri $url -OutFile "$staging\ort.nupkg"
+                $nugetDir = "$staging\ort-nuget"
+                if (Test-Path $nugetDir) { Remove-Item -Recurse -Force $nugetDir }
+                Expand-Archive -Path "$staging\ort.nupkg" -DestinationPath $nugetDir -Force
+                $incDir = Get-ChildItem -Path $nugetDir -Recurse -Directory -Filter "include" |
+                  Where-Object { Test-Path (Join-Path $_.FullName "onnxruntime_cxx_api.h") } |
+                  Select-Object -First 1
+                $nativeDir = Get-ChildItem -Path $nugetDir -Recurse -Directory -Filter "native" |
+                  Where-Object { ($_.FullName -like "*win-x64*") -and
+                    (Test-Path (Join-Path $_.FullName "onnxruntime.lib")) } |
+                  Select-Object -First 1
+                if (-not $incDir -or -not $nativeDir) { throw "NuGet package layout unexpected (missing include/lib)" }
+                $target = "$dest\onnxruntime-win-x64-gpu-$ver"
+                if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+                New-Item -ItemType Directory -Force -Path "$target\include" | Out-Null
+                New-Item -ItemType Directory -Force -Path "$target\lib" | Out-Null
+                Copy-Item -Path (Join-Path $incDir.FullName "*") -Destination "$target\include" -Recurse -Force
+                Copy-Item -Path (Join-Path $nativeDir.FullName "*") -Destination "$target\lib" -Force
+                $ver | Out-File -FilePath "$target\VERSION_NUMBER" -Encoding utf8 -NoNewline
+                Remove-Item -Recurse -Force $staging
+                $downloaded = "nuget:$pkg"
+                Write-Warning "Using NuGet $pkg $ver instead of the GitHub release archive."
+                break
+              } catch {
+                Write-Host "  NuGet $pkg failed: $($_.Exception.Message)"
+              }
+            }
+          }
+          if (-not $downloaded) { throw "No ONNX Runtime $ver build found (GitHub releases and NuGet exhausted)" }
+          if ($downloaded -notlike "nuget:*") {
+            Write-Host "Extracting..."
+            Expand-Archive -Path "$staging\onnxruntime.zip" -DestinationPath $staging -Force
+            $extracted = Get-ChildItem -Path $staging -Directory | Select-Object -First 1
+            if (-not $extracted) { throw "ONNX Runtime archive had no top-level directory" }
+            $target = "$dest\onnxruntime-win-x64-gpu-$ver"
+            if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+            Move-Item -Path $extracted.FullName -Destination $target
+            Remove-Item -Recurse -Force $staging
+          }
 
       - name: Configure
         shell: pwsh
