@@ -58,6 +58,13 @@ RUN . /tmp/versions.env && \
      mkdir -p ${ONNX_RUNTIME_DIR}/include ${ONNX_RUNTIME_DIR}/lib && \
      cp -r "$INC_DIR/." ${ONNX_RUNTIME_DIR}/include/ && \
      cp "$LIB_DIR/"* ${ONNX_RUNTIME_DIR}/lib/ && \
+     # The NuGet native lib carries SONAME libonnxruntime.so.1 but ships no
+     # versioned file (the release tgz has the .so.1 chain). Without it every
+     # dependent link fails with "libonnxruntime.so.1 not found" / undefined
+     # OrtGetApiBase. Recreate the chain.
+     if [ -f ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so ] && [ ! -e ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so.1 ]; then \
+       ln -s libonnxruntime.so ${ONNX_RUNTIME_DIR}/lib/libonnxruntime.so.1; \
+     fi && \
      echo "${ONNX_RUNTIME_VERSION}" > ${ONNX_RUNTIME_DIR}/VERSION_NUMBER && \
      rm -rf /tmp/ort.nupkg /tmp/ort-nuget)
 

@@ -74,6 +74,13 @@ else
                 mkdir -p "$dir/include" "$dir/lib"
                 cp -r "$inc_dir/." "$dir/include/"
                 cp "$lib_dir/"* "$dir/lib/"
+                # The NuGet native lib carries SONAME libonnxruntime.so.1 but
+                # ships no versioned file (the release tgz has the .so.1
+                # chain). Without it every dependent link fails with
+                # "libonnxruntime.so.1 not found" / undefined OrtGetApiBase.
+                if [[ -f "$dir/lib/libonnxruntime.so" && ! -e "$dir/lib/libonnxruntime.so.1" ]]; then
+                    ln -s libonnxruntime.so "$dir/lib/libonnxruntime.so.1"
+                fi
                 echo "$version" > "$dir/VERSION_NUMBER"
                 downloaded="nuget:$pkg"
                 echo "Warning: using NuGet $pkg $version instead of the GitHub release archive." >&2
