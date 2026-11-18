@@ -28,6 +28,31 @@ class GGMLInfer : public InferenceInterface {
     std::vector<std::vector<int64_t>> output_shapes_ = {{1, 1000}};
     bool is_yolo_ = false;
     bool is_yolo_seg_ = false;
+    bool is_yolo11_ = false;
+    // Debug tensors for YOLO11
+    struct ggml_tensor* debug_reg_ = nullptr;
+    struct ggml_tensor* debug_dm_ = nullptr;
+    struct ggml_tensor* debug_d4_ = nullptr;
+    struct ggml_tensor* debug_feat_[3] = {nullptr, nullptr, nullptr};
+    // Backbone/neck debug
+    struct ggml_tensor* debug_m4_ = nullptr;
+    struct ggml_tensor* debug_m6_ = nullptr;
+    struct ggml_tensor* debug_p5_ = nullptr;
+    struct ggml_tensor* debug_up1_ = nullptr;
+    struct ggml_tensor* debug_n13_ = nullptr;
+    struct ggml_tensor* debug_up2_ = nullptr;
+    struct ggml_tensor* debug_d5_ = nullptr;
+    struct ggml_tensor* debug_d6_ = nullptr;
+    // Early layers debug
+    struct ggml_tensor* debug_m3_ = nullptr;
+    struct ggml_tensor* debug_m4_cv1_ = nullptr;
+    struct ggml_tensor* debug_m4_m0_cv1_ = nullptr;
+    struct ggml_tensor* debug_m4_m0_cv2_ = nullptr;
+    struct ggml_tensor* debug_m4_m0_add_ = nullptr;
+    struct ggml_tensor* debug_m4_cv2_ = nullptr;
+    struct ggml_tensor* debug_m2_ = nullptr;
+    struct ggml_tensor* debug_m1_ = nullptr;
+    struct ggml_tensor* debug_m0_ = nullptr;
 
   public:
     GGMLInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

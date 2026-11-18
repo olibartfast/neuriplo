@@ -1,32 +1,37 @@
-#!/usr/bin/env python3
-"""Convert an ONNX model to a GGUF weight file read by GGMLInfer.
+#!/ usr / bin / env python3
+""
+    "Convert an ONNX model to a GGUF weight file read by GGMLInfer.
 
-GGUF layout (little-endian, version 3, F32 tensors only):
+    GGUF layout(little - endian, version 3, F32 tensors only)
+    :
 
-    magic:      4 bytes "GGUF"
-    version:    uint32 == 3
-    n_tensors:  uint64
-    n_kv:       uint64
-    metadata:   per KV: key string, value type uint32, value
-    tensors:    per tensor: name string, n_dims uint32, ne[n_dims] uint64
-                (ggml order, i.e. reversed ONNX dims), type uint32 (0 = F32),
-                offset uint64 (relative to the data section start, 32-aligned)
-    padding to 32 bytes, then the tensor data section.
+      magic : 4 bytes "GGUF" version : uint32 == 3 n_tensors : uint64 n_kv : uint64 metadata : per KV : key string,
+    value type uint32, value tensors : per tensor : name string,
+                                                    n_dims uint32,
+                                                    ne[n_dims] uint64(ggml order, i.e.reversed ONNX dims),
+                                                    type uint32(0 = F32),
+                                                    offset
+                                                    uint64(relative to the data section start, 32 - aligned) padding to
+                                                    32 bytes,
+                                                    then the tensor data section.
 
-Strings are uint64 length + bytes (no NUL). Alignment is 32.
+                                                        Strings are uint64 length
+                                                        + bytes(no NUL)
+                                                              .Alignment is 32.
 
-KV entries written:
+                                                          KV entries written :
 
-    general.architecture = "neuriplo-vision" (string)
-    neuriplo.rank.<tensor-name> = ONNX rank (int32), one per tensor
+    general.architecture = "neuriplo-vision"(string)neuriplo.rank.<tensor - name> = ONNX rank(int32),
+    one per tensor
 
-The rank entries exist because the GGUF C API exposes tensor dims as a
-GGML_MAX_DIMS array padded with trailing ones, with no rank accessor; a
-shape like [1,16,1,1] cannot be recovered from dims alone. The loader
-rejects files without these keys instead of guessing.
+                                                    The rank entries exist because the GGUF C API exposes tensor dims as
+                                                    a GGML_MAX_DIMS array padded with trailing ones,
+    with no rank accessor;
+a shape like[1, 16, 1, 1] cannot
+    be recovered from dims alone.The loader rejects files without these keys instead of guessing.
 
-Only F32 (and F16/double widened to F32) initializers of rank 1..4 are
-carried; integer
+    Only
+    F32(and F16 / double widened to F32) initializers of rank 1..4 are carried; integer
 initializers and 0-d/>4-d tensors are skipped with a note. The loader
 matches tensors by exact name, so extra tensors are ignored there.
 
@@ -44,9 +49,9 @@ GGUF_MAGIC = b"GGUF"
 GGUF_VERSION = 3
 GGUF_ALIGNMENT = 32
 
-# ggml_type values (must match ggml.h).
+#ggml_type values(must match ggml.h).
 GGML_TYPE_F32 = 0
-# gguf_type values (must match gguf.h).
+#gguf_type values(must match gguf.h).
 GGUF_TYPE_INT32 = 5
 GGUF_TYPE_STRING = 8
 
@@ -56,18 +61,17 @@ def _pack_string(value):
         value = value.encode("utf-8")
     return struct.pack("<Q", len(value)) + value
 
-
-# Accepted classifier-head weights: ResNet18 ([1000,512]) and ResNet50
-# ([1000,2048]). Both are ONNX Gemm transB=1 row-major.
+#Accepted classifier - head weights : ResNet18([ 1000, 512 ]) and ResNet50
+#([1000, 2048]).Both are ONNX Gemm transB = 1 row - major.
 FC_WEIGHT_SHAPES = ((1000, 512), (1000, 2048))
 FC_BIAS_SHAPE = (1000,)
 
 
 def _read_float_initializers(onnx_path):
-    # Float tensors widened to F32. Constant-node float values are carried
-    # too: RF-DETR's projector normalizations are exported as graph
-    # Constants (`onnx::Mul_*` / `onnx::Add_*`), not initializers, and the
-    # hand-written topology needs those exact names.
+#Float tensors widened to F32.Constant - node float values are carried
+#too : RF - DETR's projector normalizations are exported as graph
+#Constants(`onnx::Mul_*` / `onnx::Add_ *`), not initializers, and the
+#hand - written topology needs those exact names.
     import onnx
     from onnx import numpy_helper
 
@@ -121,15 +125,18 @@ def _read_float_initializers(onnx_path):
 
 
 def _check_fc_pair(tensors):
-    # Minimum loadable-head contract: YOLO files need the fixed DFL conv
-    # weight; classifier files need one 2D [1000,512]/[1000,2048] weight
-    # plus the [1000] bias; RF-DETR files need the 91-class head
-    # (`class_embed.bias` [91] plus a 2D `[256,91]` class weight).
+#Minimum loadable - head contract : YOLO files need the fixed DFL conv
+#weight; classifier files need one 2D [1000, 512] / [1000, 2048] weight
+#plus the[1000] bias; RF - DETR files need the 91 - class head
+#(`class_embed.bias` [91] plus a 2D `[256, 91]` class weight).
     names = {name for name, _, _ in tensors}
     if any(n.startswith("model.") for n in names):
-        if "model.22.dfl.conv.weight" not in names:
+#YOLOv8n family : DFL at model.22; YOLO11 family : DFL at model.23
+#(plus C2PSA attention at model.10).Accept either; the GGML loader
+#dispatches on the exact pair.
+        if "model.22.dfl.conv.weight" not in names and "model.23.dfl.conv.weight" not in names:
             print("error: YOLO file missing fixed DFL conv weight "
-                  "'model.22.dfl.conv.weight'", file=sys.stderr)
+                  "'model.22.dfl.conv.weight' or 'model.23.dfl.conv.weight'", file=sys.stderr)
             return False
         return True
     by_name = {name: dims for name, dims, _ in tensors}
@@ -176,7 +183,7 @@ def convert(onnx_path, output_path):
     for _, _, arr in tensors:
         flat_data.append(np.ascontiguousarray(arr, dtype=np.float32).reshape(-1))
 
-    # KV section: general.architecture plus one rank entry per tensor.
+#KV section : general.architecture plus one rank entry per tensor.
     kv_blob = b""
     kv_entries = [("general.architecture", GGUF_TYPE_STRING, "neuriplo-vision")]
     for name, dims, _ in tensors:
@@ -195,7 +202,7 @@ def convert(onnx_path, output_path):
             raise AssertionError(f"unhandled KV type {value_type}")
         kv_count += 1
 
-    # Tensor infos with 32-aligned data offsets.
+#Tensor infos with 32 - aligned data offsets.
     info_body = b""
     offset = 0
     for (name, dims, _), flat in zip(tensors, flat_data):
@@ -226,7 +233,7 @@ def convert(onnx_path, output_path):
             if pad:
                 f.write(b"\x00" * pad)
 
-    # Read-back verification with an independent parse.
+#Read - back verification with an independent parse.
     try:
         with open(output_path, "rb") as f:
             blob = f.read()
