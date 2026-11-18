@@ -66,6 +66,33 @@ concurrency:
 
 jobs:
 
+  # Backend-aware gating: the Windows matrix covers OPENCV_DNN and
+  # ONNX_RUNTIME only, so GGML-only (or other backend-only) changes must not
+  # spend two Windows runners. The mapping lives in
+  # scripts/ci/changed_backends.py (WORKFLOW_BACKENDS); these jobs consume it
+  # the same way ci.yml does.
+  changes:
+    name: Changed backends
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.detect.outputs.backends }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed backends
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+          else
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
+          fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          echo "Changed backends: $BACKENDS"
+
   # ── Public headers without OpenCV ──────────────────────────────────
   # OpenCV belongs to the opencv-dnn backend alone. This job configures
   # test/public-headers, a standalone project that compiles the public headers
@@ -142,6 +169,8 @@ jobs:
   # ── OpenCV DNN ─────────────────────────────────────────────────────
   build-windows-opencvdnn:
     name: Windows / OPENCV_DNN
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     runs-on: windows-latest
     # Generous only because a cold vcpkg cache builds OpenCV from source, which
     # was observed taking 40 minutes; cached runs finish in a few. Kept above
@@ -208,6 +237,8 @@ jobs:
   # ── ONNX Runtime ───────────────────────────────────────────────────
   build-windows-onnxruntime:
     name: Windows / ONNX_RUNTIME
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'ONNX_RUNTIME') }}
     runs-on: windows-latest
     timeout-minutes: 30
 

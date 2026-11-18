@@ -13,7 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Backend-aware gating: this workflow builds the OPENCV_DNN backend only,
+  # so backend-scoped changes (GGML, ONNX_RUNTIME, ...) must skip it. The
+  # mapping lives in scripts/ci/changed_backends.py; this job consumes it
+  # the same way ci.yml does.
+  changes:
+    name: Changed backends
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.detect.outputs.backends }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed backends
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+          else
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
+          fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          echo "Changed backends: $BACKENDS"
+
   opencv-compatibility:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
