@@ -650,8 +650,19 @@ void GGMLInfer::load_model(const std::string& model_path) {
     const bool has_yolo11_seg_proto = tensors.count("model.23.proto.cv1.conv.weight") != 0;
     const bool has_yolo11_seg_cv4 = tensors.count("model.23.cv4.0.0.conv.weight") != 0;
     const bool is_yolo11_seg = has_yolo11_seg_proto && has_yolo11_seg_cv4;
-    if (has_yolo11_seg_proto != has_yolo11_seg_cv4) {
-        fail_model(model_path, "incomplete YOLO11-seg head (proto and cv4 tensors must both be present)");
+    // A lone proto without cv4 is never valid; a lone cv4 without proto is
+    // the pose head (checked below), so only the former fails here.
+    if (has_yolo11_seg_proto && !has_yolo11_seg_cv4) {
+        fail_model(model_path, "incomplete YOLO11-seg head (proto without cv4 tensors)");
+    }
+    // YOLO11-pose detection: same backbone/head as seg but the cv4 branch
+    // regresses 17x3 keypoints (51 channels) and there is no proto branch.
+    // A cv4 without proto is otherwise never valid, so fail loud on it.
+    const bool is_yolo11_pose = is_yolo11 && has_yolo11_seg_cv4 && !has_yolo11_seg_proto;
+    is_yolo11_pose_ = is_yolo11_pose;
+    if (is_yolo11_pose) {
+        require_dims(tensors.at("model.23.cv4.0.2.weight"), "model.23.cv4.0.2.weight", model_path, {51, 51, 1, 1},
+                     shapes_seen);
     }
     if (has_seg_proto != has_seg_cv4) {
         fail_model(model_path, "incomplete YOLOv8n-seg head (proto and cv4 tensors must both be present)");
@@ -667,8 +678,9 @@ void GGMLInfer::load_model(const std::string& model_path) {
     if (is_yolo11) {
         input_height_ = 640;
         input_width_ = 640;
-        output_shapes_ = is_yolo11_seg ? std::vector<std::vector<int64_t>>{{1, 116, 8400}, {1, 32, 160, 160}}
-                                       : std::vector<std::vector<int64_t>>{{1, 84, 8400}};
+        output_shapes_ = is_yolo11_seg     ? std::vector<std::vector<int64_t>>{{1, 116, 8400}, {1, 32, 160, 160}}
+                         : is_yolo11_pose_ ? std::vector<std::vector<int64_t>>{{1, 56, 8400}}
+                                           : std::vector<std::vector<int64_t>>{{1, 84, 8400}};
         if (batch_size_ != 1) {
             fail_model(model_path, "GGML YOLO11n path is fixed batch-1 (box math constants are single-batch)");
         }
@@ -1043,14 +1055,15 @@ void GGMLInfer::load_model(const std::string& model_path) {
             return yact(cat, ykernel(pre + ".cv2.conv", C, cat_ch, 1, 1), ybias(pre + ".cv2.conv", C), 1, 0);
         };
         // Box-tail constants (NCHW -> ggml reversed, coincident storage):
-        // [1,2,8400] anchors -> [8400,1,2,1]; [1,8400] strides -> [8400,1,1,1].
+        // [1,2,8400] anchors -> [8400,1,2,1]; [2,8400] pose anchors (same
+        // flat order) -> [8400,1,2,1]; [1,8400] strides -> [8400,1,1,1].
         // Returned at natural shape (same-shape elementwise ops need no repeat).
         auto yconst = [&](const std::string& name, std::initializer_list<uint32_t> dims) -> struct ggml_tensor* {
             const LoadedTensor& t = require_tensor(tensors, name, model_path, shapes_seen);
             if (t.dims != std::vector<uint32_t>(dims)) {
                 fail_model(model_path, "tensor '" + name + "' has unexpected dims; tensors:" + shapes_seen);
             }
-            if (t.dims == std::vector<uint32_t>{1, 2, 8400}) {
+            if (t.dims == std::vector<uint32_t>{1, 2, 8400} || t.dims == std::vector<uint32_t>{2, 8400}) {
                 return new_const_4d(8400, 1, 2, 1, t.data);
             }
             if (t.dims == std::vector<uint32_t>{1, 8400}) {
@@ -1230,6 +1243,10 @@ void GGMLInfer::load_model(const std::string& model_path) {
             struct ggml_tensor* box_parts[3];
             struct ggml_tensor* cls_parts[3];
             struct ggml_tensor* feats[3] = {p3f, p4f, p5f};
+            // Pose has a single class on a narrower separable branch
+            // (64 vs 80, final 1 vs 80); det/seg share the 80-wide one.
+            const uint32_t cls_mid = is_yolo11_pose_ ? 64 : 80;
+            const uint32_t cls_out = is_yolo11_pose_ ? 1 : 80;
             for (int s = 0; s < 3; ++s) {
                 const std::string pre = "model.23.cv2." + std::to_string(s);
                 struct ggml_tensor* hb = yact(feats[s], ykernel(pre + ".0.conv", 64, feats[s]->ne[2], 3, 3),
@@ -1240,11 +1257,12 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 const std::string pc = "model.23.cv3." + std::to_string(s);
                 const uint32_t pc_in = static_cast<uint32_t>(feats[s]->ne[2]);
                 struct ggml_tensor* hc = ydw_silu(feats[s], pc + ".0.0.conv.weight", pc + ".0.0.conv.bias", pc_in);
-                hc = yact(hc, ykernel(pc + ".0.1.conv", 80, pc_in, 1, 1), ybias(pc + ".0.1.conv", 80), 1, 0);
-                hc = ydw_silu(hc, pc + ".1.0.conv.weight", pc + ".1.0.conv.bias", 80);
-                hc = yact(hc, ykernel(pc + ".1.1.conv", 80, 80, 1, 1), ybias(pc + ".1.1.conv", 80), 1, 0);
-                hc = yconv(hc, ykernel(pc + ".2", 80, 80, 1, 1), ybias(pc + ".2", 80), 1, 0);
-                cls_parts[s] = ggml_reshape_4d(ctx_, hc, hc->ne[0] * hc->ne[1], 1, 80, 1);
+                hc = yact(hc, ykernel(pc + ".0.1.conv", cls_mid, pc_in, 1, 1), ybias(pc + ".0.1.conv", cls_mid), 1, 0);
+                hc = ydw_silu(hc, pc + ".1.0.conv.weight", pc + ".1.0.conv.bias", cls_mid);
+                hc =
+                    yact(hc, ykernel(pc + ".1.1.conv", cls_mid, cls_mid, 1, 1), ybias(pc + ".1.1.conv", cls_mid), 1, 0);
+                hc = yconv(hc, ykernel(pc + ".2", cls_out, cls_mid, 1, 1), ybias(pc + ".2", cls_out), 1, 0);
+                cls_parts[s] = ggml_reshape_4d(ctx_, hc, hc->ne[0] * hc->ne[1], 1, cls_out, 1);
             }
             struct ggml_tensor* reg =
                 ggml_concat(ctx_, ggml_concat(ctx_, box_parts[0], box_parts[1], 0), box_parts[2], 0);
@@ -1262,17 +1280,30 @@ void GGMLInfer::load_model(const std::string& model_path) {
             const size_t row4 = static_cast<size_t>(8400) * sizeof(float);
             struct ggml_tensor* xy = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 0);
             struct ggml_tensor* wh = ggml_view_4d(ctx_, d4, 8400, 1, 2, 1, row4, row4, row4, 2 * row4);
-            // Box-decode constants differ between det and seg exports (same
-            // pattern as the YOLOv8 path below): det uses 9/10/12, seg uses
-            // 12/13/15. Select by presence. The seg Constant_9 is an int
-            // scalar skipped by the converter, so it is absent from seg GGUF.
+            // Box-decode constants differ per export (same pattern as the
+            // YOLOv8 path below): det uses 9/10/12, seg uses 12/13/15, pose
+            // uses 13/14/16. Select by presence; the int scalars (pose
+            // Constant_10, seg Constant_9) are skipped by the converter, so
+            // only the float anchors/strides discriminate. yconst fails loud
+            // naming the constant when the selected set is absent.
             const bool has_det_consts11 = tensors.count("/model.23/Constant_9_output_0") != 0;
-            const std::string a_name11 =
-                has_det_consts11 ? "/model.23/Constant_9_output_0" : "/model.23/Constant_12_output_0";
-            const std::string b_name11 =
-                has_det_consts11 ? "/model.23/Constant_10_output_0" : "/model.23/Constant_13_output_0";
-            const std::string stride_name11 =
-                has_det_consts11 ? "/model.23/Constant_12_output_0" : "/model.23/Constant_15_output_0";
+            const bool has_seg_consts11 = tensors.count("/model.23/Constant_12_output_0") != 0;
+            std::string a_name11;
+            std::string b_name11;
+            std::string stride_name11;
+            if (has_det_consts11) {
+                a_name11 = "/model.23/Constant_9_output_0";
+                b_name11 = "/model.23/Constant_10_output_0";
+                stride_name11 = "/model.23/Constant_12_output_0";
+            } else if (has_seg_consts11) {
+                a_name11 = "/model.23/Constant_12_output_0";
+                b_name11 = "/model.23/Constant_13_output_0";
+                stride_name11 = "/model.23/Constant_15_output_0";
+            } else {
+                a_name11 = "/model.23/Constant_13_output_0";
+                b_name11 = "/model.23/Constant_14_output_0";
+                stride_name11 = "/model.23/Constant_16_output_0";
+            }
             struct ggml_tensor* Avec = yconst(a_name11, {1, 2, 8400});
             struct ggml_tensor* Bvec = yconst(b_name11, {1, 2, 8400});
             struct ggml_tensor* sub0 = ggml_sub(ctx_, Avec, xy);
@@ -1282,7 +1313,7 @@ void GGMLInfer::load_model(const std::string& model_path) {
             struct ggml_tensor* div1 = ggml_scale(ctx_, add2, 0.5f);
             struct ggml_tensor* cat2 = ggml_concat(ctx_, div1, sub1, 2);
             struct ggml_tensor* mul2 = ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst(stride_name11, {1, 8400}), cat2));
-            struct ggml_tensor* ones = new_const_4d(8400, 1, 80, 1, std::vector<float>(8400 * 80, 1.0f));
+            struct ggml_tensor* ones = new_const_4d(8400, 1, cls_out, 1, std::vector<float>(8400 * cls_out, 1.0f));
             struct ggml_tensor* sig = ggml_div(ctx_, ones, ggml_add(ctx_, ones, ggml_exp(ctx_, ggml_neg(ctx_, clsc))));
             logits = ggml_concat(ctx_, mul2, sig, 2);
             if (is_yolo_seg_) {
@@ -1322,6 +1353,59 @@ void GGMLInfer::load_model(const std::string& model_path) {
                              ybias("model.23.proto.cv2.conv", 64), 1, 1);
                 seg_proto = yact(proto, ykernel("model.23.proto.cv3.conv", 32, 64, 1, 1),
                                  ybias("model.23.proto.cv3.conv", 32), 1, 0); // [160,160,32,1]
+            } else if (is_yolo11_pose_) {
+                // ---- YOLO11-pose: keypoint regression (cv4) ----
+                // cv4 branch per scale (C->51, 51->51, 1x1 51->51, no
+                // activation), concatenated -> [8400,51]. Split into xy (34)
+                // and conf (17) like the ONNX Slice_2/Slice_3, decode xy as
+                // (raw*2 + anchor) * stride (Mul_3/Add_3/Mul_4) and sigmoid
+                // the confidences (Sigmoid_1), then interleave to
+                // x0,y0,c0,... to match the ONNX Concat_7 order.
+                struct ggml_tensor* kpt_parts[3];
+                for (int s = 0; s < 3; ++s) {
+                    const std::string pm = "model.23.cv4." + std::to_string(s);
+                    struct ggml_tensor* hm = yact(feats[s], ykernel(pm + ".0.conv", 51, feats[s]->ne[2], 3, 3),
+                                                  ybias(pm + ".0.conv", 51), 1, 1);
+                    hm = yact(hm, ykernel(pm + ".1.conv", 51, 51, 3, 3), ybias(pm + ".1.conv", 51), 1, 1);
+                    hm = yconv(hm, ykernel(pm + ".2", 51, 51, 1, 1), ybias(pm + ".2", 51), 1, 0);
+                    kpt_parts[s] = ggml_reshape_4d(ctx_, hm, hm->ne[0] * hm->ne[1], 1, 51, 1);
+                }
+                struct ggml_tensor* kpt =
+                    ggml_concat(ctx_, ggml_concat(ctx_, kpt_parts[0], kpt_parts[1], 0), kpt_parts[2], 0);
+                // Column-major ggml cannot split the trailing 51 into [17,3]
+                // with a reshape (that would move the anchor axis, i.e. a
+                // transpose). View [8400,17,3,1] over the [8400,1,51,1] flat
+                // instead: channel c of keypoint k sits at stride
+                // 3*8400 (dim1) / 8400 (dim2) bytes.
+                const size_t krow = static_cast<size_t>(3 * 8400) * sizeof(float);
+                const size_t kch = static_cast<size_t>(8400) * sizeof(float);
+                struct ggml_tensor* kpt3 = ggml_view_4d(ctx_, kpt, 8400, 17, 3, 1, krow, kch, kch, 0);
+                struct ggml_tensor* kxy = ggml_view_4d(ctx_, kpt3, 8400, 17, 2, 1, krow, kch, kch, 0);
+                struct ggml_tensor* kcf = ggml_view_4d(ctx_, kpt3, 8400, 17, 1, 1, krow, kch, kch, 2 * kch);
+                struct ggml_tensor* kanc = yconst("/model.23/Constant_23_output_0", {2, 8400});
+                struct ggml_tensor* kstr = yconst("/model.23/Constant_16_output_0", {1, 8400});
+                struct ggml_tensor* kxy_dec =
+                    ggml_mul(ctx_, ggml_add(ctx_, ggml_scale(ctx_, kxy, 2.0f), ggml_repeat(ctx_, kanc, kxy)),
+                             ggml_repeat(ctx_, kstr, kxy));
+                struct ggml_tensor* ones_k = new_const_4d(8400, 17, 1, 1, std::vector<float>(8400 * 17, 1.0f));
+                struct ggml_tensor* kcf_sig =
+                    ggml_div(ctx_, ones_k, ggml_add(ctx_, ones_k, ggml_exp(ctx_, ggml_neg(ctx_, kcf))));
+                // Interleave back to x0,y0,c0,... to match the ONNX Concat_7
+                // order: slice each keypoint's (x, y, conf) columns and
+                // concatenate 17 triples -> [8400,1,51,1].
+                const size_t kd1 = static_cast<size_t>(8400) * sizeof(float);
+                const size_t kd2 = static_cast<size_t>(17) * kd1;
+                struct ggml_tensor* kpt51 = nullptr;
+                for (int k = 0; k < 17; ++k) {
+                    const size_t koff = static_cast<size_t>(k) * kd1;
+                    struct ggml_tensor* xk = ggml_view_4d(ctx_, kxy_dec, 8400, 1, 1, 1, sizeof(float), kd1, kd1, koff);
+                    struct ggml_tensor* yk =
+                        ggml_view_4d(ctx_, kxy_dec, 8400, 1, 1, 1, sizeof(float), kd1, kd1, koff + kd2);
+                    struct ggml_tensor* ck = ggml_view_4d(ctx_, kcf_sig, 8400, 1, 1, 1, sizeof(float), kd1, kd1, koff);
+                    struct ggml_tensor* triple = ggml_concat(ctx_, ggml_concat(ctx_, xk, yk, 2), ck, 2);
+                    kpt51 = (kpt51 == nullptr) ? triple : ggml_concat(ctx_, kpt51, triple, 2);
+                }
+                logits = ggml_concat(ctx_, logits, kpt51, 2); // [8400,1,56,1]
             }
         } else {
             // --- backbone ---
@@ -2195,22 +2279,28 @@ void GGMLInfer::load_model(const std::string& model_path) {
     const std::string rfdetr_seg_msg =
         "RF-DETR-seg (DINOv2-S backbone + projector + neck + 4-layer deformable decoder + head + mask branch, dets "
         "[1,200,4] + labels [1,200,91] + masks [1,200,108,108], real weights)";
-    LOG(INFO) << "GGML model loaded: full "
-              << (is_yolo_seg_
-                      ? "YOLOv8n-seg (CSP stem + C2f + SPPF + PAN + decoupled head + DFL + mask/proto, "
-                        "real weights)"
-                      : (is_yolo11_
-                             ? "YOLO11n (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled head + DFL, real "
-                               "weights)"
-                             : (is_yolo
-                                    ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
-                                    : (is_rfdetr_seg
-                                           ? rfdetr_seg_msg
-                                           : (is_rfdetr ? rfdetr_msg
-                                                        : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + "
-                                                                           "GAP + FC 1000, real weights)"
-                                                                         : "ResNet18 (stem + 8 basic blocks + GAP + "
-                                                                           "FC 1000, real weights)"))))));
+    LOG(INFO)
+        << "GGML model loaded: full "
+        << (is_yolo11_pose_
+                ? "YOLO11n-pose (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled head + DFL + kpt, real "
+                  "weights)"
+                : (is_yolo_seg_
+                       ? (is_yolo11_ ? "YOLO11n-seg (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled "
+                                       "head + DFL + mask/proto, real weights)"
+                                     : "YOLOv8n-seg (CSP stem + C2f + SPPF + PAN + decoupled head + "
+                                       "DFL + mask/proto, real weights)")
+                       : (is_yolo11_
+                              ? "YOLO11n (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled head + DFL, real "
+                                "weights)"
+                              : (is_yolo
+                                     ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
+                                     : (is_rfdetr_seg
+                                            ? rfdetr_seg_msg
+                                            : (is_rfdetr ? rfdetr_msg
+                                                         : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + "
+                                                                            "GAP + FC 1000, real weights)"
+                                                                          : "ResNet18 (stem + 8 basic blocks + GAP + "
+                                                                            "FC 1000, real weights)")))))));
 }
 
 void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes) {
