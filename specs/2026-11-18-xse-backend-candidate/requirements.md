@@ -52,6 +52,7 @@ Sources: [launch post](https://opensource.googleblog.com/2026/11/supercharging-x
 - neuriplo is the backend layer of `neuriplo-infer` with 14 registered backends; serving APIs and task pre/post-processing live in siblings (DALI is the deliberate preprocessing-pipeline exception) — `specs/mission.md:68-77`, `specs/tech-stack.md:19-23`.
 - The 2026-11-09 TF packet fixed `LIBTENSORFLOW` `use_gpu` handling and deliberately kept in-process TPU/PJRT, StableHLO, and `libtpu` out of this repo. XSE re-opens exactly that question, so the precedent is load-bearing.
 - XSE upstream scale proof cited: 6M QPS internally (Shorts/Ads/Search/parts of Gemini Omni); private-preview partners Arm, Intel, Moloco. Finding, not a neuriplo claim.
+- Upstream server protocol (checked 2026-11-19): the standalone gRPC server implements a custom `xla_serving.serving.PredictionService` (`Predict`/`GetModelMetadata`, default port 8500, `HostBufferProto` tensors with IFRT dtypes — [serving guide](https://xla-serving.readthedocs.io/en/latest/guides/serving.html)). TF-Serving-flavored, **not KServe compliant**: no `GRPCInferenceService`/`Infer`/`ModelMetadata` RPCs, no `/v2` HTTP endpoints, and no KServe/KFServing claim anywhere upstream. Consequence for [R-2]/[T-5]: KServe fronting stays a sibling (`neuriplo-infer` / `neuriplo-kserve-runtime`) concern; any spike targets the embeddable `xla_serving::Interpreter`, never the gRPC server.
 
 ## Assumptions & Open Questions
 

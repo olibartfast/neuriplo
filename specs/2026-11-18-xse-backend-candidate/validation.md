@@ -29,7 +29,7 @@ Expected: only `specs/2026-11-18-xse-backend-candidate/{requirements,plan,valida
 
 | ID | Command/check | Result | Date | Notes |
 |----|---------------|--------|------|-------|
-| V-1 | bundle contract note | not executed | - | |
+| V-1 | bundle contract note | not executed | - | server-protocol sub-probe done 2026-11-19 (custom PredictionService, not KServe — see requirements Context); bundle-layout part still pending |
 | V-2 | constitution trace | not executed | - | |
 | V-3 | inventory gap + git status | not executed | - | pre-existing dirty entries if any must be listed here, not attributed to this packet |
 | V-4 | invariance assertion | not executed | - | |
