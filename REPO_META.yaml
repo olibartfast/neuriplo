@@ -44,7 +44,6 @@ allowed_change_classes:
 forbidden_change_classes:
   - inference-logic-change
   - perf-critical-kernel-change
-  - new-dependency
 
 constraints:
   # The 2026-10-22 develop default switch to NERT is a deliberate exception;
