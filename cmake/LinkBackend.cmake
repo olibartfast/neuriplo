@@ -24,6 +24,15 @@ elseif (backend STREQUAL "ONNX_RUNTIME")
         ${ONNX_RUNTIME_DIR}/lib/Release
         ${ONNX_RUNTIME_DIR}/lib/Debug)
     target_link_libraries(${target} PRIVATE onnxruntime)
+    if(NOT MSVC)
+        # The ORT lib carries SONAME libonnxruntime.so.1. Release archives
+        # ship the versioned file; the NuGet fallback recreates the .so.1
+        # chain with a symlink. Either way, executables linking libneuriplo.so
+        # must resolve that transitive DT_NEEDED at link time: -L directories
+        # are not consulted for it, -rpath-link is (same as LLAMACPP below).
+        target_link_options(${target} INTERFACE
+            "-Wl,-rpath-link,${ONNX_RUNTIME_DIR}/lib")
+    endif()
     if(WIN32)
         # Linking onnxruntime.lib imports onnxruntime.dll by bare name, and the
         # loader resolves that from the executable's own directory and then the

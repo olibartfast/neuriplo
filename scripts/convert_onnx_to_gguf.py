@@ -127,9 +127,12 @@ def _check_fc_pair(tensors):
     # (`class_embed.bias` [91] plus a 2D `[256,91]` class weight).
     names = {name for name, _, _ in tensors}
     if any(n.startswith("model.") for n in names):
-        if "model.22.dfl.conv.weight" not in names:
+        # YOLOv8n family: DFL at model.22; YOLO11 family: DFL at model.23
+        # (plus C2PSA attention at model.10). Accept either; the GGML loader
+        # dispatches on the exact pair.
+        if "model.22.dfl.conv.weight" not in names and "model.23.dfl.conv.weight" not in names:
             print("error: YOLO file missing fixed DFL conv weight "
-                  "'model.22.dfl.conv.weight'", file=sys.stderr)
+                  "'model.22.dfl.conv.weight' or 'model.23.dfl.conv.weight'", file=sys.stderr)
             return False
         return True
     by_name = {name: dims for name, dims, _ in tensors}

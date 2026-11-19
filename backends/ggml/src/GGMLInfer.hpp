@@ -28,6 +28,7 @@ class GGMLInfer : public InferenceInterface {
     std::vector<std::vector<int64_t>> output_shapes_ = {{1, 1000}};
     bool is_yolo_ = false;
     bool is_yolo_seg_ = false;
+    bool is_yolo11_ = false;
 
   public:
     GGMLInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
