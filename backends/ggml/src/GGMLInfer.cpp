@@ -16,6 +16,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -142,9 +143,6 @@ constexpr RfdetrDecLayer kSegDec[4] = {
      "onnx::Add_4984", "transformer.decoder.layers.3.self_attn.out_proj.weight", "onnx::MatMul_4991",
      "onnx::MatMul_4992", "onnx::MatMul_4998", "onnx::MatMul_5005", "onnx::MatMul_5006", "onnx::MatMul_5007"},
 };
-constexpr size_t kInputHeight = 224;
-constexpr size_t kInputWidth = 224;
-constexpr int64_t kInputElements = 150528; // 3*224*224
 constexpr int64_t kNumClasses = 1000;
 // D-7: exact frozen-inference BN fold; epsilon verified uniform (1e-5) in
 // resnet18-v1-7.onnx (all 20 BatchNormalization nodes) and in
@@ -355,7 +353,11 @@ void load_gguf_tensors(const std::string& model_path, std::map<std::string, Load
         throw std::runtime_error("Cannot open model file: " + model_path);
     }
     blob.seekg(0, std::ios::end);
-    const auto file_size = static_cast<size_t>(blob.tellg());
+    const auto end_pos = blob.tellg();
+    if (end_pos < 0) {
+        fail_model(model_path, "cannot determine GGUF file size");
+    }
+    const auto file_size = static_cast<size_t>(end_pos);
     blob.seekg(0, std::ios::beg);
     std::vector<uint8_t> bytes(file_size);
     blob.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(file_size));
@@ -605,6 +607,11 @@ void GGMLInfer::setup_backend(bool use_gpu) {
     if (!backend_) {
         throw std::runtime_error("Failed to initialize GGML backend");
     }
+    unsigned n_threads = std::thread::hardware_concurrency();
+    if (n_threads == 0) {
+        n_threads = 4;
+    }
+    ggml_backend_cpu_set_n_threads(backend_, static_cast<int>(n_threads));
 }
 
 void GGMLInfer::load_model(const std::string& model_path) {
@@ -1064,6 +1071,9 @@ void GGMLInfer::load_model(const std::string& model_path) {
             // ---- YOLO11n: fixed 1x3x640x640 in, [1,84,8400] raw out ----
             auto c3k2_simple = [&](struct ggml_tensor* xx, const std::string& pre) -> struct ggml_tensor* {
                 const LoadedTensor& cv1w = require_tensor(tensors, pre + ".cv1.conv.weight", model_path, shapes_seen);
+                if (cv1w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".cv1.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t cv1_out = cv1w.dims[0];
                 const uint32_t Cin = cv1w.dims[1];
                 struct ggml_tensor* h =
@@ -1074,8 +1084,14 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 const uint32_t hid = cv1_out / 4;
                 const LoadedTensor& b1w =
                     require_tensor(tensors, pre + ".m.0.cv1.conv.weight", model_path, shapes_seen);
+                if (b1w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".m.0.cv1.conv.weight' is not a 4D conv kernel");
+                }
                 const LoadedTensor& b2w =
                     require_tensor(tensors, pre + ".m.0.cv2.conv.weight", model_path, shapes_seen);
+                if (b2w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".m.0.cv2.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t bout = b2w.dims[0];
                 struct ggml_tensor* b = yact(halves.second, ykernel(pre + ".m.0.cv1.conv", hid, cv1_out / 2, 3, 3),
                                              ybias(pre + ".m.0.cv1.conv", hid), 1, 1);
@@ -1083,12 +1099,18 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 b = ggml_add(ctx_, halves.second, b);
                 struct ggml_tensor* cat = concat_ch(ctx_, {halves.first, halves.second, b});
                 const LoadedTensor& cv2w = require_tensor(tensors, pre + ".cv2.conv.weight", model_path, shapes_seen);
+                if (cv2w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".cv2.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t cv2_out = cv2w.dims[0];
                 return yact(cat, ykernel(pre + ".cv2.conv", cv2_out, cv1_out + bout, 1, 1),
                             ybias(pre + ".cv2.conv", cv2_out), 1, 0);
             };
             auto c3k2_c3k = [&](struct ggml_tensor* xx, const std::string& pre) -> struct ggml_tensor* {
                 const LoadedTensor& cv1w = require_tensor(tensors, pre + ".cv1.conv.weight", model_path, shapes_seen);
+                if (cv1w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".cv1.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t cv1_out = cv1w.dims[0];
                 const uint32_t Cin = cv1w.dims[1];
                 struct ggml_tensor* h =
@@ -1098,6 +1120,9 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 const uint32_t half = cv1_out / 2;
                 const LoadedTensor& ic1w =
                     require_tensor(tensors, pre + ".m.0.cv1.conv.weight", model_path, shapes_seen);
+                if (ic1w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".m.0.cv1.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t ic = ic1w.dims[0];
                 struct ggml_tensor* a = yact(halves.second, ykernel(pre + ".m.0.cv1.conv", ic, half, 1, 1),
                                              ybias(pre + ".m.0.cv1.conv", ic), 1, 0);
@@ -1105,6 +1130,9 @@ void GGMLInfer::load_model(const std::string& model_path) {
                                                  ybias(pre + ".m.0.cv2.conv", ic), 1, 0);
                 const LoadedTensor& k1w =
                     require_tensor(tensors, pre + ".m.0.m.0.cv1.conv.weight", model_path, shapes_seen);
+                if (k1w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".m.0.m.0.cv1.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t kc = k1w.dims[0];
                 struct ggml_tensor* cur = yact(a, ykernel(pre + ".m.0.m.0.cv1.conv", kc, ic, 3, 3),
                                                ybias(pre + ".m.0.m.0.cv1.conv", kc), 1, 1);
@@ -1119,11 +1147,17 @@ void GGMLInfer::load_model(const std::string& model_path) {
                 struct ggml_tensor* inner = concat_ch(ctx_, {cur2, bside});
                 const LoadedTensor& cv3w =
                     require_tensor(tensors, pre + ".m.0.cv3.conv.weight", model_path, shapes_seen);
+                if (cv3w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".m.0.cv3.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t cv3_out = cv3w.dims[0];
                 struct ggml_tensor* c3 = yact(inner, ykernel(pre + ".m.0.cv3.conv", cv3_out, 2 * ic, 1, 1),
                                               ybias(pre + ".m.0.cv3.conv", cv3_out), 1, 0);
                 struct ggml_tensor* cat = concat_ch(ctx_, {halves.first, halves.second, c3});
                 const LoadedTensor& cv2w = require_tensor(tensors, pre + ".cv2.conv.weight", model_path, shapes_seen);
+                if (cv2w.dims.size() != 4) {
+                    fail_model(model_path, "tensor '" + pre + ".cv2.conv.weight' is not a 4D conv kernel");
+                }
                 const uint32_t cv2_out = cv2w.dims[0];
                 return yact(cat, ykernel(pre + ".cv2.conv", cv2_out, cv1_out + cv3_out, 1, 1),
                             ybias(pre + ".cv2.conv", cv2_out), 1, 0);
@@ -1282,8 +1316,7 @@ void GGMLInfer::load_model(const std::string& model_path) {
             struct ggml_tensor* div1 = ggml_scale(ctx_, add2, 0.5f);
             struct ggml_tensor* cat2 = ggml_concat(ctx_, div1, sub1, 2);
             struct ggml_tensor* mul2 = ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst(stride_name11, {1, 8400}), cat2));
-            struct ggml_tensor* ones = new_const_4d(8400, 1, 80, 1, std::vector<float>(8400 * 80, 1.0f));
-            struct ggml_tensor* sig = ggml_div(ctx_, ones, ggml_add(ctx_, ones, ggml_exp(ctx_, ggml_neg(ctx_, clsc))));
+            struct ggml_tensor* sig = ggml_sigmoid(ctx_, clsc);
             logits = ggml_concat(ctx_, mul2, sig, 2);
             if (is_yolo_seg_) {
                 // ---- YOLO11-seg: mask coefficients (cv4) + prototype masks (proto) ----
@@ -1429,8 +1462,7 @@ void GGMLInfer::load_model(const std::string& model_path) {
             struct ggml_tensor* cat2 = ggml_concat(ctx_, div1, sub1, 2);
             struct ggml_tensor* mul2 = ggml_mul(ctx_, cat2, ggml_repeat(ctx_, yconst(stride_name, {1, 8400}), cat2));
             // Cls sigmoid: 1 / (1 + exp(-x)).
-            struct ggml_tensor* ones = new_const_4d(8400, 1, 80, 1, std::vector<float>(8400 * 80, 1.0f));
-            struct ggml_tensor* sig = ggml_div(ctx_, ones, ggml_add(ctx_, ones, ggml_exp(ctx_, ggml_neg(ctx_, clsc))));
+            struct ggml_tensor* sig = ggml_sigmoid(ctx_, clsc);
             logits = ggml_concat(ctx_, mul2, sig, 2); // [8400,1,84,1] == NCHW [1,84,8400]
 
             if (is_yolo_seg_) {
@@ -1878,14 +1910,24 @@ void GGMLInfer::load_model(const std::string& model_path) {
         if (const char* order_path = std::getenv("NEURIPLO_TEST_RFDETR_TOPK_ORDER")) {
             LOG(WARNING) << "RF-DETR using test TopK order override from " << order_path;
             std::ifstream order_file(order_path);
-            std::vector<int32_t> oidx(static_cast<size_t>(RC_NQ), 0);
-            for (size_t i = 0; i < static_cast<size_t>(RC_NQ) && order_file; ++i) {
-                int v = 0;
-                order_file >> v;
-                oidx[i] = static_cast<int32_t>(v);
+            if (!order_file) {
+                fail_model(model_path, "cannot open test TopK order file");
             }
-            if (order_file.bad()) {
-                fail_model(model_path, "cannot read test TopK order file");
+            std::vector<int32_t> oidx(static_cast<size_t>(RC_NQ), 0);
+            size_t parsed = 0;
+            for (size_t i = 0; i < static_cast<size_t>(RC_NQ); ++i) {
+                int v = 0;
+                if (!(order_file >> v)) {
+                    break;
+                }
+                if (v < 0 || v >= RC_NT) {
+                    fail_model(model_path, "test TopK order index out of range");
+                }
+                oidx[i] = static_cast<int32_t>(v);
+                parsed = i + 1;
+            }
+            if (parsed != static_cast<size_t>(RC_NQ)) {
+                fail_model(model_path, "cannot read test TopK order file (need RC_NQ entries)");
             }
             struct ggml_tensor* ot = ggml_new_tensor_1d(ctx_, GGML_TYPE_I32, RC_NQ);
             pending_i32.push_back(PendingFillI32{ot, std::move(oidx)});
@@ -2179,14 +2221,28 @@ void GGMLInfer::load_model(const std::string& model_path) {
     }
 
     // Copy staged constants now that tensor storage is valid.
+    // Byte sizes are validated against the allocated tensor storage; the
+    // backend set API is used so this keeps working on GPU backends.
     for (const auto& fill : pending) {
-        std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(float));
+        const size_t byte_size = fill.data.size() * sizeof(float);
+        if (byte_size != ggml_nbytes(fill.tensor)) {
+            fail_model(model_path, "staged F32 constant size mismatch");
+        }
+        ggml_backend_tensor_set(fill.tensor, fill.data.data(), 0, byte_size);
     }
     for (const auto& fill : pending_f16) {
-        std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(ggml_fp16_t));
+        const size_t byte_size = fill.data.size() * sizeof(ggml_fp16_t);
+        if (byte_size != ggml_nbytes(fill.tensor)) {
+            fail_model(model_path, "staged F16 constant size mismatch");
+        }
+        ggml_backend_tensor_set(fill.tensor, fill.data.data(), 0, byte_size);
     }
     for (const auto& fill : pending_i32) {
-        std::memcpy(fill.tensor->data, fill.data.data(), fill.data.size() * sizeof(int32_t));
+        const size_t byte_size = fill.data.size() * sizeof(int32_t);
+        if (byte_size != ggml_nbytes(fill.tensor)) {
+            fail_model(model_path, "staged I32 constant size mismatch");
+        }
+        ggml_backend_tensor_set(fill.tensor, fill.data.data(), 0, byte_size);
     }
 
     const std::string rfdetr_msg =
@@ -2195,27 +2251,45 @@ void GGMLInfer::load_model(const std::string& model_path) {
     const std::string rfdetr_seg_msg =
         "RF-DETR-seg (DINOv2-S backbone + projector + neck + 4-layer deformable decoder + head + mask branch, dets "
         "[1,200,4] + labels [1,200,91] + masks [1,200,108,108], real weights)";
-    LOG(INFO) << "GGML model loaded: full "
-              << (is_yolo_seg_
-                      ? "YOLOv8n-seg (CSP stem + C2f + SPPF + PAN + decoupled head + DFL + mask/proto, "
-                        "real weights)"
-                      : (is_yolo11_
-                             ? "YOLO11n (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled head + DFL, real "
-                               "weights)"
-                             : (is_yolo
-                                    ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
-                                    : (is_rfdetr_seg
-                                           ? rfdetr_seg_msg
-                                           : (is_rfdetr ? rfdetr_msg
-                                                        : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + "
-                                                                           "GAP + FC 1000, real weights)"
-                                                                         : "ResNet18 (stem + 8 basic blocks + GAP + "
-                                                                           "FC 1000, real weights)"))))));
+    LOG(INFO)
+        << "GGML model loaded: full "
+        << ((is_yolo_seg_ && is_yolo11_)
+                ? "YOLO11n-seg (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled head + DFL + mask/proto, "
+                  "real weights)"
+                : (is_yolo_seg_
+                       ? "YOLOv8n-seg (CSP stem + C2f + SPPF + PAN + decoupled head + DFL + mask/proto, "
+                         "real weights)"
+                       : (is_yolo11_
+                              ? "YOLO11n (CSP stem + C3k2 + SPPF + C2PSA + PAN + decoupled head + DFL, real "
+                                "weights)"
+                              : (is_yolo
+                                     ? "YOLOv8n (CSP stem + C2f + SPPF + PAN + decoupled head + DFL, real weights)"
+                                     : (is_rfdetr_seg
+                                            ? rfdetr_seg_msg
+                                            : (is_rfdetr ? rfdetr_msg
+                                                         : (is_bottleneck ? "ResNet50 (stem + 16 bottleneck blocks + "
+                                                                            "GAP + FC 1000, real weights)"
+                                                                          : "ResNet18 (stem + 8 basic blocks + GAP + "
+                                                                            "FC 1000, real weights)")))))));
 }
 
 void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes) {
     if (input_sizes.empty()) {
         throw std::runtime_error("Input sizes must be specified for GGML backend");
+    }
+
+    if (input_sizes.size() != 1) {
+        throw std::runtime_error("GGML backend currently supports only single input models, got " +
+                                 std::to_string(input_sizes.size()) + " inputs");
+    }
+    // Unified geometry contract: identical-byte-count inputs would silently
+    // reinterpret any same-product geometry, so enforce the exact per-model
+    // {N,3,H,W} established at load for every model family.
+    const std::vector<int64_t>& in0 = input_sizes[0];
+    if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == input_height_ &&
+          in0[3] == input_width_)) {
+        throw std::runtime_error("GGML input must be exactly {N,3," + std::to_string(input_height_) + "," +
+                                 std::to_string(input_width_) + "}");
     }
 
     // Setup input tensors
@@ -2227,32 +2301,6 @@ void GGMLInfer::setup_input_output_tensors(const std::vector<std::vector<int64_t
 
         std::string input_name = "input" + std::to_string(i + 1);
         inference_metadata_.addInput(input_name, shape, batch_size_);
-    }
-    if (is_yolo_) {
-        // Fixed YOLOv8n contract: identical-byte-count inputs would silently
-        // reinterpret any same-product geometry as 640x640, so enforce it.
-        const std::vector<int64_t>& in0 = input_sizes[0];
-        if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == 640 &&
-              in0[3] == 640)) {
-            throw std::runtime_error("GGML YOLOv8n path requires exactly {N,3,640,640} input");
-        }
-    }
-    if (!is_yolo_ && input_height_ == 560 && input_width_ == 560) {
-        // RF-DETR S-1 intermediate contract (no is_rfdetr_ member: the header
-        // is shared, so the 560 geometry set at dispatch identifies the path).
-        const std::vector<int64_t>& in0 = input_sizes[0];
-        if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == 560 &&
-              in0[3] == 560)) {
-            throw std::runtime_error("GGML RF-DETR path requires exactly {N,3,560,560} input");
-        }
-    }
-    if (!is_yolo_ && input_height_ == 432 && input_width_ == 432) {
-        // RF-DETR-seg contract (432 geometry set at dispatch identifies the path).
-        const std::vector<int64_t>& in0 = input_sizes[0];
-        if (!(in0.size() == 4 && in0[0] == static_cast<int64_t>(batch_size_) && in0[1] == 3 && in0[2] == 432 &&
-              in0[3] == 432)) {
-            throw std::runtime_error("GGML RF-DETR-seg path requires exactly {N,3,432,432} input");
-        }
     }
 
     // Output metadata follows the per-model contract set at load
@@ -2303,13 +2351,18 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
         // element-for-element with ggml [W,H,C,N] (x + ne0*(y + ne1*(c +
         // ne2*n))), so the layout conversion is a single copy per infer with
         // no in-graph transpose.
-        const float* in_f32 = reinterpret_cast<const float*>(input_raw.data());
-        float* feat_f32 = static_cast<float*>(feat_tensor_->data);
-        std::memcpy(feat_f32, in_f32, input_raw.size());
+        if (ggml_nbytes(feat_tensor_) != input_raw.size()) {
+            throw std::runtime_error("GGML input tensor storage size mismatch");
+        }
+        ggml_backend_tensor_set(feat_tensor_, input_raw.data(), 0, input_raw.size());
 
         // Execute the graph (if backend is available)
         if (backend_) {
-            ggml_backend_graph_compute(backend_, graph_);
+            const ggml_status status = ggml_backend_graph_compute(backend_, graph_);
+            if (status != GGML_STATUS_SUCCESS) {
+                throw std::runtime_error("ggml_backend_graph_compute failed with status " +
+                                         std::to_string(static_cast<int>(status)));
+            }
         } else {
             throw std::runtime_error("GGML backend unavailable during inference");
         }
@@ -2325,25 +2378,28 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
         std::vector<std::vector<TensorElement>> outputs;
         std::vector<std::vector<int64_t>> shapes;
         if (output_tensors_.size() == 1 && output_shapes_[0].size() == 2) {
-            // Existing single-output classifier contract: one vector per
-            // batch entry, shape {batch_size, classes}.
+            // Single-output classifier contract: one flat vector of
+            // batch_size_ * classes elements with shape {batch_size, classes},
+            // matching inference_metadata_.
             struct ggml_tensor* logits = output_tensors_.at(0);
             if (logits->type != GGML_TYPE_F32) {
                 throw std::runtime_error("GGML output is not F32 (type=" +
                                          std::to_string(static_cast<int>(logits->type)) + "); refusing to reinterpret");
             }
-            const float* logits_f32 = static_cast<const float*>(logits->data);
             const int64_t out_classes = output_shapes_[0].back();
-            const int64_t out_rows = 1;
-            for (size_t b = 0; b < static_cast<size_t>(batch_size_); ++b) {
-                std::vector<TensorElement> output_data;
-                output_data.reserve(static_cast<size_t>(out_classes * out_rows));
-                for (int64_t c = 0; c < out_classes * out_rows; ++c) {
-                    output_data.emplace_back(logits_f32[b * static_cast<size_t>(out_classes * out_rows) + c]);
-                }
-                outputs.push_back(std::move(output_data));
-                shapes.push_back({static_cast<int64_t>(batch_size_), out_classes});
+            const size_t elements = static_cast<size_t>(batch_size_) * static_cast<size_t>(out_classes);
+            if (static_cast<size_t>(ggml_nelements(logits)) != elements) {
+                throw std::runtime_error("GGML classifier output element count mismatch");
             }
+            std::vector<float> raw(elements);
+            ggml_backend_tensor_get(logits, raw.data(), 0, elements * sizeof(float));
+            std::vector<TensorElement> output_data;
+            output_data.reserve(elements);
+            for (size_t i = 0; i < elements; ++i) {
+                output_data.emplace_back(raw[i]);
+            }
+            outputs.push_back(std::move(output_data));
+            shapes.push_back({static_cast<int64_t>(batch_size_), out_classes});
         } else {
             for (size_t oi = 0; oi < output_tensors_.size(); ++oi) {
                 if (output_tensors_[oi]->type != GGML_TYPE_F32) {
@@ -2352,11 +2408,12 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
                                              "); refusing to reinterpret");
                 }
                 const size_t elements = static_cast<size_t>(ggml_nelements(output_tensors_[oi]));
-                const float* data = static_cast<const float*>(output_tensors_[oi]->data);
+                std::vector<float> raw(elements);
+                ggml_backend_tensor_get(output_tensors_[oi], raw.data(), 0, elements * sizeof(float));
                 std::vector<TensorElement> output_data;
                 output_data.reserve(elements);
                 for (size_t i = 0; i < elements; ++i) {
-                    output_data.emplace_back(data[i]);
+                    output_data.emplace_back(raw[i]);
                 }
                 outputs.push_back(std::move(output_data));
                 shapes.push_back(output_shapes_[oi]);
@@ -2371,27 +2428,4 @@ GGMLInfer::get_infer_results(const std::vector<std::vector<uint8_t>>& input_tens
         end_timer();
         throw InferenceExecutionException(e.what());
     }
-}
-
-std::vector<TensorElement> GGMLInfer::tensor_to_vector(struct ggml_tensor* tensor) {
-    std::vector<TensorElement> result;
-    size_t total_elements = ggml_nelements(tensor);
-    result.reserve(total_elements);
-
-    float* data = static_cast<float*>(tensor->data);
-    for (size_t i = 0; i < total_elements; ++i) {
-        result.push_back(data[i]);
-    }
-
-    return result;
-}
-
-std::vector<int64_t> GGMLInfer::get_tensor_shape(struct ggml_tensor* tensor) {
-    std::vector<int64_t> shape;
-    for (int i = 0; i < GGML_MAX_DIMS; ++i) {
-        if (tensor->ne[i] > 1) {
-            shape.push_back(tensor->ne[i]);
-        }
-    }
-    return shape;
 }
