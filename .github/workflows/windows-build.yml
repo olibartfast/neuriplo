@@ -86,7 +86,16 @@ jobs:
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
           HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+            # First push of a new branch: no base commit to diff against.
+            # Diff against the merge-base with develop instead of running
+            # every backend; fall back to --all only if that ref is missing.
+            git fetch --no-tags --quiet origin develop 2>/dev/null || true
+            MB="$(git merge-base "$HEAD" origin/develop 2>/dev/null || true)"
+            if [ -n "$MB" ]; then
+              BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$MB" --head "$HEAD")"
+            else
+              BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+            fi
           else
             BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
           fi

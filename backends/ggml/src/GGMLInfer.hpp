@@ -29,6 +29,7 @@ class GGMLInfer : public InferenceInterface {
     bool is_yolo_ = false;
     bool is_yolo_seg_ = false;
     bool is_yolo11_ = false;
+    bool is_yolo11_pose_ = false;
 
   public:
     GGMLInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,

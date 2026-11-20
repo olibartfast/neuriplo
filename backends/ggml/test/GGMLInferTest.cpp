@@ -783,6 +783,96 @@ TEST_F(GGMLInferTest, ParityVsYolo11Seg) {
     }
 }
 
+// YOLO11n-pose ORT parity golden: same fixed inputs through the real GGML
+// YOLO11-pose graph and stock onnxruntime on yolo11n-pose.onnx. Compares the
+// single output0 [1,56,8400] (box 4 + cls 1 + 17x3 keypoints). SKIPs without
+// artifact or refs. Box/kpt share the 10.0 stride-amplification budget (kpt
+// decode multiplies by the same 8/16/32 strides); cls keeps 1e-2.
+TEST_F(GGMLInferTest, ParityVsYolo11Pose) {
+    const fs::path model_path = "/tmp/yolo11n_pose.gguf";
+    if (!fs::exists(model_path)) {
+        GTEST_SKIP() << "Skipping yolo11-pose parity test - no model artifact (/tmp/yolo11n_pose.gguf missing; "
+                        "convert: python3 scripts/convert_onnx_to_gguf.py --input /tmp/yolo11/yolo11n_pose.onnx "
+                        "--output /tmp/yolo11n_pose.gguf)";
+    }
+    const std::vector<fs::path> refs = {"/tmp/ort_yolo11_pose_gray.npy", "/tmp/ort_yolo11_pose_zeros.npy",
+                                        "/tmp/ort_yolo11_pose_gradient.npy"};
+    for (const auto& ref_path : refs) {
+        if (!fs::exists(ref_path)) {
+            GTEST_SKIP() << "Skipping yolo11-pose parity test - ORT reference files missing "
+                            "(run /tmp/ortenv/bin/python scripts/ggml_ort_reference.py --model "
+                            "/tmp/yolo11/yolo11n_pose.onnx --gray-out /tmp/ort_yolo11_pose_gray.npy --zeros-out "
+                            "/tmp/ort_yolo11_pose_zeros.npy --gradient-out /tmp/ort_yolo11_pose_gradient.npy)";
+        }
+    }
+    const std::vector<std::vector<int64_t>> input_sizes = {{1, 3, 640, 640}};
+    GGMLInfer infer(model_path.string(), false, 1, input_sizes);
+    constexpr double kPoseBoxTolerance = 10.0;
+    constexpr double kPoseClsTolerance = 1e-2;
+    constexpr double kPoseKptTolerance = 10.0;
+    const std::vector<std::pair<std::string, std::vector<std::vector<uint8_t>>>> cases = {
+        {"gray", neuriplo::testing::constant_blob_tensors(neuriplo::testing::kGray128Normalized, 1, 3, 640, 640)},
+        {"zeros", neuriplo::testing::zero_blob_tensors(1, 3, 640, 640)},
+        {"gradient", gradient_blob_tensors(1, 3, 640, 640)},
+    };
+    for (size_t c = 0; c < cases.size(); ++c) {
+        std::vector<float> ref_logits;
+        std::string error;
+        ASSERT_TRUE(load_ort_ref_logits(refs[c], ref_logits, error)) << error;
+        ASSERT_EQ(ref_logits.size(), static_cast<size_t>(56 * 8400));
+        const auto [outputs, shapes] = infer.get_infer_results(cases[c].second);
+        ASSERT_EQ(outputs.size(), 1u);
+        ASSERT_EQ(outputs[0].size(), static_cast<size_t>(56 * 8400));
+        ASSERT_EQ(shapes[0], (std::vector<int64_t>{1, 56, 8400}));
+        const std::vector<float> got_logits = tensor_to_floats(outputs[0]);
+        EXPECT_TRUE(std::all_of(got_logits.begin(), got_logits.end(), [](float v) { return std::isfinite(v); }));
+        const double diff = max_abs_diff(got_logits, ref_logits);
+        const auto got_max = std::max_element(got_logits.begin(), got_logits.end());
+        const auto ref_max = std::max_element(ref_logits.begin(), ref_logits.end());
+        const bool max_cell_agree =
+            std::distance(got_logits.begin(), got_max) == std::distance(ref_logits.begin(), ref_max);
+        // Per-section diagnostics: box (first 4 of 56), cls (channel 4),
+        // keypoints (last 51). ggml [8400,1,56,1] flat is s + 8400*c.
+        double box_diff = 0.0;
+        double cls_diff = 0.0;
+        double kpt_diff = 0.0;
+        for (int ch = 0; ch < 56; ++ch) {
+            for (int s = 0; s < 8400; ++s) {
+                const double d = std::fabs(static_cast<double>(got_logits[static_cast<size_t>(ch) * 8400 + s]) -
+                                           static_cast<double>(ref_logits[static_cast<size_t>(ch) * 8400 + s]));
+                if (ch < 4) {
+                    box_diff = std::max(box_diff, d);
+                } else if (ch == 4) {
+                    cls_diff = std::max(cls_diff, d);
+                } else {
+                    kpt_diff = std::max(kpt_diff, d);
+                }
+            }
+        }
+        RecordProperty(("yolo11pose_max_abs_diff_" + cases[c].first).c_str(), diff);
+        RecordProperty(("yolo11pose_box_max_abs_diff_" + cases[c].first).c_str(), box_diff);
+        RecordProperty(("yolo11pose_cls_max_abs_diff_" + cases[c].first).c_str(), cls_diff);
+        RecordProperty(("yolo11pose_kpt_max_abs_diff_" + cases[c].first).c_str(), kpt_diff);
+        RecordProperty(("yolo11pose_max_cell_agree_" + cases[c].first).c_str(), max_cell_agree ? 1 : 0);
+        std::cout << "[yolo11pose-parity] input=" << cases[c].first << " max_abs_diff=" << diff
+                  << " box_diff=" << box_diff << " cls_diff=" << cls_diff << " kpt_diff=" << kpt_diff
+                  << " max_cell_agree=" << max_cell_agree << std::endl;
+        EXPECT_TRUE(max_cell_agree) << "input=" << cases[c].first << " max cell mismatch";
+        EXPECT_LE(box_diff, kPoseBoxTolerance)
+            << "input=" << cases[c].first << " box max_abs_diff=" << box_diff << " exceeds tolerance";
+        EXPECT_LE(cls_diff, kPoseClsTolerance)
+            << "input=" << cases[c].first << " cls max_abs_diff=" << cls_diff << " exceeds tolerance";
+        EXPECT_LE(kpt_diff, kPoseKptTolerance)
+            << "input=" << cases[c].first << " kpt max_abs_diff=" << kpt_diff << " exceeds tolerance";
+        if (c == 0) {
+            const auto [repeat_outputs, repeat_shapes] = infer.get_infer_results(cases[c].second);
+            ASSERT_EQ(repeat_outputs.size(), 1u);
+            ASSERT_EQ(repeat_shapes.size(), 1u);
+            EXPECT_EQ(tensor_to_floats(repeat_outputs[0]), got_logits) << "output0 is not deterministic";
+        }
+    }
+}
+
 // T-17b (R-3): ResNet-50 ORT parity golden. Same bar as ParityVsOrt, own
 // artifact (/tmp/resnet50.gguf) and own references (/tmp/ort50_ref_*.npy);
 // SKIPs without either. Proves the bottleneck topology, not just dispatch.
