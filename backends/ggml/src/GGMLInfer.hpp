@@ -35,7 +35,10 @@ class GGMLInfer : public InferenceInterface {
     GGMLInfer(const std::string& model_path, bool use_gpu = false, size_t batch_size = 1,
               const std::vector<std::vector<int64_t>>& input_sizes = std::vector<std::vector<int64_t>>());
 
-    ~GGMLInfer();
+    GGMLInfer(const GGMLInfer&) = delete;
+    GGMLInfer& operator=(const GGMLInfer&) = delete;
+
+    ~GGMLInfer() override;
 
     std::tuple<std::vector<std::vector<TensorElement>>, std::vector<std::vector<int64_t>>>
     get_infer_results(const std::vector<std::vector<uint8_t>>& input_tensors) override;
@@ -44,6 +47,4 @@ class GGMLInfer : public InferenceInterface {
     void load_model(const std::string& model_path);
     void setup_backend(bool use_gpu);
     void setup_input_output_tensors(const std::vector<std::vector<int64_t>>& input_sizes);
-    std::vector<TensorElement> tensor_to_vector(struct ggml_tensor* tensor);
-    std::vector<int64_t> get_tensor_shape(struct ggml_tensor* tensor);
 };
