@@ -2,6 +2,8 @@
 
 #include "testing/TestBlob.hpp"
 
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -80,6 +82,34 @@ TEST_F(ExecuTorchInferTest, IntegrationTest) {
     ASSERT_FALSE(output_vectors.empty());
     ASSERT_FALSE(shape_vectors.empty());
     ASSERT_EQ(shape_vectors[0][0], 1);
+}
+
+// The RF-DETR export leaves aten::linear.out outside its XNNPACK delegate.
+// An explicitly supplied fixture must execute; it must never fall back to mocks.
+TEST(ExecuTorchRegistration, RfDetrMatchesOnnxReference) {
+    const char* fixture_env = std::getenv("NEURIPLO_EXECUTORCH_PARITY_FIXTURE");
+    if (fixture_env == nullptr) {
+        GTEST_SKIP() << "NEURIPLO_EXECUTORCH_PARITY_FIXTURE is not set";
+    }
+    const fs::path fixture(fixture_env);
+    ExecuTorchInfer infer((fixture / "model.pte").string(), false);
+    std::ifstream input(fixture / "input0.bin", std::ios::binary);
+    ASSERT_TRUE(input.is_open());
+    std::vector<uint8_t> bytes(std::istreambuf_iterator<char>{input}, {});
+    const auto [outputs, shapes] = infer.get_infer_results({bytes});
+    ASSERT_EQ(outputs.size(), 2U);
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        std::ifstream reference(fixture / ("output" + std::to_string(i) + ".bin"), std::ios::binary);
+        ASSERT_TRUE(reference.is_open());
+        for (size_t j = 0; j < outputs[i].size(); ++j) {
+            float expected = 0;
+            ASSERT_TRUE(reference.read(reinterpret_cast<char*>(&expected), sizeof(expected)));
+            const float actual = std::get<float>(outputs[i][j]);
+            ASSERT_TRUE(std::isfinite(actual));
+            EXPECT_NEAR(actual, expected, 0.001f) << "output " << i << ", element " << j;
+        }
+        EXPECT_EQ(reference.peek(), std::ifstream::traits_type::eof());
+    }
 }
 
 int main(int argc, char** argv) {

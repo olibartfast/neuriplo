@@ -24,6 +24,15 @@ elseif (backend STREQUAL "ONNX_RUNTIME")
         ${ONNX_RUNTIME_DIR}/lib/Release
         ${ONNX_RUNTIME_DIR}/lib/Debug)
     target_link_libraries(${target} PRIVATE onnxruntime)
+    if(NOT MSVC)
+        # The ORT lib carries SONAME libonnxruntime.so.1. Release archives
+        # ship the versioned file; the NuGet fallback recreates the .so.1
+        # chain with a symlink. Either way, executables linking libneuriplo.so
+        # must resolve that transitive DT_NEEDED at link time: -L directories
+        # are not consulted for it, -rpath-link is (same as LLAMACPP below).
+        target_link_options(${target} INTERFACE
+            "-Wl,-rpath-link,${ONNX_RUNTIME_DIR}/lib")
+    endif()
     if(WIN32)
         # Linking onnxruntime.lib imports onnxruntime.dll by bare name, and the
         # loader resolves that from the executable's own directory and then the
@@ -169,6 +178,10 @@ elseif(backend STREQUAL "LLAMACPP")
         target_link_options(${target} PRIVATE
             "-Wl,-rpath-link,${LLAMACPP_DIR}/lib"
             "-Wl,-rpath,${LLAMACPP_DIR}/lib")
+        # Executables that link the shared neuriplo library must also resolve
+        # its DT_NEEDED llama/ggml libraries while linking against v1's SONAMEs.
+        target_link_options(${target} INTERFACE
+            "-Wl,-rpath-link,${LLAMACPP_DIR}/lib")
     endif()
 elseif(backend STREQUAL "EXECUTORCH")
     target_include_directories(${target} PRIVATE ${INFER_ROOT}/executorch/src)
@@ -176,9 +189,15 @@ elseif(backend STREQUAL "EXECUTORCH")
         executorch
         extension_module_static
         extension_tensor
-        portable_ops_lib
-        portable_kernels
     )
+    # The combined SDK target registers optimized operators (including
+    # aten::linear.out) with portable fallbacks. Linking portable_ops_lib too
+    # would register overlapping operators twice.
+    if(EXECUTORCH_DELEGATE STREQUAL "xnnpack" AND TARGET optimized_native_cpu_ops_lib)
+        list(APPEND _ET_LIBS optimized_native_cpu_ops_lib)
+    else()
+        list(APPEND _ET_LIBS portable_ops_lib portable_kernels)
+    endif()
     if(EXECUTORCH_DELEGATE STREQUAL "xnnpack")
         list(APPEND _ET_LIBS xnnpack_backend)
     endif()

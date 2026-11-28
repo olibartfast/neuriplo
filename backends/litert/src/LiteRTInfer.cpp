@@ -250,7 +250,7 @@ LiteRTInfer::LiteRTInfer(const std::string& model_path, bool use_gpu, size_t bat
                          const std::vector<std::vector<int64_t>>& input_sizes)
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
     if (use_gpu) {
-        LOG(WARNING) << "LiteRT backend currently uses the CPU interpreter; GPU/delegate selection is not wired";
+        LOG(WARNING) << "LiteRT GPU execution is unavailable; using the CPU XNNPACK delegate";
     }
 
     model_ = tflite::FlatBufferModel::BuildFromFile(model_path.c_str());
@@ -258,7 +258,7 @@ LiteRTInfer::LiteRTInfer(const std::string& model_path, bool use_gpu, size_t bat
         throw ModelLoadException("Unable to load LiteRT flatbuffer: " + model_path);
     }
 
-    tflite::ops::builtin::BuiltinOpResolver resolver;
+    tflite::ops::builtin::BuiltinOpResolverWithoutDefaultDelegates resolver;
     // onnx2tf lowers ONNX GridSample to this custom op; register our kernel so
     // models that use it (e.g. RT-DETR/D-FINE deformable attention) run on the
     // builtin interpreter.
@@ -279,6 +279,16 @@ LiteRTInfer::LiteRTInfer(const std::string& model_path, bool use_gpu, size_t bat
             throw ModelLoadException("Unable to resize LiteRT input tensor at index " + std::to_string(i));
         }
     }
+
+    auto delegate_options = TfLiteXNNPackDelegateOptionsDefault();
+    // Dynamic intermediate shapes otherwise prevent the default delegate from
+    // handling lowered deformable attention, whose builtin path diverges from ONNX.
+    delegate_options.flags |= TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_SUBGRAPH_RESHAPING;
+    delegate_.reset(TfLiteXNNPackDelegateCreate(&delegate_options));
+    if (!delegate_ || interpreter_->ModifyGraphWithDelegate(delegate_.get()) != kTfLiteOk) {
+        throw ModelLoadException("Unable to apply LiteRT XNNPACK CPU delegate for: " + model_path);
+    }
+    LOG(INFO) << "LiteRT CPU XNNPACK delegate enabled with subgraph reshaping";
 
     if (interpreter_->AllocateTensors() != kTfLiteOk) {
         throw ModelLoadException("Unable to allocate LiteRT tensors for: " + model_path);

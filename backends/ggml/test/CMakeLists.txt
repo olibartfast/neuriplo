@@ -1,5 +1,6 @@
 set(TEST_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/GGMLInferTest.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/GGMLOpsParityTest.cpp
 )
 
 find_package(Glog REQUIRED)

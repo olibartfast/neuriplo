@@ -7,6 +7,7 @@
 #include <vector>
 
 // TensorFlow Lite exposes these as public aliases, so they cannot be forward-declared.
+#include <tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h>
 #include <tensorflow/lite/interpreter.h>
 #include <tensorflow/lite/model.h>
 
@@ -22,6 +23,9 @@ class LiteRTInfer : public InferenceInterface {
 
   private:
     std::unique_ptr<tflite::FlatBufferModel> model_;
+    // The interpreter releases delegate-owned graph data during destruction.
+    std::unique_ptr<TfLiteDelegate, decltype(&TfLiteXNNPackDelegateDelete)> delegate_{nullptr,
+                                                                                      TfLiteXNNPackDelegateDelete};
     std::unique_ptr<tflite::Interpreter> interpreter_;
 
     std::vector<int> makeInputDims(int tensor_index, const std::vector<int64_t>& requested_shape) const;

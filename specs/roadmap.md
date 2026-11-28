@@ -144,6 +144,12 @@ Exit criteria:
 - Requested placement and actual selection are observable.
 - No backend silently moves work to CPU.
 
+Specified slice (2026-11-09): TensorFlow GPU execution in
+`specs/2026-11-09-tensorflow-gpu-remote-tpu/`. This honors the existing
+`use_gpu` boolean for `LIBTENSORFLOW`; it does not add the Phase 3 device or
+provider fields. Remote TPU execution is outside this repository and is
+specified in `neuriplo-infer`, `neuriplo-tasks`, and `neuriplo-platform`.
+
 ## Phase 5 — Contract Tests and Model Fixtures
 
 **Status: Planned**
@@ -358,3 +364,32 @@ existing ExecuTorch SDK PR, including OpenVINO and GGML. See
 [plan](2026-10-28-prebuilt-sdk-images/plan.md) and
 [validation](2026-10-28-prebuilt-sdk-images/validation.md). This phase changes
 packaging and CI only; it does not close real-model release validation.
+
+## llama.cpp v1.0.0 VLM compatibility — in validation
+
+The v1.0.0 upgrade updates the mtmd input-length contract, SDK setup and link
+behavior, and adds strict Gemma 4 real-fixture coverage. The local CPU
+integration, backend build, and test suite passed; Brev validation is tracked in
+[`2026-11-13-llamacpp-v1-vlm/validation.md`](2026-11-13-llamacpp-v1-vlm/validation.md).
+
+## TensorRT data-dependent outputs — validated on Jetson Orin
+
+LightGlue requires bounded allocation and runtime output shapes. See [validation](2026-11-07-trt-data-dependent-outputs/validation.md).
+
+## LiteRT dynamic XNNPACK — local validation
+
+The maintainer-selected KNOWN-BAD follow-up enables CPU subgraph reshaping
+for dynamic EdgeCrafter conversion graphs. See
+[validation](2026-11-04-litert-dynamic-xnnpack/validation.md).
+No release or pin update is part of this work.
+
+## Blocked OpenCV / ExecuTorch coverage — local validation
+
+OpenCV 5 now binds typed named graph inputs and preserves integer outputs;
+RT-DETR and OWLv2 agree with ORT. The tasks-owned RT-DETRv4 export adapter
+removes its vector MatMul restriction without changing model I/O.
+Pinned ExecuTorch v1.2.0 builds optimized kernels and selects combined
+registration for XNNPACK. Real RF-DETR parity passes. See
+[OpenCV validation](2026-11-04-opencv-typed-inputs/validation.md) and
+[ExecuTorch validation](2026-11-04-executorch-optimized-kernels/validation.md).
+Parallel downstream Slurm reruns await restoration of the existing controller.

@@ -66,6 +66,42 @@ concurrency:
 
 jobs:
 
+  # Backend-aware gating: the Windows matrix covers OPENCV_DNN and
+  # ONNX_RUNTIME only, so GGML-only (or other backend-only) changes must not
+  # spend two Windows runners. The mapping lives in
+  # scripts/ci/changed_backends.py (WORKFLOW_BACKENDS); these jobs consume it
+  # the same way ci.yml does.
+  changes:
+    name: Changed backends
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.detect.outputs.backends }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed backends
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # First push of a new branch: no base commit to diff against.
+            # Diff against the merge-base with develop instead of running
+            # every backend; fall back to --all only if that ref is missing.
+            git fetch --no-tags --quiet origin develop 2>/dev/null || true
+            MB="$(git merge-base "$HEAD" origin/develop 2>/dev/null || true)"
+            if [ -n "$MB" ]; then
+              BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$MB" --head "$HEAD")"
+            else
+              BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+            fi
+          else
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
+          fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          echo "Changed backends: $BACKENDS"
+
   # ── Public headers without OpenCV ──────────────────────────────────
   # OpenCV belongs to the opencv-dnn backend alone. This job configures
   # test/public-headers, a standalone project that compiles the public headers
@@ -142,6 +178,8 @@ jobs:
   # ── OpenCV DNN ─────────────────────────────────────────────────────
   build-windows-opencvdnn:
     name: Windows / OPENCV_DNN
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     runs-on: windows-latest
     # Generous only because a cold vcpkg cache builds OpenCV from source, which
     # was observed taking 40 minutes; cached runs finish in a few. Kept above
@@ -208,6 +246,8 @@ jobs:
   # ── ONNX Runtime ───────────────────────────────────────────────────
   build-windows-onnxruntime:
     name: Windows / ONNX_RUNTIME
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'ONNX_RUNTIME') }}
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -277,31 +317,85 @@ jobs:
           # ORT 1.28 renamed the GPU zip per CUDA major (gpu_cuda13); older
           # releases use plain "gpu". Either way, install to the
           # onnxruntime-win-x64-gpu-<ver> path cmake/versions.cmake expects.
+          # Last resort is the CPU-only archive of the same pinned version:
+          # GitHub runners have no GPU, so the CUDA EP is unusable in CI
+          # anyway, and the CPU zip carries the same include/lib layout the
+          # build validates against.
           $cudaMajor = ((Select-String -Path versions.env -Pattern '^CUDA_VERSION=(.+)$').Matches[0].Groups[1].Value.Trim() -split '\.')[0]
           $base = "https://github.com/microsoft/onnxruntime/releases/download/v$ver"
           $dest = "$env:USERPROFILE\dependencies"
           $staging = "$dest\ort-staging"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
           $downloaded = $null
-          foreach ($name in @("onnxruntime-win-x64-gpu_cuda$cudaMajor-$ver", "onnxruntime-win-x64-gpu-$ver")) {
+          foreach ($name in @("onnxruntime-win-x64-gpu_cuda$cudaMajor-$ver", "onnxruntime-win-x64-gpu-$ver",
+              "onnxruntime-win-x64-$ver")) {
             try {
               Write-Host "Downloading $name.zip..."
               Invoke-WebRequest -Uri "$base/$name.zip" -OutFile "$staging\onnxruntime.zip"
               $downloaded = $name
+              if ($name -notlike "*gpu*") {
+                Write-Warning "GPU builds unpublished for ORT $ver; falling back to CPU-only archive."
+              }
               break
             } catch {
               Write-Host "  not published: $name"
             }
           }
-          if (-not $downloaded) { throw "No ONNX Runtime $ver GPU build found for CUDA $cudaMajor" }
-          Write-Host "Extracting..."
-          Expand-Archive -Path "$staging\onnxruntime.zip" -DestinationPath $staging -Force
-          $extracted = Get-ChildItem -Path $staging -Directory | Select-Object -First 1
-          if (-not $extracted) { throw "ONNX Runtime archive had no top-level directory" }
-          $target = "$dest\onnxruntime-win-x64-gpu-$ver"
-          if (Test-Path $target) { Remove-Item -Recurse -Force $target }
-          Move-Item -Path $extracted.FullName -Destination $target
-          Remove-Item -Recurse -Force $staging
+          if (-not $downloaded) {
+            # The upstream GitHub repo is currently unreachable (taken
+            # private during a security investigation), so none of the
+            # release archives download. Fall back to the official
+            # Microsoft NuGet packages of the exact pinned version: GPU
+            # first, then CPU. Runners have no GPU, so the CUDA EP is
+            # unusable in CI anyway, and both packages carry an include/
+            # dir plus an onnxruntime import lib that the cmake validation
+            # accepts. The assembled directory keeps the gpu-<ver> name
+            # cmake expects.
+            Write-Host "GitHub release assets unavailable; trying official NuGet packages for ORT $ver..."
+            $nugetBase = "https://api.nuget.org/v3-flatcontainer"
+            foreach ($pkg in @("microsoft.ml.onnxruntime.gpu.windows", "microsoft.ml.onnxruntime")) {
+              try {
+                $url = "$nugetBase/$pkg/$ver/$pkg.$ver.nupkg"
+                Write-Host "Downloading $url ..."
+                Invoke-WebRequest -Uri $url -OutFile "$staging\ort.nupkg"
+                $nugetDir = "$staging\ort-nuget"
+                if (Test-Path $nugetDir) { Remove-Item -Recurse -Force $nugetDir }
+                Expand-Archive -Path "$staging\ort.nupkg" -DestinationPath $nugetDir -Force
+                $incDir = Get-ChildItem -Path $nugetDir -Recurse -Directory -Filter "include" |
+                  Where-Object { Test-Path (Join-Path $_.FullName "onnxruntime_cxx_api.h") } |
+                  Select-Object -First 1
+                $nativeDir = Get-ChildItem -Path $nugetDir -Recurse -Directory -Filter "native" |
+                  Where-Object { ($_.FullName -like "*win-x64*") -and
+                    (Test-Path (Join-Path $_.FullName "onnxruntime.lib")) } |
+                  Select-Object -First 1
+                if (-not $incDir -or -not $nativeDir) { throw "NuGet package layout unexpected (missing include/lib)" }
+                $target = "$dest\onnxruntime-win-x64-gpu-$ver"
+                if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+                New-Item -ItemType Directory -Force -Path "$target\include" | Out-Null
+                New-Item -ItemType Directory -Force -Path "$target\lib" | Out-Null
+                Copy-Item -Path (Join-Path $incDir.FullName "*") -Destination "$target\include" -Recurse -Force
+                Copy-Item -Path (Join-Path $nativeDir.FullName "*") -Destination "$target\lib" -Force
+                $ver | Out-File -FilePath "$target\VERSION_NUMBER" -Encoding utf8 -NoNewline
+                Remove-Item -Recurse -Force $staging
+                $downloaded = "nuget:$pkg"
+                Write-Warning "Using NuGet $pkg $ver instead of the GitHub release archive."
+                break
+              } catch {
+                Write-Host "  NuGet $pkg failed: $($_.Exception.Message)"
+              }
+            }
+          }
+          if (-not $downloaded) { throw "No ONNX Runtime $ver build found (GitHub releases and NuGet exhausted)" }
+          if ($downloaded -notlike "nuget:*") {
+            Write-Host "Extracting..."
+            Expand-Archive -Path "$staging\onnxruntime.zip" -DestinationPath $staging -Force
+            $extracted = Get-ChildItem -Path $staging -Directory | Select-Object -First 1
+            if (-not $extracted) { throw "ONNX Runtime archive had no top-level directory" }
+            $target = "$dest\onnxruntime-win-x64-gpu-$ver"
+            if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+            Move-Item -Path $extracted.FullName -Destination $target
+            Remove-Item -Recurse -Force $staging
+          }
 
       - name: Configure
         shell: pwsh

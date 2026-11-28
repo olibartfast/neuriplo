@@ -7,6 +7,21 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path, bool use_gpu, size
     : InferenceInterface{model_path, use_gpu, batch_size, input_sizes} {
     tensorflow::SessionOptions session_options;
     tensorflow::RunOptions run_options;
+
+    if (use_gpu) {
+        // Let TensorFlow allocate GPU memory on demand and allow ops without a
+        // GPU kernel to be placed on CPU. Soft placement can therefore run
+        // unsupported ops on the CPU; the post-load device check below only
+        // proves that the session registered a GPU device, not that every op
+        // executed there.
+        session_options.config.mutable_gpu_options()->set_allow_growth(true);
+        session_options.config.set_allow_soft_placement(true);
+    } else {
+        // CPU-only default: hide every GPU from the session so TensorFlow
+        // cannot place work on one even when the host has a usable GPU.
+        (*session_options.config.mutable_device_count())["GPU"] = 0;
+    }
+
     tensorflow::Status status = LoadSavedModel(session_options, run_options, model_path, {"serve"}, &bundle_);
 
     if (!status.ok()) {
@@ -15,6 +30,50 @@ TFDetectionAPI::TFDetectionAPI(const std::string& model_path, bool use_gpu, size
     }
 
     // session_ is not needed since we can use bundle_.GetSession() directly
+
+    // Inspect the devices the session actually registered (R-4) instead of
+    // trusting the request flag. Placement failures must not go unnoticed.
+    std::vector<tensorflow::DeviceAttributes> devices;
+    status = bundle_.GetSession()->ListDevices(&devices);
+    if (!status.ok()) {
+        if (use_gpu) {
+            throw ModelLoadException("failed to list TensorFlow session devices: " + status.ToString());
+        }
+        // A CPU-only request keeps the pre-existing failure surface: failing to
+        // enumerate devices must not turn a valid CPU load into an error.
+        LOG(WARNING) << "Failed to list TensorFlow session devices for a CPU request; continuing: "
+                     << status.ToString();
+        gpu_available_ = false;
+    }
+
+    std::vector<std::string> gpu_device_names;
+    std::string device_summary;
+    for (const auto& device : devices) {
+        if (!device_summary.empty()) {
+            device_summary += ", ";
+        }
+        device_summary += device.name();
+        if (device.device_type() == "GPU") {
+            gpu_device_names.push_back(device.name());
+        }
+    }
+
+    gpu_available_ = !gpu_device_names.empty();
+    LOG(INFO) << "TensorFlow device request: use_gpu=" << (use_gpu ? "true" : "false")
+              << ", visible GPU devices=" << gpu_device_names.size() << ", session devices=[" << device_summary << "]";
+
+    if (use_gpu && !gpu_available_) {
+        LOG(ERROR) << "TensorFlow GPU was requested (use_gpu=true) but the session exposes no GPU device; "
+                      "refusing to fall back to CPU";
+        throw ModelLoadException("use_gpu=true requested TensorFlow GPU execution but no GPU device is visible "
+                                 "to the session (devices: [" +
+                                 device_summary + "])");
+    }
+    if (use_gpu) {
+        for (const auto& name : gpu_device_names) {
+            LOG(INFO) << "TensorFlow GPU device: " << name;
+        }
+    }
 
     // Get the SignatureDef
     const auto& signature_def = bundle_.GetSignatures().at("serving_default");

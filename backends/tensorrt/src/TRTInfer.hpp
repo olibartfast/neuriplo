@@ -71,6 +71,9 @@ class TRTInfer : public InferenceInterface {
     // semantics cannot drift between them.
     void uploadAndEnqueue(const std::vector<std::vector<uint8_t>>& input_tensors);
 
+    struct DynamicOutput;
+    std::unordered_map<std::string, std::unique_ptr<DynamicOutput>> dynamic_outputs_;
+
     // Shape of output `index` from the context when available, else the engine.
     nvinfer1::Dims outputDims(size_t index) const;
 };

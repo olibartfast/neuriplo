@@ -645,49 +645,59 @@ EOF
         log_success "TensorFlow model setup completed"
     fi
     
-    # Setup GGML model if needed
+    # Setup GGML model if needed (strict GGUF-only loader: only .gguf loads)
     if [ "$backend" = "GGML" ]; then
         log_info "Setting up GGML model for testing..."
         cd "$BUILD_DIR"
-        
+
         # Check if model already exists
-        if [ ! -f "resnet18.ggml" ]; then
-            # Check if conversion script exists
-            local conversion_script="$PROJECT_ROOT/scripts/convert_to_ggml.sh"
-            if [ -f "$conversion_script" ]; then
-                log_info "Converting ResNet18 to GGML format..."
-                
-                # Create temporary Python environment for conversion
-                python3 -m venv /tmp/ggml_test_env
-                source /tmp/ggml_test_env/bin/activate
-                
-                # Install PyTorch dependencies
-                pip install --upgrade pip > /dev/null 2>&1
-                pip install torch torchvision numpy > /dev/null 2>&1
-                
-                # Run conversion
-                python3 "$PROJECT_ROOT/scripts/convert_resnet18_to_ggml.py" --output "resnet18.ggml" --test-dir "." > "${TEST_RESULTS_DIR}/${backend_dir}_model_generation.log" 2>&1
-                
-                # Cleanup
-                deactivate
-                rm -rf /tmp/ggml_test_env
-                
-                if [ ! -f "resnet18.ggml" ]; then
-                    log_error "Failed to generate GGML model"
+        if [ ! -f "resnet18.gguf" ]; then
+            local gguf_converter="$PROJECT_ROOT/scripts/convert_onnx_to_gguf.py"
+            local onnx_model="$BUILD_DIR/resnet18-v1-7.onnx"
+            local onnx_url="https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/resnet/model/resnet18-v1-7.onnx"
+            if [ -f "$gguf_converter" ]; then
+                log_info "Converting ResNet18 ONNX to GGUF..."
+
+                # Fetch the ONNX source model if it is not already present
+                if [ ! -f "$onnx_model" ]; then
+                    if command -v wget > /dev/null 2>&1; then
+                        wget -q -O "$onnx_model" "$onnx_url" || rm -f "$onnx_model"
+                    elif command -v curl > /dev/null 2>&1; then
+                        curl -fsSL -o "$onnx_model" "$onnx_url" || rm -f "$onnx_model"
+                    fi
+                fi
+
+                if [ -f "$onnx_model" ]; then
+                    # Create temporary Python environment for conversion
+                    python3 -m venv /tmp/ggml_test_env
+                    source /tmp/ggml_test_env/bin/activate
+
+                    pip install --upgrade pip > /dev/null 2>&1
+                    pip install onnx numpy > /dev/null 2>&1
+
+                    # Run conversion
+                    python3 "$gguf_converter" --input "$onnx_model" --output "resnet18.gguf" > "${TEST_RESULTS_DIR}/${backend_dir}_model_generation.log" 2>&1
+
+                    # Cleanup
+                    deactivate
+                    rm -rf /tmp/ggml_test_env
+                else
+                    log_warning "Could not download resnet18-v1-7.onnx for GGUF conversion"
+                fi
+
+                if [ ! -f "resnet18.gguf" ]; then
+                    log_error "Failed to generate GGUF model"
                     return 1
                 fi
             else
-                log_warning "GGML conversion script not found, creating placeholder model"
-                # Create a simple placeholder model file
-                echo "GGML" > "resnet18.ggml"
-                echo "1" >> "resnet18.ggml"
-                echo "1000" >> "resnet18.ggml"
-                echo "150528" >> "resnet18.ggml"
+                log_warning "GGUF conversion script not found, creating placeholder model"
+                # Placeholder only: the loader rejects it and the tests fall back to mock
+                printf 'GGUF' > "resnet18.gguf"
             fi
         fi
-        
+
         # Create model_path.txt for the test
-        echo "$BUILD_DIR/resnet18.ggml" > "$BUILD_DIR/model_path.txt"
+        echo "$BUILD_DIR/resnet18.gguf" > "$BUILD_DIR/model_path.txt"
         log_success "GGML model setup completed"
     fi
     

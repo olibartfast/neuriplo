@@ -20,17 +20,20 @@ VENV_DIR="$DEPENDENCIES_DIR/tensorflow_env"
 # Parse arguments
 CLEAN_INSTALL=false
 FORCE=false
+GPU_CHECK=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         -v|--version) TENSORFLOW_VERSION="$2"; shift 2 ;;
         -c|--clean) CLEAN_INSTALL=true; shift ;;
         -f|--force) FORCE=true; shift ;;
+        -g|--gpu) GPU_CHECK=true; shift ;;
         -h|--help) 
-            echo "Usage: $0 [-v VERSION] [-c] [-f] [-h]"
+            echo "Usage: $0 [-v VERSION] [-c] [-f] [-g] [-h]"
             echo "Options:"
             echo "  -v, --version VERSION  TensorFlow version (default: $TENSORFLOW_VERSION)"
             echo "  -c, --clean            Clean install (remove existing installation)"
             echo "  -f, --force            Force reinstall even if already installed"
+            echo "  -g, --gpu              Validate GPU runtime prerequisites (driver, CUDA, cuDNN)"
             echo "  -h, --help             Show this help message"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -39,6 +42,36 @@ done
 
 # Check Python
 command -v python3 &>/dev/null || { echo "Python 3 required"; exit 1; }
+
+# Opt-in GPU prerequisite validation. The pip wheel carries GPU kernels, but it
+# needs the host NVIDIA driver and a CUDA 12.x / cuDNN 9.x runtime at run time.
+# The default (CPU) path is unaffected: nothing is checked unless --gpu is set.
+if [[ "$GPU_CHECK" == "true" ]]; then
+    echo "Validating TensorFlow GPU runtime prerequisites..."
+    command -v nvidia-smi &>/dev/null || {
+        echo "Error: nvidia-smi not found; install the NVIDIA driver or use the GPU container with --gpus all" >&2
+        exit 1
+    }
+    nvidia-smi >/dev/null 2>&1 || {
+        echo "Error: nvidia-smi failed; the NVIDIA driver is not usable on this host" >&2
+        exit 1
+    }
+    for lib in 'libcudart\.so\.12' 'libcublas\.so\.12' 'libcudnn\.so\.9'; do
+        # The runtime may come from the system loader (ldconfig) or from pip's
+        # nvidia-*-cu12 wheels, which install into the venv's site-packages and
+        # are not registered with ldconfig. Accept either source.
+        if ldconfig -p 2>/dev/null | grep -E "$lib" >/dev/null || \
+           find "$VENV_DIR" -path '*/nvidia/*/lib/*' 2>/dev/null | grep -E "/${lib}\$" >/dev/null; then
+            continue
+        fi
+        echo "Error: required GPU runtime library not found: $lib (TensorFlow 2.x needs CUDA 12.x and cuDNN 9.x)" >&2
+        echo "Use the pinned image (nvidia/cuda:12.6.1-cudnn-runtime-ubuntu24.04) or install the matching CUDA/cuDNN libraries." >&2
+        exit 1
+    done
+    echo "GPU runtime prerequisites found (NVIDIA driver, CUDA 12.x, cuDNN 9.x)."
+    echo "Note: device visibility is authoritative from TensorFlow Session::ListDevices();"
+    echo "      a container still needs --gpus all and a host driver."
+fi
 
 # Check if already installed and not forcing
 if [[ -d "$TENSORFLOW_DIR" && "$FORCE" != "true" && "$CLEAN_INSTALL" != "true" ]]; then

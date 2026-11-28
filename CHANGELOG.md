@@ -6,6 +6,93 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-11-28
+
+### Validated
+- Full RF-DETR detection loader in the GGML backend (`GGMLInfer.cpp`
+  RF-DETR dispatch, fixed batch-1 560px): DINOv2-S backbone (global
+  attention in blocks 2/5/8) + C2f projector + neck encoder tower +
+  top-300 selection + 3-layer deformable decoder + head, exposed
+  app-facing as `dets [1,300,4]` + `labels [1,300,91]` (intermediates
+  follow for parity tests). `GgufRfdetrDecoderLayer12Parity` green
+  (L1/L2 norm3 max `3.91e-02`/`2.57e-02`, budget `1e-1`);
+  `GgufRfdetrHeadParity` green (dets max `2.10e-02`, labels top-1
+  **300/300**). App gate in neuriplo-infer (`--type=rfdetr`,
+  `data/dog.jpg`): exit 0, detections identical to ORT. Numbers in
+  `specs/2026-11-16-rfdetr-gguf/validation.md` (S-1–S-3, S-5).
+- Full RF-DETR-seg loader in the GGML backend (seg dispatch on
+  `segmentation_head.bias`, fixed batch-1 432px): 12-block DINOv2-S
+  backbone (global attention in blocks 3/6/9) + C2f projector + neck +
+  top-200 selection + 4-layer deformable decoder + head + mask branch
+  (bilinear Resize 36→108, 4x depthwise blocks, spatial 1x1 proj,
+  query MLP, Einsum + bias → masks `[1,200,108,108]`), exposed
+  app-facing as `dets` + `masks` + `labels`. `GgufRfdetrSegHeadParity`
+  green (dets max `1.19e-02`, labels top-1 **200/200**, masks max
+  `4.47e-01` / mean `2.59e-02`). Native exact `depthwise_conv3x3` op
+  (`GGMLOpsParity.DepthwiseConv3x3Seg` max `2.38e-07`; ggml_conv_2d is
+  ~1e-3 off here and the mask branch amplifies it coherently). App
+  gate in neuriplo-infer (`--type=rfdetrseg`, `data/dog.jpg`): exit 0,
+  mask IoU 1.0 vs ORT on every kept instance. Numbers in
+  `specs/2026-11-16-rfdetr-gguf/validation.md` (S-4, S-5).
+
+### Removed
+- ONNX-subset frontend (`backends/ggml/src/GGMLOnnx.{hpp,cpp}`) and
+  multi-input/multi-output graph executor (`backends/ggml/src/GGMLGraph`)
+  plus their fixtures and tests: strict-GGUF-only decision, the GGML backend
+  loads `.gguf` weights only (written by
+  `scripts/convert_onnx_to_gguf.py`) and rejects any other extension.
+  Native helpers (`GGMLOps`) and their parity tests stay.
+
+### Added
+- `scripts/convert_onnx_to_gguf.py` carries FLOAT graph-Constant tensors as
+  well as initializers, and recognizes the RF-DETR 91-class head contract
+  (`class_embed.bias` plus a 2D `[256,91]` class weight). The backend
+  topology is landed (see Validated above); app-facing outputs lead with
+  `dets`/`labels` so the stock `RfDetrPostprocessor` applies.
+- Reusable GGML transformer op helpers (`backends/ggml/src/GGMLOps.{hpp,cpp}`):
+  LayerNorm, erf-GELU, MatMul/Linear, single-head scaled dot-product
+  attention, I32 row Gather, and TopK indices. Op-level and tiny-block parity
+  tests are in `GGMLOpsParityTest`; full RT-DETR graph execution remains
+  blocked on multi-input/INT64 support and a generic ONNX-subset importer.
+- YOLOv8n-seg path for the `GGML` backend: the loader now returns every graph
+  output (detection `[1,116,8400]` plus prototype masks `[1,32,160,160]`) and
+  builds the cv4 mask-coefficient head and proto branch from real weights.
+  ORT parity on gray/zeros/gradient: `output0` max-cell agreement and
+  max-abs-diff ~1.5e-3, `output1` max-abs-diff ~1.7e-3 (adopted 1e-2).
+- YOLOv8n detection path for the `GGML` backend: full CSP stem + C2f + SPPF +
+  PAN + decoupled head + in-graph DFL from real weights, returning the raw
+  `[1,84,8400]` tensor. ORT parity: max-cell agreement on gray/zeros/gradient
+  inputs, max-abs-diff ~2e-3 vs adopted 1e-2 tolerance.
+- Real ResNet18 classifier path for the `GGML` backend: `GGMLInfer` parses a
+  GGUF (F32) weight file produced by `scripts/convert_onnx_to_gguf.py`, builds
+  the full stem + 8-block + GAP + FC graph with BatchNorm folded at load, and
+  returns computed logits. ORT parity on identical inputs: top-5 exact,
+  max-abs-diff ~6e-06 (tolerance 1e-3). `use_gpu=true` now fails fast instead
+  of silently running CPU; backend-buffer allocation failure is fatal.
+- Optional TensorFlow GPU image: `docker/Dockerfile.libtensorflow` accepts
+  `TF_BASE_IMAGE` and `TF_GPU=1` to build from a pinned CUDA/cuDNN runtime while
+  the CPU image stays the default, and `scripts/setup_tensorflow_pip.sh --gpu`
+  validates the NVIDIA driver and CUDA 12.x / cuDNN 9.x libraries. A
+  `use_gpu=true` request with no visible GPU device now fails the load with
+  `ModelLoadException` instead of silently running on CPU. The GPU image build
+  path is added; no live GPU run is claimed.
+
+### Fixed
+- Harden the GGUF loader against malformed tensor metadata: reject wrapping
+  tensor offsets/end ranges, overflowed element counts, zero-length names and
+  duplicate rank entries before allocating or reading tensor data. Regression
+  fixtures cover malformed offsets/dimensions, duplicate ranks, zero-sized
+  initializers and tensor names longer than 64 characters.
+- Support data-dependent TensorRT outputs with bounded buffers, concrete runtime shapes, truthful dynamic metadata, empty tensors and safe context reloads.
+
+- Bind OpenCV 5 graph inputs by their real names, shapes and dtypes; preserve
+  INT64 inputs and integer output tensors for RT-DETR and open-vocabulary models.
+- Build ExecuTorch optimized CPU kernels and link their combined registration
+  target for XNNPACK SDKs; avoid duplicate runtime registration in backend tests.
+- Enable XNNPACK subgraph reshaping in LiteRT CPU inference so reconverted
+  EdgeCrafter outputs match ONNX; own the delegate until interpreter destruction
+  and keep runtime/delegate archives in one link rescan group.
+
 ## [0.11.3] - 2026-10-30
 
 ### Added

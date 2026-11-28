@@ -15,11 +15,11 @@ Run `python3 scripts/gen_backend_docs.py` to regenerate all auto-generated secti
 | `LIBTENSORFLOW` | TensorFlow C++ | `2.19.0` | x86_64, ARM64 | no |
 | `TENSORRT` | TensorRT | `11.2.1.2` | x86_64 only | yes |
 | `OPENVINO` | OpenVINO | `2026.3.0` | x86_64, ARM64 | no |
-| `GGML` | GGML | `v0.11.0` | x86_64, ARM64 | no |
+| `GGML` | GGML | `v1.0.0` | x86_64, ARM64 | no |
 | `TVM` | Apache TVM | `0.22.0` | x86_64, ARM64 | no |
 | `MIGRAPHX` | MIGraphX | `2.12.0` | x86_64 only | yes |
 | `CACTUS` | Cactus | `v1.14` | ARM64 only | no |
-| `LLAMACPP` | llama.cpp | `b9085` | x86_64, ARM64 | no |
+| `LLAMACPP` | llama.cpp | `v1.0.0` | x86_64, ARM64 | no |
 | `EXECUTORCH` | ExecuTorch | `v1.2.0` | x86_64, ARM64 | no |
 | `LITERT` | LiteRT | `2.19.0` | x86_64, ARM64 | no |
 | `DALI` | NVIDIA DALI | `2.2.0` | x86_64 only | yes |
@@ -233,11 +233,11 @@ Per-backend version overrides (default from `versions.env`):
 | `TENSORFLOW_VERSION` | `2.19.0` |
 | `TENSORRT_VERSION` | `11.2.1.2` |
 | `OPENVINO_VERSION` | `2026.3.0` |
-| `GGML_VERSION` | `v0.11.0` |
+| `GGML_VERSION` | `v1.0.0` |
 | `TVM_VERSION` | `0.22.0` |
 | `MIGRAPHX_VERSION` | `2.12.0` |
 | `CACTUS_VERSION` | `v1.14` |
-| `LLAMACPP_VERSION` | `b9085` |
+| `LLAMACPP_VERSION` | `v1.0.0` |
 | `EXECUTORCH_VERSION` | `v1.2.0` |
 | `LITERT_VERSION` | `2.19.0` |
 | `DALI_VERSION` | `2.2.0` |
@@ -422,6 +422,27 @@ To use an installation that is already on disk, point the build at it with
 1. Run: `./scripts/setup_libtensorflow.sh`
 2. Alternative pip path: `./scripts/setup_tensorflow_pip.sh`
 
+TensorFlow is CPU by default. GPU execution is opt-in and requires both a
+GPU-enabled build/runtime and `use_gpu=true` at engine construction; a GPU
+request that cannot see a device fails the load instead of falling back to CPU.
+The CPU Docker image is the default. Build the GPU image from the pinned
+CUDA/cuDNN runtime (TensorFlow 2.19 is tested against CUDA 12.5 / cuDNN 9.3;
+the pinned image provides CUDA 12.6.1 / cuDNN 9.3.0 and stays within CUDA 12.x
+minor-version compatibility):
+
+```bash
+docker build -t neuriplo:libtensorflow-gpu \
+  --build-arg TF_BASE_IMAGE=nvidia/cuda:12.6.1-cudnn-runtime-ubuntu24.04 \
+  --build-arg TF_GPU=1 \
+  -f docker/Dockerfile.libtensorflow .
+```
+
+At run time the host must provide the NVIDIA driver through the NVIDIA Container
+Toolkit (`--gpus all`); the image supplies CUDA and cuDNN. For a bare-metal pip
+install, `./scripts/setup_tensorflow_pip.sh --gpu` validates the driver and the
+CUDA 12.x / cuDNN 9.x libraries before installing. The CI job only builds the
+GPU image on a GPU-free runner, so no live GPU result is asserted here.
+
 **ExecuTorch** — no pre-built binaries; built from source:
 
 ```bash
@@ -535,7 +556,7 @@ See [LOCAL_CI.md](LOCAL_CI.md) for installation and per-job examples.
 | TensorFlow C++ | SavedModel | auto-generated at test runtime (Keras ResNet-50) |
 | TensorRT | TensorRT engine (.engine) | converted from ONNX at test time |
 | OpenVINO | IR (.xml / .bin) | `backends/openvino/test/generate_model.sh` |
-| GGML | quantized GGML | `scripts/convert_to_ggml.sh` |
+| GGML | GGUF (F32) | `scripts/convert_onnx_to_gguf.py` from `resnet18-v1-7.onnx` (model stage of `docker/Dockerfile.ggml`) |
 | Apache TVM | compiled TVM module | `backends/tvm/test/generate_model.sh` |
 | MIGraphX | ONNX only | `backends/migraphx/test/generate_model.sh` |
 | Cactus | GGUF | downloaded by Dockerfile or mock fallback |
@@ -646,11 +667,12 @@ time.
 
 ### Model conversion
 
+The GGML backend loads GGUF only: an artifact whose extension is not `.gguf`
+is rejected before parsing.
+
 | Script | Purpose |
 |---|---|
-| `convert_to_ggml.sh` | Convert a model to GGML format |
-| `convert_onnx_to_ggml.py` | Convert an ONNX model to GGML |
-| `convert_resnet18_to_ggml.py` | Convert ResNet-18 to GGML (test helper) |
+| `convert_onnx_to_gguf.py` | Convert an ONNX model to GGUF (F32 tensors) for the GGML backend |
 
 ## Typed LibTorch input artifacts
 
@@ -658,6 +680,10 @@ TorchScript archives can lose input scalar types during serialization. Neuriplo
 reads a preserved graph dtype or the `neuriplo_input_dtypes.txt` extra file and
 rejects inputs whose dtype is unknown. It does not infer a type from the model
 name or assume FP32 for missing metadata.
+
+The libtorch backend selects its runtime from the model path: a `.pt2` file
+(case-insensitive) is an AOTInductor package; every other path is TorchScript.
+The formats are not interchangeable and the loader does not fall back.
 
 Export with the actual example tensors using
 [`scripts/lib/torchscript_metadata.py`](../scripts/lib/torchscript_metadata.py):

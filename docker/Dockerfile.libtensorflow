@@ -1,17 +1,38 @@
-# docker build --rm -t neuriplo:libtensorflow -f docker/Dockerfile.libtensorflow .
-# docker run --rm neuriplo:libtensorflow
+# CPU (default) image:
+#   docker build --rm -t neuriplo:libtensorflow -f docker/Dockerfile.libtensorflow .
+#   docker run --rm neuriplo:libtensorflow
+#
+# Optional GPU image (opt-in, CPU behaviour is unchanged):
+#   docker build --rm -t neuriplo:libtensorflow-gpu \
+#     --build-arg TF_BASE_IMAGE=nvidia/cuda:12.6.1-cudnn-runtime-ubuntu24.04 \
+#     --build-arg TF_GPU=1 \
+#     -f docker/Dockerfile.libtensorflow .
+#   docker run --rm --gpus all neuriplo:libtensorflow-gpu
+# The GPU build needs the NVIDIA Container Toolkit and a host driver at run
+# time; at build time it only needs the CUDA/cuDNN runtime image. The CPU
+# image is the default because TF_BASE_IMAGE defaults to ubuntu:24.04. Do not
+# combine TF_BASE_IMAGE with the prebuilt BASE_IMAGE SDK override.
+#
+# TensorFlow 2.19.0 is tested against CUDA 12.5 and cuDNN 9.3. The pinned
+# nvidia/cuda:12.6.1-cudnn-runtime-ubuntu24.04 tag provides CUDA 12.6.1 and
+# cuDNN 9.3.0, matching the cuDNN line and staying within CUDA 12.x minor
+# version compatibility.
 
 # Stage 1: Base image with system dependencies
 # Prebuilt SDK base override: defaults to the stage below so local builds are
 # unchanged; CI passes BASE_IMAGE=ghcr.io/<repo>/tensorflow-deps:<ver>.
 ARG BASE_IMAGE=base
-FROM ubuntu:24.04 AS base
+# CPU default. Set to a CUDA/cuDNN runtime image for the opt-in GPU build.
+ARG TF_BASE_IMAGE=ubuntu:24.04
+FROM ${TF_BASE_IMAGE} AS base
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TENSORFLOW_DIR=/opt/tensorflow
 ENV DEPENDENCIES_DIR=/opt/dependencies
-ENV LD_LIBRARY_PATH=""
+# Preserve the CUDA runtime image's library paths instead of wiping them; on a
+# CPU base these extra directories simply do not exist.
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH:-}
 ENV PKG_CONFIG_PATH=""
 
 # Load versions from versions.env
@@ -116,6 +137,23 @@ RUN rm -rf build && \
     -DTENSORFLOW_DIR=${TENSORFLOW_DIR} \
     && cmake --build build --config Release -j$(nproc)
 
+# Record link resolution as build evidence. The GPU build additionally asserts
+# that the CUDA/cuDNN runtime is present in the image; TensorFlow loads those
+# libraries dynamically, so they are not always DT_NEEDED entries. libcuda.so.1
+# is a host-driver library and is intentionally absent at build time.
+ARG TF_GPU=0
+RUN set -eux; \
+    ldd build/libneuriplo.so > /tmp/ldd-neuriplo.txt 2>&1; \
+    cat /tmp/ldd-neuriplo.txt; \
+    ldd "${TENSORFLOW_DIR}/lib/libtensorflow_cc.so.2" > /tmp/ldd-tensorflow.txt 2>&1 || true; \
+    cat /tmp/ldd-tensorflow.txt; \
+    if [ "${TF_GPU}" = "1" ]; then \
+        for lib in 'libcudart\.so\.12' 'libcublas\.so\.12' 'libcudnn\.so\.9'; do \
+            ldconfig -p | grep -E "${lib}" >/dev/null || { echo "missing GPU runtime: ${lib}"; exit 1; }; \
+        done; \
+        echo "CUDA/cuDNN runtime libraries found"; \
+    fi
+
 # Stage 4: Generate test models
 FROM builder AS model_generator
 
@@ -142,12 +180,13 @@ WORKDIR /app/build/backends/libtensorflow/test
 # Switch to test user
 USER testuser
 
-# Set library path
-ENV LD_LIBRARY_PATH=/app/build/lib:${TENSORFLOW_DIR}/lib:/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow:${LD_LIBRARY_PATH:-}
+# Set library path. /app/build carries libneuriplo.so; the CUDA paths are kept
+# from the base image so the opt-in GPU runtime can load cuDNN/cuBLAS at run time.
+ENV LD_LIBRARY_PATH=/app/build:${TENSORFLOW_DIR}/lib:/opt/tensorflow_env/lib/python3.12/site-packages/tensorflow:/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH:-}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD test -f /app/build/lib/libneuriplo.so || exit 1
+    CMD test -f /app/build/libneuriplo.so || exit 1
 
 # Invalid supplied fixtures must fail, never switch to mock outputs.
 RUN ctest --test-dir /app/build -R TensorFlowSuppliedFixture --output-on-failure

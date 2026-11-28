@@ -13,7 +13,10 @@ find_package(Glog REQUIRED)
 add_executable(OCVDNNInferTest ${TEST_SOURCES})
 configure_file(${CMAKE_CURRENT_LIST_DIR}/fixtures/relu.onnx
     ${CMAKE_CURRENT_BINARY_DIR}/relu.onnx COPYONLY)
+configure_file(${CMAKE_CURRENT_LIST_DIR}/fixtures/mixed_inputs.onnx
+    ${CMAKE_CURRENT_BINARY_DIR}/mixed_inputs.onnx COPYONLY)
 target_compile_definitions(OCVDNNInferTest PRIVATE
+    OPENCV_MIXED_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/mixed_inputs.onnx"
     OPENCV_COMPAT_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/relu.onnx")
 
 target_include_directories(OCVDNNInferTest PRIVATE

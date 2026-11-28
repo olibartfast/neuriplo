@@ -556,7 +556,10 @@ function(validate_llamacpp)
 
         set(required_files
             "${LLAMACPP_DIR}/include/llama.h"
+            "${LLAMACPP_DIR}/include/mtmd.h"
+            "${LLAMACPP_DIR}/include/mtmd-helper.h"
             "${LLAMACPP_DIR}/lib/libllama.so"
+            "${LLAMACPP_DIR}/lib/libmtmd.so"
         )
 
         foreach(file ${required_files})
@@ -574,7 +577,7 @@ function(validate_llamacpp)
 
         read_stamped_version(detected_version "${LLAMACPP_DIR}")
         report_tag_drift("llama.cpp" "${LLAMACPP_VERSION}" "${detected_version}" "${LLAMACPP_DIR}"
-            "Re-run ./scripts/setup_llamacpp.sh with FORCE=true to rebuild it from the declared version.")
+            "Re-run ./scripts/setup_llamacpp.sh to rebuild it from the declared version.")
 
         message(STATUS "✓ llama.cpp validation passed")
     endif()

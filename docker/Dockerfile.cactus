@@ -48,10 +48,12 @@ FROM base_dependencies AS cactus_install
 RUN [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ] || \
     { echo "ERROR: Cactus requires ARM64. Use scripts/build_cactus.sh for a clear error."; exit 1; }
 
-# Clone the Cactus repository and build the shared library
+# Clone the Cactus C++ engine and build the shared library.
+# The C++ engine moved to cactus-compute/engine; cactus-compute/cactus now
+# hosts the Python agent. The engine repository keeps the v1.14 tag.
 RUN . /tmp/versions.env && \
     mkdir -p ${CACTUS_DIR}/include ${CACTUS_DIR}/lib && \
-    git clone https://github.com/cactus-compute/cactus.git /tmp/cactus-src && \
+    git clone https://github.com/cactus-compute/engine.git /tmp/cactus-src && \
     cd /tmp/cactus-src && \
     git checkout ${CACTUS_VERSION} && \
     git submodule update --init --recursive && \

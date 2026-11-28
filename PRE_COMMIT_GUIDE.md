@@ -67,7 +67,7 @@ pip install -r requirements-dev.txt
 
 ### clang-format version mismatch
 
-CI uses `clang-format-18`. Install `clang-format-18` locally; `scripts/quality/format.sh` prefers it automatically.
+CI uses `clang-format` 21.1.8. Install it locally (`pip install clang-format==21.1.8` or `apt install clang-format-21`); `scripts/quality/format.sh` requires major version 21 and rejects other versions.
 
 ### cppcheck not installed
 

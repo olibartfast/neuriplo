@@ -8,6 +8,7 @@
 class OCVDNNInfer : public InferenceInterface {
   private:
     cv::dnn::Net net_;
+    bool native_graph_inputs_ = false;
     std::vector<int> outLayers_;
     std::string outLayerType_;
     std::vector<std::string> outNames_;

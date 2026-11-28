@@ -18,13 +18,14 @@ target_include_directories(ExecuTorchInferTest PRIVATE
     ${GLOG_INCLUDE_DIRS}
 )
 
+# Runtime and operator registration must have one owner (libneuriplo).
+# Linking SDK archives into this executable duplicates static registrations.
+target_include_directories(ExecuTorchInferTest SYSTEM PRIVATE ${EXECUTORCH_INCLUDE_DIRS})
+target_compile_definitions(ExecuTorchInferTest PRIVATE
+    $<TARGET_PROPERTY:executorch_core,INTERFACE_COMPILE_DEFINITIONS>)
+
 target_link_libraries(ExecuTorchInferTest PRIVATE
     neuriplo
-    executorch
-    extension_module_static
-    extension_tensor
-    portable_ops_lib
-    portable_kernels
     GTest::gtest
     GTest::gtest_main
     glog::glog

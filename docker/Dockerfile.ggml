@@ -110,15 +110,13 @@ RUN wget -O /opt/models/resnet18.onnx \
 RUN ls -la /opt/models/ && \
     echo "ResNet18 ONNX model downloaded successfully"
 
-# Convert ONNX to GGML format using the conversion script
+# Convert ONNX to GGUF using the conversion script
 WORKDIR /app
-COPY scripts/convert_onnx_to_ggml.py /app/scripts/
-RUN python3 /app/scripts/convert_onnx_to_ggml.py \
+COPY scripts/convert_onnx_to_gguf.py /app/scripts/
+RUN python3 /app/scripts/convert_onnx_to_gguf.py \
     --input /opt/models/resnet18.onnx \
-    --output /opt/models/resnet18.ggml \
-    --input-shape 3,224,224 \
-    --batch-size 1 && \
-    echo "Model converted to GGML format successfully"
+    --output /opt/models/resnet18.gguf && \
+    echo "Model converted to GGUF successfully"
 
 # Stage 4: Build application
 FROM model_converter AS builder
@@ -139,13 +137,13 @@ RUN rm -rf build && \
 # Stage 5: Copy pre-downloaded models
 FROM builder AS model_generator
 
-# Copy the converted GGML model to test directory
+# Copy the converted GGUF model to test directory
 WORKDIR /app/build/backends/ggml/test
-RUN cp /opt/models/resnet18.ggml . && \
-    echo "ResNet18 GGML model copied to test directory"
+RUN cp /opt/models/resnet18.gguf . && \
+    echo "ResNet18 GGUF model copied to test directory"
 
 # Create model_path.txt file for the test
-RUN echo "$(pwd)/resnet18.ggml" > model_path.txt && \
+RUN echo "$(pwd)/resnet18.gguf" > model_path.txt && \
     echo "Model path file created: $(cat model_path.txt)"
 
 # Stage 6: Final runtime image for testing

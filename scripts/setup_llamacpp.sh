@@ -28,11 +28,15 @@ FORCE="${FORCE:-false}"
 # ── Already installed? ────────────────────────────────────────────────────────
 # libllama.so existing does not say which build tag produced it, and
 # INSTALL_DIR carries no version, so any past build satisfied every later pin.
-if [ -f "${INSTALL_DIR}/lib/libllama.so" ] && [ -f "${INSTALL_DIR}/include/llama.h" ] && [ "${FORCE}" != "true" ]; then
+if [ -f "${INSTALL_DIR}/lib/libllama.so" ] && [ -f "${INSTALL_DIR}/include/llama.h" ] && \
+   [ -f "${INSTALL_DIR}/lib/libmtmd.so" ] && [ -f "${INSTALL_DIR}/include/mtmd.h" ] && \
+   [ -f "${INSTALL_DIR}/include/mtmd-helper.h" ] && \
+   [ "${FORCE}" != "true" ]; then
     if neuriplo_stamp_matches "${INSTALL_DIR}" "${LLAMACPP_VERSION}" "llama.cpp"; then
         echo "✓ llama.cpp ${LLAMACPP_VERSION} already installed at ${INSTALL_DIR}"
+        exit 0
     fi
-    exit 0
+    echo "Existing llama.cpp installation does not match ${LLAMACPP_VERSION}; rebuilding."
 fi
 
 echo "Building llama.cpp ${LLAMACPP_VERSION} → ${INSTALL_DIR}"
@@ -58,7 +62,8 @@ cmake -S . -B build \
     -DGGML_METAL=OFF \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=OFF \
-    -DLLAMA_BUILD_SERVER=OFF
+    -DLLAMA_BUILD_SERVER=OFF \
+    -DLLAMA_BUILD_APP=OFF
 cmake --build build -j"$(nproc)"
 
 # cmake --install merges into whatever the prefix already holds, so a forced
@@ -72,6 +77,17 @@ cmake --build build -j"$(nproc)"
 STAGE_DIR="${INSTALL_DIR}.incoming"
 rm -rf "${STAGE_DIR}"
 cmake --install build --prefix "${STAGE_DIR}"
+for required_file in \
+    "${STAGE_DIR}/include/llama.h" \
+    "${STAGE_DIR}/include/mtmd.h" \
+    "${STAGE_DIR}/include/mtmd-helper.h" \
+    "${STAGE_DIR}/lib/libllama.so" \
+    "${STAGE_DIR}/lib/libmtmd.so"; do
+    if [ ! -f "${required_file}" ]; then
+        echo "Error: llama.cpp install is missing required VLM/runtime file: ${required_file}" >&2
+        exit 1
+    fi
+done
 rm -rf "${INSTALL_DIR}"
 mv "${STAGE_DIR}" "${INSTALL_DIR}"
 

@@ -13,7 +13,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Backend-aware gating: this workflow builds the OPENCV_DNN backend only,
+  # so backend-scoped changes (GGML, ONNX_RUNTIME, ...) must skip it. The
+  # mapping lives in scripts/ci/changed_backends.py; this job consumes it
+  # the same way ci.yml does.
+  changes:
+    name: Changed backends
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.detect.outputs.backends }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed backends
+        id: detect
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            # First push of a new branch: no base commit to diff against.
+            # Diff against the merge-base with develop instead of running
+            # every backend; fall back to --all only if that ref is missing.
+            git fetch --no-tags --quiet origin develop 2>/dev/null || true
+            MB="$(git merge-base "$HEAD" origin/develop 2>/dev/null || true)"
+            if [ -n "$MB" ]; then
+              BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$MB" --head "$HEAD")"
+            else
+              BACKENDS="$(python3 scripts/ci/changed_backends.py --all)"
+            fi
+          else
+            BACKENDS="$(python3 scripts/ci/changed_backends.py --base "$BASE" --head "$HEAD")"
+          fi
+          echo "backends=$BACKENDS" >> "$GITHUB_OUTPUT"
+          echo "Changed backends: $BACKENDS"
+
   opencv-compatibility:
+    needs: changes
+    if: ${{ contains(fromJSON(needs.changes.outputs.backends), 'OPENCV_DNN') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

@@ -46,10 +46,10 @@ FROM ${BASE_IMAGE} AS llamacpp_install
 COPY versions.env /tmp/versions.env
 
 RUN . /tmp/versions.env && \
-    if [ -f ${LLAMACPP_DIR}/lib/libllama.so ] && [ "$(cat ${LLAMACPP_DIR}/llamacpp-version.txt 2>/dev/null)" = "${LLAMACPP_VERSION}" ]; then \
+    if [ -f ${LLAMACPP_DIR}/lib/libllama.so ] && [ "$(cat ${LLAMACPP_DIR}/neuriplo-version.txt 2>/dev/null)" = "${LLAMACPP_VERSION}" ]; then \
         echo "llama.cpp ${LLAMACPP_VERSION} already installed, skipping source build."; \
     else \
-    mkdir -p ${LLAMACPP_DIR} && \
+    rm -rf ${LLAMACPP_DIR} && mkdir -p ${LLAMACPP_DIR} && \
     git clone https://github.com/ggerganov/llama.cpp.git /tmp/llamacpp-src && \
     cd /tmp/llamacpp-src && \
     git checkout ${LLAMACPP_VERSION} && \
@@ -66,15 +66,17 @@ RUN . /tmp/versions.env && \
         -DGGML_NATIVE=OFF \
         -DLLAMA_BUILD_TESTS=OFF \
         -DLLAMA_BUILD_EXAMPLES=OFF \
-        -DLLAMA_BUILD_SERVER=OFF && \
+        -DLLAMA_BUILD_SERVER=OFF \
+        -DLLAMA_BUILD_APP=OFF && \
     make -j$(nproc) && \
     make install && \
     rm -rf /tmp/llamacpp-src && \
-    echo "${LLAMACPP_VERSION}" > ${LLAMACPP_DIR}/llamacpp-version.txt; \
+    echo "${LLAMACPP_VERSION}" > ${LLAMACPP_DIR}/neuriplo-version.txt; \
     fi
 
 RUN test -f ${LLAMACPP_DIR}/include/llama.h && \
     test -f ${LLAMACPP_DIR}/include/mtmd.h && \
+    test -f ${LLAMACPP_DIR}/include/mtmd-helper.h && \
     test -f ${LLAMACPP_DIR}/lib/libllama.so && \
     test -f ${LLAMACPP_DIR}/lib/libmtmd.so && \
     { test -f ${LLAMACPP_DIR}/lib/libggml.so || test -f ${LLAMACPP_DIR}/lib/libggml-base.so; }
